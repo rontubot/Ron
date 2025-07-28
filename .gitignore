@@ -1,0 +1,19 @@
+# Archivos sensibles
+.env
+*.key
+*.pem
+
+# Datos locales
+/data/*.json
+!data/ron_memory.json
+
+# Archivos del sistema
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+
+# Otros
+.DS_Store

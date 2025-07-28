@@ -1,0 +1,8 @@
+openai
+python-dotenv
+pyttsx3
+speechrecognition
+websockets
+requests
+youtubesearchpython
+youtube-search

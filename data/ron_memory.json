@@ -1,0 +1,16 @@
+{
+    "datos": {
+        "ron_nombre": "Ron",
+        "creador": "Luis"
+    },
+    "conversaciones": [
+        {
+            "user": "dame un resumen de todo lo que",
+            "ron": "Claro, puedo ayudarte a controlar la tele, decirte el clima, abrir apps, buscar en Google, reproducir música y recordarte cosas importantes. Dime qué necesitas y con gusto te ayudo."
+        },
+        {
+            "user": "estoy jugando crearon",
+            "ron": "Lo siento, no entendí bien. ¿Podrías decirme qué necesitas con un poco más de detalle? Así podré ayudarte mejor."
+        }
+    ]
+}
