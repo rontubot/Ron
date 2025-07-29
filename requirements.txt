@@ -1,5 +1,5 @@
-fastapi
-uvicorn
 openai==0.28.0
-python-dotenv
 requests
+python-dotenv
+pyttsx3
+speechrecognition
