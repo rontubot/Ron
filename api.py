@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
+from fastapi.responses import PlainTextResponse
 import os
 import openai
 import json
@@ -34,3 +35,11 @@ def chat_with_ron(data: UserInput):
         return {"ron": ron_response}
     except Exception as e:
         return {"error": str(e)}
+
+# NUEVO: Endpoint para obtener el GitHub Token desde Railway
+@app.get("/github-token", response_class=PlainTextResponse)
+def get_github_token():
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return PlainTextResponse("Token no configurado", status_code=404)
+    return token
