@@ -129,3 +129,6 @@ if __name__ == "__main__":
             continue
 
         talk_to_ron(texto)
+
+if __name__ == "__main__":
+    # lo que quieres que se ejecute al inicio
