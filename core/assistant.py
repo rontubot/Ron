@@ -70,7 +70,9 @@ def responder_a_usuario(user_input):
             max_tokens=600,
             temperature=0.7
         )
-        ron_response = respuesta['choices'][0]['message']['content'].strip()
+        ron_response = (
+    respuesta.get('choices', [{}])[0].get('message', {}).get('content', 'Hubo un error en la respuesta de OpenAI')
+).strip()
         ron_response = re.sub(r'[*_`~]', '', ron_response)
     except Exception as e:
         ron_response = f"Hubo un error al contactar a OpenAI: {e}"
