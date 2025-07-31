@@ -7,6 +7,10 @@
         {
             "user": "el número cinco colores random",
             "ron": "Claro, aquí tienes cinco colores al azar: azul, verde limón, morado, naranja y turquesa. ¿Te gustaría hacer algo especial con estos colores?"
+        },
+        {
+            "user": "viste que ahora en argentina está",
+            "ron": "No estoy seguro a qué te refieres exactamente. ¿Podrías darme un poco más de contexto sobre lo que sucede en Argentina? Así podré ayudarte mejor."
         }
     ]
 }
