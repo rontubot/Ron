@@ -6,7 +6,7 @@
 # Datos locales
 /data/*.json
 !data/ron_memory.json
-
+memory/
 # Archivos del sistema
 __pycache__/
 *.pyc
