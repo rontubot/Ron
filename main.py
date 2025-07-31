@@ -4,6 +4,9 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel  
 from dotenv import load_dotenv  
 import openai  
+import re  
+import threading  
+import time  
 from core.memory import load_memory, add_to_memory  
 from core.assistant import generate_response  
   
@@ -19,37 +22,45 @@ class UserInput(BaseModel):
 def read_root():  
     return {"message": "Ron API está corriendo"}  
   
+def detect_farewell_in_api(text):  
+    """Detección amplia de despedidas en la API - igual que en assistant.py"""  
+    farewell_patterns = [  
+        r"(gracias|thanks)\\s+.*?(hasta luego|adiós|chao|nos vemos)",  
+        r"(vale|bueno|ok|bien)?\\s*(hasta luego|adiós|chao|nos vemos|me voy|hasta la vista)",  
+        r"(vale|bueno|ok|bien)?\\s*(desconéctate|apágate|ciérrate|termina)",  
+        r"(hasta|nos)\\s+(luego|vemos|pronto)",  
+        r"(me|ya)\\s+(voy|retiro|despido)",  
+        r"(que tengas|ten)\\s+(buen|buena)\\s+(día|tarde|noche)",  
+        r".*ronald.*hasta luego.*",  
+        r".*ron.*hasta luego.*",  
+        r"^(adiós|chao|bye|hasta luego)$"  
+    ]  
+      
+    for pattern in farewell_patterns:  
+        if re.search(pattern, text, re.IGNORECASE):  
+            return True  
+    return False  
+  
 @app.post("/ron")  
 def chat_with_ron(data: UserInput):  
     text = data.text.strip().lower()  
       
     # Detección amplia de despedidas - DESACTIVA EL BOT  
-    farewell_phrases = [  
-        "hasta luego", "adiós", "chao", "nos vemos", "me voy",  
-        "vale hasta luego", "bueno adiós", "ok chao",   
-        "desconéctate", "apágate", "ciérrate", "termina",  
-        "hasta la vista", "que tengas buen día", "gracias y adiós"  
-    ]  
-      
-    # Verificar si contiene alguna frase de despedida  
-    for phrase in farewell_phrases:  
-        if phrase in text:  
-            response = "Hasta luego. Que tengas un buen día."  
-            # Guardar despedida en memoria antes de desactivar  
-            try:  
-                add_to_memory(data.text, response)  
-            except:  
-                pass  
-              
-            # Desactivar el servidor (esto terminará el proceso)  
-            import threading  
-            import time  
-            def shutdown_server():  
-                time.sleep(1)  # Dar tiempo para enviar respuesta  
-                os._exit(0)  
-              
-            threading.Thread(target=shutdown_server).start()  
-            return {"ron": response, "shutdown": True}  
+    if detect_farewell_in_api(text):  
+        response = "Hasta luego. Que tengas un buen día."  
+        # Guardar despedida en memoria antes de desactivar  
+        try:  
+            add_to_memory(data.text, response)  
+        except:  
+            pass  
+          
+        # Desactivar el servidor (esto terminará el proceso)  
+        def shutdown_server():  
+            time.sleep(1)  # Dar tiempo para enviar respuesta  
+            os._exit(0)  
+          
+        threading.Thread(target=shutdown_server).start()  
+        return {"ron": response, "shutdown": True}  
       
     try:  
         ron_response = generate_response(text)  
@@ -62,4 +73,25 @@ def get_github_token():
     token = os.getenv("GITHUB_TOKEN")  
     if not token:  
         return PlainTextResponse("Token no configurado", status_code=404)  
-    return token
+    return token  
+  
+@app.get("/health")  
+def health_check():  
+    """Endpoint de salud para verificar que el bot está funcionando"""  
+    return {"status": "healthy", "message": "Ron está funcionando correctamente"}  
+  
+@app.get("/memory-status")  
+def memory_status():  
+    """Endpoint para verificar el estado de la memoria"""  
+    try:  
+        memory = load_memory()  
+        conversations_count = len(memory.get("conversaciones", []))  
+        reminders_count = len(memory.get("recordatorios", {}))  
+        return {  
+            "status": "ok",  
+            "conversations": conversations_count,  
+            "reminders": reminders_count,  
+            "device_id": memory.get("datos", {}).get("device_id", "unknown")  
+        }  
+    except Exception as e:  
+        return {"status": "error", "message": str(e)}

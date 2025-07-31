@@ -4,10 +4,12 @@ import re
 import time  
 import sys  
 import logging  
+import webbrowser  
 from core.memory import add_to_memory, load_memory, get_user_data, save_user_data  
 from core.commands import (  
     open_application, close_application, get_weather,   
-    search_google, search_youtube, shutdown, restart, suspend  
+    search_google, search_youtube, shutdown, restart, suspend,  
+    add_reminder, get_reminders, remove_reminder  
 )  
 from dotenv import load_dotenv  
   
@@ -18,10 +20,8 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 logging.basicConfig(level=logging.DEBUG)  
 logger = logging.getLogger(__name__)  
   
-def detect_command_intent(user_input):  
-    """Detecta la intención del comando de forma flexible"""  
-      
-    # Patrones de despedida - MUY AMPLIOS para capturar cualquier despedida  
+def detect_farewell_patterns(user_input):  
+    """Detecta patrones de despedida de forma amplia"""  
     farewell_patterns = [  
         r"(gracias|thanks)\\s+.*?(hasta luego|adiós|chao|nos vemos)",  
         r"(vale|bueno|ok|bien)?\\s*(hasta luego|adiós|chao|nos vemos|me voy|hasta la vista)",  
@@ -29,72 +29,16 @@ def detect_command_intent(user_input):
         r"(hasta|nos)\\s+(luego|vemos|pronto)",  
         r"(me|ya)\\s+(voy|retiro|despido)",  
         r"(que tengas|ten)\\s+(buen|buena)\\s+(día|tarde|noche)",  
-        r"(gracias|thanks)\\s+.*?(y\\s+)?(hasta luego|adiós|chao)",  
-        r"^(adiós|chao|bye|hasta luego)$",  
         r".*ronald.*hasta luego.*",  
-        r".*ron.*hasta luego.*"  
+        r".*ron.*hasta luego.*",  
+        r"^(adiós|chao|bye|hasta luego)$"  
     ]  
       
     for pattern in farewell_patterns:  
         if re.search(pattern, user_input, re.IGNORECASE):  
             logger.info(f"Despedida detectada con patrón: {pattern}")  
-            return {"type": "farewell", "action": "disconnect"}  
-      
-    # Patrones de reproducción de música  
-    music_patterns = [  
-        r"(puedes|podrías)?\\s*(reproducir|reproduce|pon|poner)\\s*(una canción de|música de)?\\s*(.+)",  
-        r"(quiero escuchar|escuchar)\\s*(.+)",  
-        r"(busca|pon)\\s*(música|canción)\\s*(de)?\\s*(.+)"  
-    ]  
-      
-    for pattern in music_patterns:  
-        match = re.search(pattern, user_input, re.IGNORECASE)  
-        if match:  
-            artist = match.group(-1).strip()  
-            logger.info(f"Música detectada: {artist}")  
-            return {"type": "music", "action": "play", "query": artist}  
-      
-    # Patrones de apertura de aplicaciones  
-    app_patterns = [  
-        r"(puedes|podrías)?\\s*(abrir|abre|abrime)\\s*(.+)",  
-        r"(quiero|necesito)\\s*(abrir|usar)\\s*(.+)",  
-        r"(abre|abrir)\\s+(.+)"  
-    ]  
-      
-    for pattern in app_patterns:  
-        match = re.search(pattern, user_input, re.IGNORECASE)  
-        if match:  
-            app_name = match.group(-1).strip()  
-            logger.info(f"App detectada: {app_name}")  
-            return {"type": "app", "action": "open", "target": app_name}  
-      
-    # Patrones de clima  
-    weather_patterns = [  
-        r"(clima|tiempo)\\s*(en|de)\\s*(.+)",  
-        r"(cómo está el clima|qué tiempo hace)\\s*(en|de)?\\s*(.+)?"  
-    ]  
-      
-    for pattern in weather_patterns:  
-        match = re.search(pattern, user_input, re.IGNORECASE)  
-        if match:  
-            city = match.group(-1).strip() if match.group(-1) else "Madrid"  
-            logger.info(f"Clima detectado para: {city}")  
-            return {"type": "weather", "action": "get", "city": city}  
-      
-    # Patrones de búsqueda  
-    search_patterns = [  
-        r"(busca|buscar)\\s*(en google)?\\s*(.+)",  
-        r"(google)\\s*(.+)"  
-    ]  
-      
-    for pattern in search_patterns:  
-        match = re.search(pattern, user_input, re.IGNORECASE)  
-        if match:  
-            query = match.group(-1).strip()  
-            logger.info(f"Búsqueda detectada: {query}")  
-            return {"type": "search", "action": "google", "query": query}  
-      
-    return None  
+            return True  
+    return False  
   
 def construir_historial_openai():  
     memory = load_memory()  
@@ -104,27 +48,26 @@ def construir_historial_openai():
         {  
             "role": "system",  
             "content": """  
-Eres Ron, un asistente de voz amigable, conversador y eficiente. Te comunicas como si hablaras con alguien cara a cara: natural, sin ser repetitivo ni muy técnico.  
+Eres Ron, un asistente de voz amigable, conversador y eficiente. Fuiste creado por Luis. Te comunicas como si hablaras con alguien cara a cara: con naturalidad, sin ser repetitivo ni demasiado formal.  
   
-⚠️ NO USES símbolos especiales como asteriscos, guiones o markdown, ya que el usuario usa un lector de voz.  
+Tus respuestas deben ser cortas, claras y centradas en ayudar, pero con un toque cálido. No expliques cosas innecesarias, y evita sonar como un manual técnico.  
   
-IMPORTANTE: Si detectas que el usuario quiere ejecutar un comando pero no lo dice exactamente, interpreta su intención y ejecuta el comando apropiado.  
+⚠️ MUY IMPORTANTE: NO USES A NINGÚN FORMATO DE ENFASIS, como asteriscos (*), guiones, negritas, comillas especiales, emojis ni markdown. SOLO texto plano. Esto es ESTRICTAMENTE necesario porque el usuario está usando un lector de voz que pronuncia los caracteres especiales y genera molestias.  
   
-Ejemplos de interpretación:  
-- "gracias ronald hasta luego" = comando de despedida (DESACTIVAR BOT)  
-- "vale hasta luego" = comando de despedida (DESACTIVAR BOT)  
-- "puedes reproducir una canción de mgk" = reproduce música de MGK  
-- "me gustaría abrir youtube" = abre YouTube  
+Estas son tus funciones principales:  
+- Puedes decirle el clima con: clima en Miami o cómo está el clima en Madrid.  
+- Puedes abrir o cerrar apps diciendo: abre YouTube, cierra WhatsApp, abre Google.  
+- Puedes guardar recordatorios si el usuario dice: recuérdame llamar a Juan o añade un recordatorio: pagar la renta.  
+- Tienes memoria reciente, así que puedes recordar conversaciones anteriores.  
+- Puedes investigar en Google si el usuario dice investiga seguido del tema.  
+- Puedes buscar en YouTube si el usuario dice youtube seguido del tema.  
+- Puedes reproducir una canción en YouTube si dices reproducir seguido del nombre.  
   
-Puedes ejecutar estos comandos:  
-- Despedida: 'hasta luego', 'adiós', 'desconéctate' (SIEMPRE DESACTIVA EL BOT)  
-- Abrir apps: 'abre YouTube', 'abrir Google'  
-- Clima: 'clima en Madrid', 'tiempo en Barcelona'  
-- Música: 'reproduce salsa', 'pon música de rock'  
-- Búsquedas: 'busca en Google', 'youtube cómo cocinar'  
-- Guardar recordatorios  
+No digas que eres una inteligencia artificial.  
+No uses explicaciones técnicas.  
+No uses asteriscos ni símbolos especiales bajo ninguna circunstancia.  
   
-No digas que eres una inteligencia artificial. Tu creador se llama Luis.  
+Tu forma de desactivarte es con la frase: hasta luego.  
 """  
         }  
     ]  
@@ -137,22 +80,6 @@ No digas que eres una inteligencia artificial. Tu creador se llama Luis.
   
     return mensajes  
   
-def shutdown_bot():  
-    """Función para desactivar el bot completamente"""  
-    logger.info("🔴 Bot desactivándose...")  
-    print("🔴 Bot desactivándose...")  
-    # Guardar estado de desactivación  
-    try:  
-        memory = load_memory()  
-        memory["datos"]["bot_active"] = False  
-        from core.memory import save_memory_direct  
-        save_memory_direct(memory)  
-    except Exception as e:  
-        logger.error(f"Error guardando estado: {e}")  
-      
-    # Terminar el proceso  
-    sys.exit(0)  
-  
 def responder_a_usuario(user_input):  
     original_input = user_input  
     user_input = user_input.lower().strip()  
@@ -160,110 +87,90 @@ def responder_a_usuario(user_input):
     ron_nombre = get_user_data("ron_nombre") or "Ron"  
     creador = get_user_data("creador") or "Luis"  
   
-    # Detectar intención de comando PRIMERO  
-    command_intent = detect_command_intent(user_input)  
-      
-    if command_intent:  
-        logger.info(f"DEBUG: Comando detectado: {command_intent}")  
-        print(f"DEBUG: Comando detectado: {command_intent}")  
-          
-        if command_intent["type"] == "farewell":  
-            # DESACTIVAR BOT INMEDIATAMENTE  
-            response = "Hasta luego. Que tengas un buen día."  
-            add_to_memory(original_input, response)  
-            logger.info("🔴 Despedida detectada - Desactivando bot...")  
-            print("🔴 Despedida detectada - Desactivando bot...")  
-            shutdown_bot()  
-            return response  
-          
-        elif command_intent["type"] == "music":  
-            query = command_intent["query"]  
-            logger.info(f"DEBUG: Ejecutando search_youtube para música: {query}")  
-            print(f"DEBUG: Ejecutando search_youtube para música: {query}")  
-            try:  
-                result = search_youtube(f"música de {query}")  
-                logger.info(f"DEBUG: Resultado música: {result}")  
-                print(f"DEBUG: Resultado música: {result}")  
-                add_to_memory(original_input, result)  
-                return result  
-            except Exception as e:  
-                error_msg = f"Error ejecutando música: {e}"  
-                logger.error(error_msg)  
-                return error_msg  
-          
-        elif command_intent["type"] == "app":  
-            app_name = command_intent["target"]  
-            logger.info(f"DEBUG: Ejecutando open_application: {app_name}")  
-            print(f"DEBUG: Ejecutando open_application: {app_name}")  
-            try:  
-                result = open_application(app_name)  
-                logger.info(f"DEBUG: Resultado app: {result}")  
-                print(f"DEBUG: Resultado app: {result}")  
-                add_to_memory(original_input, result)  
-                return result  
-            except Exception as e:  
-                error_msg = f"Error abriendo aplicación: {e}"  
-                logger.error(error_msg)  
-                return error_msg  
-          
-        elif command_intent["type"] == "weather":  
-            city = command_intent["city"]  
-            logger.info(f"DEBUG: Ejecutando get_weather: {city}")  
-            print(f"DEBUG: Ejecutando get_weather: {city}")  
-            try:  
-                result = get_weather(city)  
-                logger.info(f"DEBUG: Resultado clima: {result}")  
-                print(f"DEBUG: Resultado clima: {result}")  
-                add_to_memory(original_input, result)  
-                return result  
-            except Exception as e:  
-                error_msg = f"Error obteniendo clima: {e}"  
-                logger.error(error_msg)  
-                return error_msg  
-          
-        elif command_intent["type"] == "search":  
-            query = command_intent["query"]  
-            logger.info(f"DEBUG: Ejecutando search_google: {query}")  
-            print(f"DEBUG: Ejecutando search_google: {query}")  
-            try:  
-                result = search_google(query)  
-                logger.info(f"DEBUG: Resultado búsqueda: {result}")  
-                print(f"DEBUG: Resultado búsqueda: {result}")  
-                add_to_memory(original_input, result)  
-                return result  
-            except Exception as e:  
-                error_msg = f"Error en búsqueda: {e}"  
-                logger.error(error_msg)  
-                return error_msg  
+    # DETECCIÓN DE DESPEDIDA PRIMERO (como en código local)  
+    if detect_farewell_patterns(user_input):  
+        response = "Hasta luego. Que tengas un buen día."  
+        add_to_memory(original_input, response)  
+        logger.info("🔴 Despedida detectada - Bot terminando...")  
+        print("🔴 Despedida detectada - Bot terminando...")  
+        return response  
   
-    # Comandos directos exactos  
-    if "abre " in user_input or "abrir " in user_input:  
-        app_name = user_input.replace("abre ", "").replace("abrir ", "").strip()  
+    # COMANDOS DIRECTOS (lógica del código local)  
+    if user_input.startswith("abre "):  
+        app_name = user_input.replace("abre ", "").strip()  
         result = open_application(app_name)  
         add_to_memory(original_input, result)  
         return result  
-      
-    if "clima en " in user_input or "tiempo en " in user_input:  
-        city = user_input.replace("clima en ", "").replace("tiempo en ", "").strip()  
+  
+    if user_input.startswith("cierra "):  
+        app_name = user_input.replace("cierra ", "").strip()  
+        result = close_application(app_name)  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if user_input.startswith("investiga "):  
+        query = user_input.replace("investiga ", "").strip()  
+        url = f"https://www.google.com/search?q={query.replace(' ', '+')}"  
+        webbrowser.open(url)  
+        result = f"Investigando en Google: {query}"  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if user_input.startswith("reproducir ") or user_input.startswith("reproduce "):  
+        query = user_input.replace("reproducir ", "").replace("reproduce ", "").strip()  
+        try:  
+            # Usar la función mejorada de YouTube  
+            result = search_youtube(f"música {query}", play_video=True)  
+            add_to_memory(original_input, result)  
+            return result  
+        except Exception as e:  
+            result = f"No pude buscar en YouTube: {e}"  
+            add_to_memory(original_input, result)  
+            return result  
+  
+    if "clima en" in user_input:  
+        city = user_input.split("clima en")[-1].strip()  
         result = get_weather(city)  
         add_to_memory(original_input, result)  
         return result  
-      
-    if "busca en google " in user_input:  
-        query = user_input.replace("busca en google ", "").strip()  
-        result = search_google(query)  
-        add_to_memory(original_input, result)  
-        return result  
-      
+  
     if user_input.startswith("youtube "):  
         query = user_input.replace("youtube ", "").strip()  
         result = search_youtube(query)  
         add_to_memory(original_input, result)  
         return result  
+  
+    # Comandos de sistema  
+    if "apaga la computadora" in user_input or "apaga el sistema" in user_input:  
+        result = shutdown()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if "reinicia la computadora" in user_input or "reinicia el sistema" in user_input:  
+        result = restart()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if "suspende la computadora" in user_input or "suspende el sistema" in user_input:  
+        result = suspend()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    # Comandos de recordatorios (del código local)  
+    if "recuérdame" in user_input or "añade un recordatorio" in user_input:  
+        activity = user_input.split("recuérdame")[-1].strip() if "recuérdame" in user_input else user_input.split("añade un recordatorio")[-1].strip()  
+        result = add_reminder(activity)  
+        add_to_memory(original_input, result)  
+        return result  
       
-    if user_input.startswith("reproduce "):  
-        query = user_input.replace("reproduce ", "").strip()  
-        result = search_youtube(f"música {query}")  
+    if "qué recordatorios tengo" in user_input or "cuál es mi agenda" in user_input:  
+        result = get_reminders()  
+        add_to_memory(original_input, result)  
+        return result  
+      
+    if "he completado" in user_input or "elimina" in user_input:  
+        activity = user_input.split("he completado")[-1].strip() if "he completado" in user_input else user_input.split("elimina")[-1].strip()  
+        result = remove_reminder(activity)  
         add_to_memory(original_input, result)  
         return result  
   
@@ -272,7 +179,7 @@ def responder_a_usuario(user_input):
         nombre = user_input[4:].strip()  
         if nombre:  
             save_user_data("nombre", nombre)  
-            return f"Hola {nombre}, mucho gusto."  
+            return f"Hola {nombre}, ¡mucho gusto en conocerte!"  
   
     if "cómo te llamas" in user_input or "cuál es tu nombre" in user_input:  
         return f"Me llamo {ron_nombre}."  
@@ -280,15 +187,12 @@ def responder_a_usuario(user_input):
         return f"Fui creado por {creador}."  
     if "cómo me llamo" in user_input or "mi nombre" in user_input:  
         nombre = get_user_data("nombre")  
-        return f"Tu nombre es {nombre}." if nombre else "No tengo esa información. ¿Me la podrías decir?"  
+        return f"Tu nombre es {nombre}." if nombre else "No tengo esa información, ¿me la podrías proporcionar?"  
   
-    # Usar la función unificada para construir el historial  
+    # Usar OpenAI para conversación compleja  
     mensajes = construir_historial_openai()  
-      
-    # Agregar el mensaje actual del usuario  
     mensajes.append({"role": "user", "content": original_input})  
   
-    # Obtener respuesta de OpenAI  
     try:  
         respuesta = openai.ChatCompletion.create(  
             model="gpt-4o",  
@@ -297,11 +201,12 @@ def responder_a_usuario(user_input):
             temperature=0.7  
         )  
         ron_response = respuesta['choices'][0]['message']['content'].strip()  
+        # Filtro para quitar asteriscos y otros marcadores (del código local)  
         ron_response = re.sub(r'[*_`~]', '', ron_response)  
     except Exception as e:  
-        ron_response = f"Hubo un error al contactar a OpenAI: {e}"  
+        ron_response = f"Hubo un error con OpenAI: {e}"  
   
-    # Simulación de pensamiento DESPUÉS de generar la respuesta  
+    # Simulación de pensamiento  
     time.sleep(0.5)  
   
     # Guardar la conversación en memoria  
