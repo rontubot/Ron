@@ -1,0 +1,12 @@
+{
+    "datos": {
+        "ron_nombre": "Ron",
+        "creador": "Luis"
+    },
+    "conversaciones": [
+        {
+            "user": "el número cinco colores random",
+            "ron": "Claro, aquí tienes cinco colores al azar: azul, verde limón, morado, naranja y turquesa. ¿Te gustaría hacer algo especial con estos colores?"
+        }
+    ]
+}
