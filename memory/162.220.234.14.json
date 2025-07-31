@@ -15,6 +15,10 @@
         {
             "user": "enumera los colores que te di",
             "ron": "Me parece que hubo una confusión. Los colores que mencioné fueron: azul, verde limón, morado, naranja y turquesa. Espero que sean útiles para lo que necesitas."
+        },
+        {
+            "user": "bueno",
+            "ron": "¡Perfecto! Si necesitas algo más, aquí estoy."
         }
     ]
 }
