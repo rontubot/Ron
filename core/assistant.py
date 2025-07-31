@@ -1,12 +1,12 @@
-import os
-import openai
-import re
-from core.memory import add_to_memory, load_memory, get_user_data, save_user_data
-from dotenv import load_dotenv
-
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
+import os  
+import openai  
+import re  
+from core.memory import add_to_memory, load_memory, get_user_data, save_user_data  
+from dotenv import load_dotenv  
+  
+load_dotenv()  
+openai.api_key = os.getenv("OPENAI_API_KEY")  
+  
 def construir_historial_openai():  
     memory = load_memory()  
     historial = memory.get("conversaciones", [])  
@@ -29,29 +29,24 @@ Puedes:
 - Desactivarte con: 'hasta luego'  
   
 No digas que eres una inteligencia artificial. Tu creador se llama Luis.  
-  
-Tienes acceso al historial de conversaciones con timestamps. Usa esta información para evitar repetir respuestas recientes y mantener contexto temporal.  
 """  
         }  
     ]  
   
-    for mensaje in historial[-20:]:  
-        # Incluir timestamp en el contexto si existe  
-        timestamp_info = ""  
-        if "timestamp" in mensaje:  
-            timestamp_info = f" [Conversación del {mensaje['timestamp'][:19]}]"  
-          
-        mensajes.append({"role": "user", "content": mensaje["user"] + timestamp_info})  
+    # Aumentamos el límite de 20 a 50 mensajes para mejor contexto  
+    for mensaje in historial[-50:]:  
+        mensajes.append({"role": "user", "content": mensaje["user"]})  
         mensajes.append({"role": "assistant", "content": mensaje["ron"]})  
   
-    return mensajes
-
+    return mensajes  
+  
 def responder_a_usuario(user_input):  
     user_input = user_input.lower().strip()  
   
     ron_nombre = get_user_data("ron_nombre") or "Ron"  
     creador = get_user_data("creador") or "Luis"  
   
+    # Respuestas directas sin usar OpenAI  
     if user_input.startswith("soy "):  
         nombre = user_input[4:].strip()  
         if nombre:  
@@ -66,13 +61,13 @@ def responder_a_usuario(user_input):
         nombre = get_user_data("nombre")  
         return f"Tu nombre es {nombre}." if nombre else "No tengo esa información. ¿Me la podrías decir?"  
   
-    # 🔧 CORRECCIÓN: Usar la función dedicada para construir el historial  
+    # Usar la función unificada para construir el historial  
     mensajes = construir_historial_openai()  
       
-    # Añadir el mensaje actual del usuario  
+    # Agregar el mensaje actual del usuario  
     mensajes.append({"role": "user", "content": user_input})  
   
-    # 🧠 Obtener respuesta  
+    # Obtener respuesta de OpenAI  
     try:  
         respuesta = openai.ChatCompletion.create(  
             model="gpt-4o",  
@@ -85,8 +80,8 @@ def responder_a_usuario(user_input):
     except Exception as e:  
         ron_response = f"Hubo un error al contactar a OpenAI: {e}"  
   
-    # ✅ Guardar memoria con la respuesta real  
+    # Guardar la conversación en memoria  
     add_to_memory(user_input, ron_response)  
-    return ron_response
-
+    return ron_response  
+  
 generate_response = responder_a_usuario
