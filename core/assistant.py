@@ -71,10 +71,11 @@ def responder_a_usuario(user_input):
             temperature=0.7
         )
         ron_response = (
-    respuesta.get('choices', [{}])[0].get('message', {}).get('content', 'Hubo un error en la respuesta de OpenAI')
-).strip()
+            respuesta.get('choices', [{}])[0].get('message', {}).get('content', 'Hubo un error en la respuesta de OpenAI')
+        ).strip()
         ron_response = re.sub(r'[*_`~]', '', ron_response)
     except Exception as e:
+        print("Error al contactar con OpenAI:", e)
         ron_response = f"Hubo un error al contactar a OpenAI: {e}"
 
     add_to_memory(user_input, ron_response)
