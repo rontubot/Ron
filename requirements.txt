@@ -5,14 +5,8 @@ python-dotenv==1.0.0
 requests==2.31.0  
 pydantic==2.5.0  
   
-# Dependencias esenciales para comandos funcionales  
+# Dependencia esencial para YouTube (confirmada que funciona)  
 youtube-search==2.1.2  
-youtubesearchpython==1.6.7  
   
 # Dependencias adicionales para comandos mejorados  
-psutil==5.9.6  
-  
-# Dependencias de voz (opcionales - pueden causar problemas en contenedores)  
-# SpeechRecognition==3.10.0  
-# pyttsx3==2.90  
-# websockets==12.0
+psutil==5.9.6
