@@ -3,7 +3,8 @@ import json
 import hashlib  
 import getpass  
 from core.memory import save_memory, load_memory  
-  
+from datetime import datetime
+
 # Base de datos simple de usuarios (en producción usar una DB real)  
 USERS_FILE = "users.json"  
   

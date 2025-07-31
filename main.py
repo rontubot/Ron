@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import openai
 from core.memory import load_memory, add_to_memory
 from core.assistant import generate_response
-
+import uvicorn 
 from core.auth import login_prompt, set_current_user  
   
 def main():  
@@ -16,6 +16,10 @@ def main():
       
     print(f"\\n🤖 Ron iniciado para {user_data['full_name']}")  
     print("Puedes comenzar a hablar...") 
+
+     # Iniciar el servidor FastAPI  
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000)  
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -46,3 +50,6 @@ def get_github_token():
     if not token:
         return PlainTextResponse("Token no configurado", status_code=404)
     return token
+
+if __name__ == "__main__":  
+    main()
