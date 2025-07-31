@@ -1,0 +1,12 @@
+{
+    "datos": {
+        "ron_nombre": "Ron",
+        "creador": "Luis"
+    },
+    "conversaciones": [
+        {
+            "user": "ahora enuméralos enumera esos colores",
+            "ron": "Claro, dime cuáles colores quieres que enumere."
+        }
+    ]
+}
