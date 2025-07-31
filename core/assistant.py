@@ -34,7 +34,7 @@ No digas que eres una inteligencia artificial. Tu creador se llama Luis.
         }
     ]
 
-    for mensaje in historial[-10:]:
+    for mensaje in historial[-20:]:
         mensajes.append({"role": "user", "content": mensaje["user"]})
         mensajes.append({"role": "assistant", "content": mensaje["ron"]})
 
