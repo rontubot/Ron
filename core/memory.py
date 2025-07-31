@@ -9,6 +9,19 @@ REPO_NAME = "Ron"
 BRANCH = "main"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{REPO_NAME}/contents/memory"
 
+def get_device_id():
+    device_id_file = "device_id.txt"
+    if os.path.exists(device_id_file):
+        with open(device_id_file, "r") as f:
+            return f.read().strip()
+    else:
+        import uuid
+        device_id = str(uuid.uuid4())
+        with open(device_id_file, "w") as f:
+            f.write(device_id)
+        return device_id
+
+
 def get_public_ip():
     try:
         return requests.get("https://api.ipify.org").text.strip()
