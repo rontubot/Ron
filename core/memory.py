@@ -49,37 +49,60 @@ def load_memory():
 
     return {"datos": {"ron_nombre": "Ron", "creador": "Luis"}, "conversaciones": []}
 
+
+def get_ip():
+    try:
+        # Obtiene la IP pública del servidor (Railway)
+        return requests.get("https://api.ipify.org").text.strip()
+    except:
+        return "unknown"
+
 def save_memory(memory):
-    token = get_github_token()
-    if not token:
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+    if not GITHUB_TOKEN:
+        print("GITHUB_TOKEN no configurado")
         return
 
-    file_path = get_memory_file_path()
-    url = f"{GITHUB_API_BASE}/{file_path}"
+    ip = get_ip()
+    file_path = f"memory/{ip}.json"
+    repo = "rontubot/ron-memory-store"
+    branch = "main"
+
+    api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    
+    # Paso 1: Ver si ya existe el archivo (para obtener el SHA si hace falta)
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # Get current SHA if file exists
     sha = None
-    r = requests.get(url, headers=headers)
-    if r.status_code == 200:
-        sha = r.json().get("sha")
+    try:
+        r = requests.get(api_url, headers=headers)
+        if r.status_code == 200:
+            sha = r.json()["sha"]
+    except:
+        pass
 
-    content_bytes = json.dumps(memory, indent=4, ensure_ascii=False).encode("utf-8")
-    b64_content = base64.b64encode(content_bytes).decode("utf-8")
+    # Paso 2: Codifica el nuevo contenido
+    content_encoded = base64.b64encode(json.dumps(memory, indent=4, ensure_ascii=False).encode()).decode()
 
-    data = {
-        "message": f"update memory for {file_path}",
-        "content": b64_content,
-        "branch": BRANCH
+    # Paso 3: Crea o actualiza el archivo
+    payload = {
+        "message": f"update memory for {ip}",
+        "content": content_encoded,
+        "branch": branch
     }
-
     if sha:
-        data["sha"] = sha
+        payload["sha"] = sha
 
-    requests.put(url, headers=headers, json=data)
+    response = requests.put(api_url, headers=headers, json=payload)
+
+    if response.status_code in [200, 201]:
+        print(f"✅ Memoria de {ip} guardada en GitHub")
+    else:
+        print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")
+
 
 def save_user_data(key, value):
     memory = load_memory()
