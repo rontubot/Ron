@@ -38,15 +38,7 @@ def get_github_token():
     return None
 
 def get_memory_file_path():  
-    from core.auth import get_current_user  
-      
-    user = get_current_user()  
-    if user:  
-        # Usar el username como identificador único  
-        return f"{user['username']}.json"  
-    else:  
-        # Fallback al sistema anterior si no hay usuario logueado  
-        return f"{get_public_ip()}.json"
+    return f"{get_device_id()}.json"
 
 def load_memory():
     token = get_github_token()
@@ -139,18 +131,25 @@ def get_user_data(key):
     memory = load_memory()
     return memory["datos"].get(key, None)
 
-def add_to_memory(user_text, ron_response):
-    memory = load_memory()
-
-    if "conversaciones" not in memory:
-        memory["conversaciones"] = []
-
-    # Asegurar que no se borre lo anterior
-    memory["conversaciones"].append({"user": user_text, "ron": ron_response})
-
-    # Puedes cambiar el límite si quieres más memoria persistente
-    memory["conversaciones"] = memory["conversaciones"][-100:]
-
+from datetime import datetime  
+  
+def add_to_memory(user_text, ron_response):  
+    memory = load_memory()  
+  
+    if "conversaciones" not in memory:  
+        memory["conversaciones"] = []  
+  
+    # Añadir timestamp a cada conversación  
+    timestamp = datetime.now().isoformat()  
+    memory["conversaciones"].append({  
+        "user": user_text,   
+        "ron": ron_response,  
+        "timestamp": timestamp  
+    })  
+  
+    # Puedes cambiar el límite si quieres más memoria persistente  
+    memory["conversaciones"] = memory["conversaciones"][-100:]  
+  
     save_memory(memory)
 
 def add_reminder(activity):

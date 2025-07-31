@@ -7,36 +7,43 @@ from dotenv import load_dotenv
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def construir_historial_openai():
-    memory = load_memory()
-    historial = memory.get("conversaciones", [])
-
-    mensajes = [
-        {
-            "role": "system",
-            "content": """
-Eres Ron, un asistente de voz amigable, conversador y eficiente. Te comunicas como si hablaras con alguien cara a cara: natural, sin ser repetitivo ni muy técnico.
-
-⚠️ NO USES símbolos especiales como asteriscos, guiones o markdown, ya que el usuario usa un lector de voz.
-
-Puedes:
-- Dar el clima: 'clima en Madrid'
-- Abrir apps: 'abre YouTube'
-- Guardar recordatorios
-- Investigar: 'investiga mejores cámaras'
-- Buscar en YouTube: 'youtube cómo preparar ramen'
-- Reproducir canciones: 'reproduce salsa vieja'
-- Desactivarte con: 'hasta luego'
-
-No digas que eres una inteligencia artificial. Tu creador se llama Luis.
-"""
-        }
-    ]
-
-    for mensaje in historial[-20:]:
-        mensajes.append({"role": "user", "content": mensaje["user"]})
-        mensajes.append({"role": "assistant", "content": mensaje["ron"]})
-
+def construir_historial_openai():  
+    memory = load_memory()  
+    historial = memory.get("conversaciones", [])  
+  
+    mensajes = [  
+        {  
+            "role": "system",  
+            "content": """  
+Eres Ron, un asistente de voz amigable, conversador y eficiente. Te comunicas como si hablaras con alguien cara a cara: natural, sin ser repetitivo ni muy técnico.  
+  
+⚠️ NO USES símbolos especiales como asteriscos, guiones o markdown, ya que el usuario usa un lector de voz.  
+  
+Puedes:  
+- Dar el clima: 'clima en Madrid'  
+- Abrir apps: 'abre YouTube'  
+- Guardar recordatorios  
+- Investigar: 'investiga mejores cámaras'  
+- Buscar en YouTube: 'youtube cómo preparar ramen'  
+- Reproducir canciones: 'reproduce salsa vieja'  
+- Desactivarte con: 'hasta luego'  
+  
+No digas que eres una inteligencia artificial. Tu creador se llama Luis.  
+  
+Tienes acceso al historial de conversaciones con timestamps. Usa esta información para evitar repetir respuestas recientes y mantener contexto temporal.  
+"""  
+        }  
+    ]  
+  
+    for mensaje in historial[-20:]:  
+        # Incluir timestamp en el contexto si existe  
+        timestamp_info = ""  
+        if "timestamp" in mensaje:  
+            timestamp_info = f" [Conversación del {mensaje['timestamp'][:19]}]"  
+          
+        mensajes.append({"role": "user", "content": mensaje["user"] + timestamp_info})  
+        mensajes.append({"role": "assistant", "content": mensaje["ron"]})  
+  
     return mensajes
 
 def responder_a_usuario(user_input):  
