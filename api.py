@@ -30,9 +30,39 @@ def chat_with_ron(data: UserInput):
     farewell_phrases = [  
         "hasta luego", "adiós", "chao", "nos vemos", "me voy",  
         "vale hasta luego", "bueno adiós", "ok chao",   
-        "desconéctate", "apágate", "ciérrate  
+        "desconéctate", "apágate", "ciérrate", "termina",  
+        "hasta la vista", "que tengas buen día", "gracias y adiós"  
+    ]  
+      
+    # Verificar si contiene alguna frase de despedida  
+    for phrase in farewell_phrases:  
+        if phrase in text:  
+            response = "Hasta luego. Que tengas un buen día."  
+            # Guardar despedida en memoria antes de desactivar  
+            try:  
+                add_to_memory(data.text, response)  
+            except:  
+                pass  
+              
+            # Desactivar el servidor (esto terminará el proceso)  
+            import threading  
+            import time  
+            def shutdown_server():  
+                time.sleep(1)  # Dar tiempo para enviar respuesta  
+                os._exit(0)  
+              
+            threading.Thread(target=shutdown_server).start()  
+            return {"ron": response, "shutdown": True}  
   
-Wiki pages you might want to explore:  
-- [Overview (rontubot/Ron)](/wiki/rontubot/Ron#1)  
-- [Core System Architecture (rontubot/Ron)](/wiki/rontubot/Ron#2)  
-- [API Layer (rontubot/Ron)](/wiki/rontubot/Ron#3)
+    try:  
+        ron_response = generate_response(text)  
+        return {"ron": ron_response}  
+    except Exception as e:  
+        return {"error": str(e)}  
+  
+@app.get("/github-token", response_class=PlainTextResponse)  
+def get_github_token():  
+    token = os.getenv("GITHUB_TOKEN")  
+    if not token:  
+        return PlainTextResponse("Token no configurado", status_code=404)  
+    return token
