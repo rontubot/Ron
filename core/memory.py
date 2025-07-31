@@ -3,10 +3,11 @@ import json
 import requests  
 import base64  
 import socket  
+from datetime import datetime  
   
 # Configuración unificada para usar el mismo repositorio para lectura y escritura  
 GITHUB_USERNAME = "rontubot"  
-REPO_NAME = "ron-memory-store"  # Cambiado para usar el repo de memoria  
+REPO_NAME = "ron-memory-store"  
 BRANCH = "main"  
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{REPO_NAME}/contents"  
   
@@ -38,7 +39,9 @@ def get_github_token():
     return None  
   
 def get_memory_file_path():  
-    return f"memory/{get_public_ip()}.json"  
+    # Usar device_id en lugar de IP para mantener chats por dispositivo  
+    device_id = get_device_id()  
+    return f"memory/{device_id}.json"  
   
 def load_memory():  
     token = get_github_token()  
@@ -138,10 +141,15 @@ def add_to_memory(user_text, ron_response):
     if "conversaciones" not in memory:  
         memory["conversaciones"] = []  
   
-    # Asegurar que no se borre lo anterior  
-    memory["conversaciones"].append({"user": user_text, "ron": ron_response})  
+    # Agregar timestamp a cada conversación  
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  
+    conversation_entry = {  
+        "user": user_text,  
+        "ron": ron_response,  
+        "timestamp": timestamp  
+    }  
   
-    # Puedes cambiar el límite si quieres más memoria persistente  
+    memory["conversaciones"].append(conversation_entry)  
     memory["conversaciones"] = memory["conversaciones"][-100:]  
   
     save_memory(memory)  
@@ -153,7 +161,14 @@ def add_reminder(activity):
     parts = activity.split(":", 1)  
     title = parts[0].strip().lower()  
     description = parts[1].strip() if len(parts) > 1 else "(Sin descripción)"  
-    memory["recordatorios"][title] = description  
+      
+    # Agregar timestamp al recordatorio  
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  
+    memory["recordatorios"][title] = {  
+        "description": description,  
+        "created": timestamp  
+    }  
+      
     save_memory(memory)  
     return f"Recordatorio agregado: {title} - {description}."  
   
@@ -161,7 +176,14 @@ def get_reminders():
     memory = load_memory()  
     recordatorios = memory.get("recordatorios", {})  
     if recordatorios:  
-        return "Tus recordatorios son:\\n" + "\\n".join(f"- {k}: {v}" for k, v in recordatorios.items())  
+        result = "Tus recordatorios son:\\n"  
+        for title, data in recordatorios.items():  
+            if isinstance(data, dict):  
+                result += f"- {title}: {data['description']} (creado: {data.get('created', 'fecha desconocida')})\\n"  
+            else:  
+                # Compatibilidad con formato anterior  
+                result += f"- {title}: {data}\\n"  
+        return result  
     return "No tienes recordatorios pendientes."  
   
 def remove_reminder(activity):  
