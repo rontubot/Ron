@@ -7,6 +7,10 @@
         {
             "user": "tienes la memoria activa",
             "ron": "No tengo memoria, pero puedo ayudarte con tareas como guardar recordatorios o investigar algo en particular. ¿En qué te gustaría que te ayude hoy?"
+        },
+        {
+            "user": "recuerda el color rojo",
+            "ron": "No puedo recordar información como un humano, pero si quieres, puedo ayudarte a encontrar algo relacionado con el color rojo o cualquier otra cosa. ¿Te gustaría que busque algo en particular?"
         }
     ]
 }
