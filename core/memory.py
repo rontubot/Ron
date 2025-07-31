@@ -38,8 +38,9 @@ def get_github_token():
     return None
 
 def get_memory_file_path():
-    ip = get_public_ip()
-    return f"{ip}.json"
+    return f"{get_public_ip()}.json"
+
+
 
 def load_memory():
     token = get_github_token()
@@ -63,12 +64,6 @@ def load_memory():
     return {"datos": {"ron_nombre": "Ron", "creador": "Luis"}, "conversaciones": []}
 
 
-def get_ip():
-    try:
-        # Obtiene la IP pública del servidor (Railway)
-        return requests.get("https://api.ipify.org").text.strip()
-    except:
-        return "unknown"
 
 def save_memory(memory):
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -76,8 +71,9 @@ def save_memory(memory):
         print("GITHUB_TOKEN no configurado")
         return
 
-    ip = get_ip()
-    file_path = f"memory/{ip}.json"
+    device_id = get_device_id()
+    file_path = f"memory/{get_memory_file_path()}"
+    device_id = file_path.split("/")[-1].replace(".json", "")
     repo = "rontubot/ron-memory-store"
     branch = "main"
 
@@ -102,7 +98,7 @@ def save_memory(memory):
 
     # Paso 3: Crea o actualiza el archivo
     payload = {
-        "message": f"update memory for {ip}",
+        "message": f"update memory for {device_id}",
         "content": content_encoded,
         "branch": branch
     }
@@ -112,7 +108,8 @@ def save_memory(memory):
     response = requests.put(api_url, headers=headers, json=payload)
 
     if response.status_code in [200, 201]:
-        print(f"✅ Memoria de {ip} guardada en GitHub")
+        print(f"✅ Memoria de {device_id} guardada en GitHub")
+
     else:
         print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")
 
