@@ -1,30 +1,85 @@
-# core/memory.py
 import os
 import json
+import requests
+import base64
+import socket
 
-MEMORY_FILE = "data/ron_memory.json"
+GITHUB_USERNAME = "rontubot"
+REPO_NAME = "Ron"
+BRANCH = "main"
+GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{REPO_NAME}/contents/memory"
+
+def get_public_ip():
+    try:
+        return requests.get("https://api.ipify.org").text.strip()
+    except:
+        return "unknown"
+
+def get_github_token():
+    try:
+        r = requests.get("https://ron-production.up.railway.app/github-token")
+        if r.status_code == 200:
+            return r.text.strip()
+    except:
+        pass
+    return None
+
+def get_memory_file_path():
+    ip = get_public_ip()
+    return f"{ip}.json"
 
 def load_memory():
-    if os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, "r", encoding="utf-8") as file:
-            try:
-                memory = json.load(file)
-                if "datos" not in memory:
-                    memory["datos"] = {}
-                if "conversaciones" not in memory:
-                    memory["conversaciones"] = []
-                if "ron_nombre" not in memory["datos"]:
-                    memory["datos"]["ron_nombre"] = "Ron"
-                if "creador" not in memory["datos"]:
-                    memory["datos"]["creador"] = "Luis"
-                return memory
-            except json.JSONDecodeError:
-                pass
+    token = get_github_token()
+    if not token:
+        return {"datos": {"ron_nombre": "Ron", "creador": "Luis"}, "conversaciones": []}
+
+    file_path = get_memory_file_path()
+    url = f"{GITHUB_API_BASE}/{file_path}?ref={BRANCH}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3.raw"
+    }
+
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        try:
+            return json.loads(r.content)
+        except:
+            pass
+
     return {"datos": {"ron_nombre": "Ron", "creador": "Luis"}, "conversaciones": []}
 
 def save_memory(memory):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as file:
-        json.dump(memory, file, indent=4, ensure_ascii=False)
+    token = get_github_token()
+    if not token:
+        return
+
+    file_path = get_memory_file_path()
+    url = f"{GITHUB_API_BASE}/{file_path}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # Get current SHA if file exists
+    sha = None
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+
+    content_bytes = json.dumps(memory, indent=4, ensure_ascii=False).encode("utf-8")
+    b64_content = base64.b64encode(content_bytes).decode("utf-8")
+
+    data = {
+        "message": f"update memory for {file_path}",
+        "content": b64_content,
+        "branch": BRANCH
+    }
+
+    if sha:
+        data["sha"] = sha
+
+    requests.put(url, headers=headers, json=data)
 
 def save_user_data(key, value):
     memory = load_memory()
@@ -44,7 +99,7 @@ def add_to_memory(user_text, ron_response):
 
 def add_reminder(activity):
     memory = load_memory()
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):
+    if "recordatorios" not in memory or not isinstance(memory.get("recordatorios"), dict):
         memory["recordatorios"] = {}
     parts = activity.split(":", 1)
     title = parts[0].strip().lower()
@@ -55,23 +110,20 @@ def add_reminder(activity):
 
 def get_reminders():
     memory = load_memory()
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):
-        memory["recordatorios"] = {}
-    if memory["recordatorios"]:
-        return "Tus recordatorios son:\n" + "\n".join(f"- {title}: {desc}" for title, desc in memory["recordatorios"].items())
+    recordatorios = memory.get("recordatorios", {})
+    if recordatorios:
+        return "Tus recordatorios son:\n" + "\n".join(f"- {k}: {v}" for k, v in recordatorios.items())
     return "No tienes recordatorios pendientes."
 
 def remove_reminder(activity):
     memory = load_memory()
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):
-        memory["recordatorios"] = {}
+    recordatorios = memory.get("recordatorios", {})
     title = activity.strip().lower()
-    matches = [key for key in memory["recordatorios"] if title in key]
+    matches = [k for k in recordatorios if title in k]
     if len(matches) == 1:
-        removed_title = matches[0]
-        memory["recordatorios"].pop(removed_title)
+        del memory["recordatorios"][matches[0]]
         save_memory(memory)
-        return f"Recordatorio '{removed_title}' eliminado."
+        return f"Recordatorio '{matches[0]}' eliminado."
     elif len(matches) > 1:
         return "Hay múltiples recordatorios similares. Dime el título exacto."
     return "No encontré un recordatorio con ese título."

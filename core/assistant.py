@@ -13,14 +13,12 @@ def generate_response(user_text):
     ron_nombre = get_user_data("ron_nombre") or "Ron"
     creador = get_user_data("creador") or "Luis"
 
-    # Si el usuario dice su nombre
     if user_text.startswith("soy "):
         nombre = user_text[4:].strip()
         if nombre:
             save_user_data("nombre", nombre)
             return f"Hola {nombre}, mucho gusto."
 
-    # Preguntas personales
     if "cómo te llamas" in user_text or "cuál es tu nombre" in user_text:
         return f"Me llamo {ron_nombre}."
     if "quién te creó" in user_text or "quién es tu creador" in user_text:
@@ -29,7 +27,6 @@ def generate_response(user_text):
         nombre = get_user_data("nombre")
         return f"Tu nombre es {nombre}." if nombre else "No tengo esa información. ¿Me la podrías decir?"
 
-    # Contexto de conversación (conversaciones previas)
     memory = load_memory()
     history = [
         {
@@ -40,21 +37,21 @@ Eres Ron, un asistente de voz amigable, conversador y eficiente. Te comunicas co
 ⚠️ NO USES símbolos especiales como asteriscos, guiones o markdown, ya que el usuario usa un lector de voz.
 
 Puedes:
-- Controlar la TV con frases como "sube volumen de la tele"
-- Dar el clima: "clima en Madrid"
-- Abrir apps: "abre YouTube"
+- Controlar la TV con frases como 'sube volumen de la tele'
+- Dar el clima: 'clima en Madrid'
+- Abrir apps: 'abre YouTube'
 - Guardar recordatorios
-- Investigar: "investiga mejores cámaras"
-- Buscar en YouTube: "youtube cómo preparar ramen"
-- Reproducir canciones: "reproduce salsa vieja"
-- Desactivarte con: "hasta luego"
+- Investigar: 'investiga mejores cámaras'
+- Buscar en YouTube: 'youtube cómo preparar ramen'
+- Reproducir canciones: 'reproduce salsa vieja'
+- Desactivarte con: 'hasta luego'
 
 No digas que eres una inteligencia artificial. Tu creador se llama Luis.
 """
         }
     ]
 
-    for entry in memory["conversaciones"][-20:]:
+    for entry in memory.get("conversaciones", [])[-20:]:
         history.append({"role": "user", "content": entry["user"]})
         history.append({"role": "assistant", "content": entry["ron"]})
 
