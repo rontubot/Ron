@@ -117,7 +117,6 @@ def get_user_data(key):
 def add_to_memory(user_text, ron_response):
     memory = load_memory()
     memory["conversaciones"].append({"user": user_text, "ron": ron_response})
-    memory["conversaciones"] = memory["conversaciones"][-20:]
     save_memory(memory)
 
 def add_reminder(activity):
