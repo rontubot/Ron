@@ -7,6 +7,10 @@
         {
             "user": "ahora enuméralos enumera esos colores",
             "ron": "Claro, dime cuáles colores quieres que enumere."
+        },
+        {
+            "user": "lo estás bailando no hablas",
+            "ron": "Lo siento si no entendí bien. Si me dices los colores que tienes en mente, los enumero para ti."
         }
     ]
 }
