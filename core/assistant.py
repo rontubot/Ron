@@ -80,3 +80,4 @@ def responder_a_usuario(user_input):
 
     add_to_memory(user_input, ron_response)
     return ron_response
+generate_response = responder_a_usuario
