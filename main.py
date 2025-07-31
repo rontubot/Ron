@@ -7,6 +7,16 @@ import openai
 from core.memory import load_memory, add_to_memory
 from core.assistant import generate_response
 
+from core.auth import login_prompt, set_current_user  
+  
+def main():  
+    # Realizar login antes de iniciar Ron  
+    username, user_data = login_prompt()  
+    set_current_user(username, user_data)  
+      
+    print(f"\\n🤖 Ron iniciado para {user_data['full_name']}")  
+    print("Puedes comenzar a hablar...") 
+
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 

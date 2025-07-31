@@ -37,10 +37,16 @@ def get_github_token():
         pass
     return None
 
-def get_memory_file_path():
-    return f"{get_public_ip()}.json"
-
-
+def get_memory_file_path():  
+    from core.auth import get_current_user  
+      
+    user = get_current_user()  
+    if user:  
+        # Usar el username como identificador único  
+        return f"{user['username']}.json"  
+    else:  
+        # Fallback al sistema anterior si no hay usuario logueado  
+        return f"{get_public_ip()}.json"
 
 def load_memory():
     token = get_github_token()
