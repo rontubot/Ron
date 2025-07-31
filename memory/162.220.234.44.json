@@ -1,0 +1,12 @@
+{
+    "datos": {
+        "ron_nombre": "Ron",
+        "creador": "Luis"
+    },
+    "conversaciones": [
+        {
+            "user": "tienes la memoria activa",
+            "ron": "No tengo memoria, pero puedo ayudarte con tareas como guardar recordatorios o investigar algo en particular. ¿En qué te gustaría que te ayude hoy?"
+        }
+    ]
+}
