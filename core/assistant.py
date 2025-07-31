@@ -60,9 +60,25 @@ def responder_a_usuario(user_input):
         nombre = get_user_data("nombre")
         return f"Tu nombre es {nombre}." if nombre else "No tengo esa información. ¿Me la podrías decir?"
 
-    mensajes = construir_historial_openai()
-    mensajes.append({"role": "user", "content": user_input})
+    # 👇 Cargar memoria previa
+    memory = load_memory()
+    historial = memory.get("conversaciones", [])
+    historial.append({"user": user_input, "ron": "..."})  # Marcamos que se dijo, aunque aún no sabemos la respuesta
 
+    # 👇 Construimos el historial actual para el prompt
+    mensajes = [
+        {
+            "role": "system",
+            "content": """Eres Ron, un asistente de voz amigable..."""
+        }
+    ]
+    for m in historial[-20:]:
+        mensajes.append({"role": "user", "content": m["user"]})
+        mensajes.append({"role": "assistant", "content": m["ron"]})
+
+    mensajes[-1]["content"] = user_input  # Asegura que el último mensaje sea el actual
+
+    # 🧠 Obtener respuesta
     try:
         respuesta = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -70,14 +86,13 @@ def responder_a_usuario(user_input):
             max_tokens=600,
             temperature=0.7
         )
-        ron_response = (
-            respuesta.get('choices', [{}])[0].get('message', {}).get('content', 'Hubo un error en la respuesta de OpenAI')
-        ).strip()
+        ron_response = respuesta['choices'][0]['message']['content'].strip()
         ron_response = re.sub(r'[*_`~]', '', ron_response)
     except Exception as e:
-        print("Error al contactar con OpenAI:", e)
         ron_response = f"Hubo un error al contactar a OpenAI: {e}"
 
+    # ✅ Guardar memoria con la respuesta real
     add_to_memory(user_input, ron_response)
     return ron_response
+
 generate_response = responder_a_usuario
