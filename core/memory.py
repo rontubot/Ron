@@ -65,38 +65,49 @@ def load_memory():
 
 
 
-def save_memory(memory):
+def save_memory(new_memory):
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
     if not GITHUB_TOKEN:
         print("GITHUB_TOKEN no configurado")
         return
 
-    device_id = get_device_id()
     file_path = f"memory/{get_memory_file_path()}"
     device_id = file_path.split("/")[-1].replace(".json", "")
     repo = "rontubot/ron-memory-store"
     branch = "main"
-
     api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    
-    # Paso 1: Ver si ya existe el archivo (para obtener el SHA si hace falta)
+
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
     }
 
+    # Paso 1: Intenta obtener la versión actual del archivo
+    existing_memory = {
+        "datos": {"ron_nombre": "Ron", "creador": "Luis"},
+        "conversaciones": []
+    }
     sha = None
     try:
         r = requests.get(api_url, headers=headers)
         if r.status_code == 200:
             sha = r.json()["sha"]
-    except:
-        pass
+            content_raw = base64.b64decode(r.json()["content"])
+            existing_memory = json.loads(content_raw)
+    except Exception as e:
+        print(f"⚠️ No se pudo cargar memoria existente: {e}")
 
-    # Paso 2: Codifica el nuevo contenido
-    content_encoded = base64.b64encode(json.dumps(memory, indent=4, ensure_ascii=False).encode()).decode()
+    # Paso 2: Fusionar la memoria nueva con la existente
+    existing_memory["datos"].update(new_memory.get("datos", {}))
 
-    # Paso 3: Crea o actualiza el archivo
+    if "conversaciones" not in existing_memory:
+        existing_memory["conversaciones"] = []
+
+    existing_memory["conversaciones"] += new_memory.get("conversaciones", [])
+    existing_memory["conversaciones"] = existing_memory["conversaciones"][-100:]  # limitar tamaño
+
+    # Paso 3: Codificar y subir el archivo
+    content_encoded = base64.b64encode(json.dumps(existing_memory, indent=4, ensure_ascii=False).encode()).decode()
     payload = {
         "message": f"update memory for {device_id}",
         "content": content_encoded,
@@ -108,11 +119,9 @@ def save_memory(memory):
     response = requests.put(api_url, headers=headers, json=payload)
 
     if response.status_code in [200, 201]:
-        print(f"✅ Memoria de {device_id} guardada en GitHub")
-
+        print(f"✅ Memoria de {device_id} guardada correctamente.")
     else:
         print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")
-
 
 def save_user_data(key, value):
     memory = load_memory()
