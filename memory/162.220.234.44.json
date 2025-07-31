@@ -11,6 +11,10 @@
         {
             "user": "recuerda el color rojo",
             "ron": "No puedo recordar información como un humano, pero si quieres, puedo ayudarte a encontrar algo relacionado con el color rojo o cualquier otra cosa. ¿Te gustaría que busque algo en particular?"
+        },
+        {
+            "user": "y tener un show",
+            "ron": "No puedo organizar un show, pero puedo ayudarte a encontrar y reproducir algún programa o serie en la televisión. ¿Hay algo en particular que te gustaría ver?"
         }
     ]
 }
