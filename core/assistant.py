@@ -78,17 +78,8 @@ def responder_a_usuario(user_input):
     except Exception as e:  
         ron_response = f"Hubo un error al contactar a OpenAI: {e}"  
   
-  
-# Después de construir el historial  
-mensajes = construir_historial_openai()  
-mensajes.append({"role": "user", "content": user_input})  
-  
-# LOG TEMPORAL - eliminar después  
-print(f"Historial enviado a OpenAI: {len(mensajes)} mensajes")  
-for i, msg in enumerate(mensajes[-5:]):  # Últimos 5 mensajes  
-    print(f"Mensaje {i}: {msg}")
 
-
+  
     # ✅ Guardar memoria con la respuesta real  
     add_to_memory(user_input, ron_response)  
     return ron_response
