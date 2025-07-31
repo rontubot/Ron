@@ -116,7 +116,16 @@ def get_user_data(key):
 
 def add_to_memory(user_text, ron_response):
     memory = load_memory()
+
+    if "conversaciones" not in memory:
+        memory["conversaciones"] = []
+
+    # Asegurar que no se borre lo anterior
     memory["conversaciones"].append({"user": user_text, "ron": ron_response})
+
+    # Puedes cambiar el límite si quieres más memoria persistente
+    memory["conversaciones"] = memory["conversaciones"][-100:]
+
     save_memory(memory)
 
 def add_reminder(activity):
