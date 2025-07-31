@@ -78,8 +78,10 @@ def responder_a_usuario(user_input):
     except Exception as e:  
         ron_response = f"Hubo un error al contactar a OpenAI: {e}"  
   
+    # ✅ Guardar memoria con la respuesta real  
+    add_to_memory(user_input, ron_response)  
+    return ron_response
 
-  
     # ✅ Guardar memoria con la respuesta real  
     add_to_memory(user_input, ron_response)  
     return ron_response
