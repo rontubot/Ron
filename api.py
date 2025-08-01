@@ -66,3 +66,8 @@ def get_github_token():
     if not token:  
         return PlainTextResponse("Token no configurado", status_code=404)  
     return token
+
+@app.get("/health")  
+def health_check():  
+    """Endpoint de salud para verificar que el bot está funcionando"""  
+    return {"status": "healthy", "message": "Ron está funcionando correctamente"}
