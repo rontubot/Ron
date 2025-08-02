@@ -25,17 +25,17 @@ def get_device_id():
   
 def get_public_ip():  
     try:  
-        return requests.get("https://api.ipify.org").text.strip()  
+        return requests.get("https://api.ipify.org", timeout=5).text.strip()  
     except:  
         return "unknown"  
   
 def get_github_token():  
     try:  
-        r = requests.get("https://ron-production.up.railway.app/github-token")  
+        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=10)  
         if r.status_code == 200:  
             return r.text.strip()  
-    except:  
-        pass  
+    except Exception as e:  
+        print(f"⚠️ Error obteniendo token de GitHub: {e}")  
     return None  
   
 def get_memory_file_path():  
@@ -46,6 +46,7 @@ def get_memory_file_path():
 def load_memory():  
     token = get_github_token()  
     if not token:  
+        print("⚠️ Token de GitHub no disponible, usando memoria por defecto")  
         return {"datos": {"ron_nombre": "Ron", "creador": "Luis"}, "conversaciones": []}  
   
     file_path = get_memory_file_path()  
@@ -56,7 +57,7 @@ def load_memory():
     }  
   
     try:  
-        r = requests.get(url, headers=headers)  
+        r = requests.get(url, headers=headers, timeout=15)  
         if r.status_code == 200:  
             return json.loads(r.content)  
         elif r.status_code == 404:  
@@ -64,6 +65,8 @@ def load_memory():
             return {"datos": {"ron_nombre": "Ron", "creador": "Luis"}, "conversaciones": []}  
         else:  
             print(f"⚠️ Error al cargar memoria: {r.status_code}")  
+    except requests.exceptions.Timeout:  
+        print("⚠️ Timeout al cargar memoria desde GitHub")  
     except Exception as e:  
         print(f"⚠️ Error al procesar memoria: {e}")  
   
@@ -85,12 +88,14 @@ def save_memory_direct(complete_memory):
         "Accept": "application/vnd.github.v3+json"  
     }  
   
-    # Obtener SHA si existe  
+    # Obtener SHA si existe con timeout  
     sha = None  
     try:  
-        r = requests.get(api_url, headers=headers)  
+        r = requests.get(api_url, headers=headers, timeout=10)  
         if r.status_code == 200:  
             sha = r.json()["sha"]  
+    except requests.exceptions.Timeout:  
+        print("⚠️ Timeout obteniendo SHA del archivo")  
     except Exception as e:  
         print(f"⚠️ No se pudo obtener SHA: {e}")  
   
@@ -104,12 +109,16 @@ def save_memory_direct(complete_memory):
     if sha:  
         payload["sha"] = sha  
   
-    response = requests.put(api_url, headers=headers, json=payload)  
-  
-    if response.status_code in [200, 201]:  
-        print(f"✅ Memoria de {device_id} guardada correctamente.")  
-    else:  
-        print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")  
+    try:  
+        response = requests.put(api_url, headers=headers, json=payload, timeout=20)  
+        if response.status_code in [200, 201]:  
+            print(f"✅ Memoria de {device_id} guardada correctamente.")  
+        else:  
+            print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")  
+    except requests.exceptions.Timeout:  
+        print("⚠️ Timeout guardando memoria en GitHub")  
+    except Exception as e:  
+        print(f"❌ Error al guardar memoria: {e}")  
   
 def save_memory(new_memory):  
     """Función legacy mantenida para compatibilidad con recordatorios"""  
@@ -127,18 +136,20 @@ def save_memory(new_memory):
         "Accept": "application/vnd.github.v3+json"  
     }  
   
-    # Paso 1: Intenta obtener la versión actual del archivo  
+    # Paso 1: Intenta obtener la versión actual del archivo con timeout  
     existing_memory = {  
         "datos": {"ron_nombre": "Ron", "creador": "Luis"},  
         "conversaciones": []  
     }  
     sha = None  
     try:  
-        r = requests.get(api_url, headers=headers)  
+        r = requests.get(api_url, headers=headers, timeout=10)  
         if r.status_code == 200:  
             sha = r.json()["sha"]  
             content_raw = base64.b64decode(r.json()["content"])  
             existing_memory = json.loads(content_raw)  
+    except requests.exceptions.Timeout:  
+        print("⚠️ Timeout cargando memoria existente")  
     except Exception as e:  
         print(f"⚠️ No se pudo cargar memoria existente: {e}")  
   
@@ -150,7 +161,7 @@ def save_memory(new_memory):
             existing_memory["recordatorios"] = {}  
         existing_memory["recordatorios"].update(new_memory.get("recordatorios", {}))  
   
-    # Paso 3: Codificar y subir el archivo  
+    # Paso 3: Codificar y subir el archivo con timeout  
     content_encoded = base64.b64encode(json.dumps(existing_memory, indent=4, ensure_ascii=False).encode()).decode()  
     payload = {  
         "message": f"update memory for {device_id}",  
@@ -160,12 +171,16 @@ def save_memory(new_memory):
     if sha:  
         payload["sha"] = sha  
   
-    response = requests.put(api_url, headers=headers, json=payload)  
-  
-    if response.status_code in [200, 201]:  
-        print(f"✅ Memoria de {device_id} guardada correctamente.")  
-    else:  
-        print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")  
+    try:  
+        response = requests.put(api_url, headers=headers, json=payload, timeout=20)  
+        if response.status_code in [200, 201]:  
+            print(f"✅ Memoria de {device_id} guardada correctamente.")  
+        else:  
+            print(f"❌ Error al guardar memoria: {response.status_code} - {response.text}")  
+    except requests.exceptions.Timeout:  
+        print("⚠️ Timeout guardando memoria en GitHub")  
+    except Exception as e:  
+        print(f"❌ Error al guardar memoria: {e}")  
   
 def save_user_data(key, value):  
     memory = load_memory()  
@@ -219,13 +234,13 @@ def get_reminders():
     memory = load_memory()  
     recordatorios = memory.get("recordatorios", {})  
     if recordatorios:  
-        result = "Tus recordatorios son:\\n"  
+        result = "Tus recordatorios son:\\\\n"  
         for title, data in recordatorios.items():  
             if isinstance(data, dict):  
-                result += f"- {title}: {data['description']} (creado: {data.get('created', 'fecha desconocida')})\\n"  
+                result += f"- {title}: {data['description']} (creado: {data.get('created', 'fecha desconocida')})\\\\n"  
             else:  
                 # Compatibilidad con formato anterior  
-                result += f"- {title}: {data}\\n"  
+                result += f"- {title}: {data}\\\\n"  
         return result  
     return "No tienes recordatorios pendientes."  
   

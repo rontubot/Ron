@@ -7,7 +7,7 @@ import logging
 import webbrowser  
 from core.memory import add_to_memory, load_memory, get_user_data, save_user_data  
 from core.commands import (  
-    open_application, close_application, get_weather,   
+    open_application, close_application, get_weather,  
     search_google, search_youtube, shutdown, restart, suspend,  
     add_reminder, get_reminders, remove_reminder  
 )  
@@ -17,28 +17,12 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")  
   
 # Configurar logging para debugging  
-logging.basicConfig(level=logging.DEBUG)  
+logging.basicConfig(level=logging.INFO)  
 logger = logging.getLogger(__name__)  
   
 def detect_farewell_patterns(user_input):  
-    """Detecta patrones de despedida de forma amplia"""  
-    farewell_patterns = [  
-        r"(gracias|thanks)\\s+.*?(hasta luego|adiós|chao|nos vemos)",  
-        r"(vale|bueno|ok|bien)?\\s*(hasta luego|adiós|chao|nos vemos|me voy|hasta la vista)",  
-        r"(vale|bueno|ok|bien)?\\s*(desconéctate|apágate|ciérrate|termina)",  
-        r"(hasta|nos)\\s+(luego|vemos|pronto)",  
-        r"(me|ya)\\s+(voy|retiro|despido)",  
-        r"(que tengas|ten)\\s+(buen|buena)\\s+(día|tarde|noche)",  
-        r".*ronald.*hasta luego.*",  
-        r".*ron.*hasta luego.*",  
-        r"^(adiós|chao|bye|hasta luego)$"  
-    ]  
-      
-    for pattern in farewell_patterns:  
-        if re.search(pattern, user_input, re.IGNORECASE):  
-            logger.info(f"Despedida detectada con patrón: {pattern}")  
-            return True  
-    return False  
+    """Detección simplificada de despedidas - SOLO 'hasta luego'"""  
+    return "hasta luego" in user_input.lower()  
   
 def construir_historial_openai():  
     memory = load_memory()  
@@ -72,8 +56,8 @@ Tu forma de desactivarte es con la frase: hasta luego.
         }  
     ]  
   
-    # Manejar tanto formato nuevo (con timestamp) como anterior (sin timestamp)  
-    for mensaje in historial[-50:]:  
+    # Reducir historial a últimos 20 mensajes para mejor rendimiento  
+    for mensaje in historial[-20:]:  
         if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:  
             mensajes.append({"role": "user", "content": mensaje["user"]})  
             mensajes.append({"role": "assistant", "content": mensaje["ron"]})  
@@ -87,7 +71,7 @@ def responder_a_usuario(user_input):
     ron_nombre = get_user_data("ron_nombre") or "Ron"  
     creador = get_user_data("creador") or "Luis"  
   
-    # DETECCIÓN DE DESPEDIDA PRIMERO (como en código local)  
+    # DETECCIÓN DE DESPEDIDA SIMPLIFICADA  
     if detect_farewell_patterns(user_input):  
         response = "Hasta luego. Que tengas un buen día."  
         add_to_memory(original_input, response)  
@@ -95,7 +79,7 @@ def responder_a_usuario(user_input):
         print("🔴 Despedida detectada - Bot terminando...")  
         return response  
   
-    # COMANDOS DIRECTOS (lógica del código local)  
+    # COMANDOS DIRECTOS (optimizados)  
     if user_input.startswith("abre "):  
         app_name = user_input.replace("abre ", "").strip()  
         result = open_application(app_name)  
@@ -119,7 +103,6 @@ def responder_a_usuario(user_input):
     if user_input.startswith("reproducir ") or user_input.startswith("reproduce "):  
         query = user_input.replace("reproducir ", "").replace("reproduce ", "").strip()  
         try:  
-            # Usar la función mejorada de YouTube  
             result = search_youtube(f"música {query}", play_video=True)  
             add_to_memory(original_input, result)  
             return result  
@@ -156,7 +139,7 @@ def responder_a_usuario(user_input):
         add_to_memory(original_input, result)  
         return result  
   
-    # Comandos de recordatorios (del código local)  
+    # Comandos de recordatorios  
     if "recuérdame" in user_input or "añade un recordatorio" in user_input:  
         activity = user_input.split("recuérdame")[-1].strip() if "recuérdame" in user_input else user_input.split("añade un recordatorio")[-1].strip()  
         result = add_reminder(activity)  
@@ -189,25 +172,28 @@ def responder_a_usuario(user_input):
         nombre = get_user_data("nombre")  
         return f"Tu nombre es {nombre}." if nombre else "No tengo esa información, ¿me la podrías proporcionar?"  
   
-    # Usar OpenAI para conversación compleja  
+    # Usar OpenAI para conversación compleja CON TIMEOUT  
     mensajes = construir_historial_openai()  
     mensajes.append({"role": "user", "content": original_input})  
   
     try:  
+        # CAMBIO CRÍTICO: Agregar timeout a la llamada de OpenAI  
         respuesta = openai.ChatCompletion.create(  
             model="gpt-4o",  
             messages=mensajes,  
-            max_tokens=600,  
-            temperature=0.7  
+            max_tokens=400,  # Reducido de 600 para mejor rendimiento  
+            temperature=0.7,  
+            timeout=25  # Timeout de 25 segundos para evitar que Railway falle  
         )  
         ron_response = respuesta['choices'][0]['message']['content'].strip()  
-        # Filtro para quitar asteriscos y otros marcadores (del código local)  
+        # Filtro para quitar asteriscos y otros marcadores  
         ron_response = re.sub(r'[*_`~]', '', ron_response)  
     except Exception as e:  
-        ron_response = f"Hubo un error con OpenAI: {e}"  
+        logger.error(f"Error con OpenAI: {e}")  
+        ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"  
   
-    # Simulación de pensamiento  
-    time.sleep(0.5)  
+    # Reducir tiempo de simulación de pensamiento  
+    time.sleep(0.2)  # Reducido de 0.5 segundos  
   
     # Guardar la conversación en memoria  
     add_to_memory(original_input, ron_response)  
