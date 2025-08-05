@@ -25,18 +25,25 @@ class UserInput(BaseModel):
 def read_root():  
     return {"message": "Ron API está corriendo"}  
   
-@app.post("/ron")  
-def chat_with_ron(data: UserInput):  
-    text = data.text.strip().lower()  
-  
-    # Detección simplificada de despedidas - SOLO "hasta luego"  
-def detect_farewell_in_api(text: str) -> bool:
-    farewells = [
-        "hasta luego", "adiós", "nos vemos", "chau", 
-        "me voy", "cerrar sesión", "hasta pronto", 
-        "bye", "see you", "goodbye"
-    ]
-    return any(farewell in text for farewell in farewells)
+@app.post("/ron")
+def chat_with_ron(data: UserInput):
+    text = data.text.strip().lower()
+
+    # ✅ Detectar despedida
+    if detect_farewell_in_api(text):
+        response = "Hasta luego. Que tengas un buen día."
+        try:
+            add_to_memory(data.text, response)
+        except:
+            pass
+        return {"ron": response, "shutdown": True}
+
+    try:
+        ron_response = generate_response(text)
+        return {"ron": ron_response}
+    except Exception as e:
+        return {"error": str(e)}
+
 
   
 @app.get("/github-token", response_class=PlainTextResponse)  
