@@ -16,7 +16,7 @@ app = FastAPI()
 class UserInput(BaseModel):
     text: str
 
-# ✅ Función de detección de despedidas (era lo que faltaba antes)
+# ✅ Detección de despedida
 def detect_farewell_in_api(text: str) -> bool:
     farewells = [
         "hasta luego", "adiós", "nos vemos", "chau",
@@ -51,4 +51,24 @@ def chat_with_ron(data: UserInput):
 def get_github_token():
     token = os.getenv("GITHUB_TOKEN")
     if not token:
-        return PlainTextResponse("T
+        return PlainTextResponse("Token no configurado", status_code=404)
+    return token
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+@app.get("/memory-status")
+def memory_status():
+    try:
+        memory = load_memory()
+        conversations_count = len(memory.get("conversaciones", []))
+        reminders_count = len(memory.get("recordatorios", {}))
+        return {
+            "status": "ok",
+            "conversations": conversations_count,
+            "reminders": reminders_count,
+            "device_id": memory.get("datos", {}).get("device_id", "unknown")
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
