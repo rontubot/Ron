@@ -31,26 +31,15 @@ def chat_with_ron(data: UserInput):
   
     # Detección simplificada de despedidas - SOLO "hasta luego"  
     if "hasta luego" in text:  
-        response = "Hasta luego. Que tengas un buen día."  
-        # Guardar despedida en memoria antes de desactivar  
-        try:  
-            add_to_memory(data.text, response)  
-        except:  
-            pass  
-          
-        # Desactivar el servidor (esto terminará el proceso)  
-        def shutdown_server():  
-            time.sleep(1)  # Dar tiempo para enviar respuesta  
-            os._exit(0)  
-          
-        threading.Thread(target=shutdown_server).start()  
-        return {"ron": response, "shutdown": True}  
-  
+    response = "Hasta luego. Que tengas un buen día."  
+    # Guardar despedida en memoria  
     try:  
-        ron_response = generate_response(text)  
-        return {"ron": ron_response}  
-    except Exception as e:  
-        return {"error": str(e)}  
+        add_to_memory(data.text, response)  
+    except:  
+        pass  
+      
+    # Solo responder, NO apagar el servidor  
+    return {"ron": response, "disconnected": True}
   
 @app.get("/github-token", response_class=PlainTextResponse)  
 def get_github_token():  
