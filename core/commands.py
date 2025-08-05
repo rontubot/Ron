@@ -302,8 +302,168 @@ def clean_temp_files():
 def flush_dns():  
     """Limpia la caché DNS"""  
     try:  
-        logger.info  
+        logger.info("Limpiando caché DNS")  
+        result = subprocess.run('ipconfig /flushdns', shell=True, capture_output=True, text=True)  
+        logger.info("Caché DNS limpiada exitosamente")  
+        return "Caché DNS limpiada. Problemas de conexión resueltos."  
+    except Exception as e:  
+        logger.error(f"Error limpiando DNS: {str(e)}")  
+        return f"Error al limpiar DNS: {e}"  
   
-Wiki pages you might want to explore:  
-- [Overview (rontubot/Ron)](/wiki/rontubot/Ron#1)  
-- [Core System Architecture (rontubot/Ron)](/wiki/rontubot/Ron#2)
+def network_reset():  
+    """Reinicia adaptadores de red"""  
+    try:  
+        logger.info("Reiniciando adaptadores de red")  
+          
+        # Reiniciar adaptador de red  
+        reset_result = subprocess.run('netsh winsock reset', shell=True, capture_output=True, text=True)  
+          
+        # Renovar IP  
+        release_result = subprocess.run('ipconfig /release', shell=True, capture_output=True, text=True)  
+        renew_result = subprocess.run('ipconfig /renew', shell=True, capture_output=True, text=True)  
+          
+        logger.info("Adaptadores de red reiniciados")  
+        return "Adaptadores de red reiniciados. Reinicia la computadora para aplicar cambios."  
+          
+    except Exception as e:  
+        logger.error(f"Error reiniciando red: {str(e)}")  
+        return f"Error al reiniciar red: {e}"  
+  
+def check_disk_space():  
+    """Verifica espacio disponible en disco"""  
+    try:  
+        logger.info("Verificando espacio en disco")  
+          
+        disk_result = subprocess.run('wmic logicaldisk get size,freespace,caption /value', shell=True, capture_output=True, text=True)  
+          
+        disks_info = []  
+        lines = disk_result.stdout.strip().split('\\n')  
+          
+        current_disk = {}  
+        for line in lines:  
+            if 'Caption=' in line:  
+                current_disk['caption'] = line.split('=')[1].strip()  
+            elif 'FreeSpace=' in line and line.split('=')[1].strip():  
+                current_disk['free'] = int(line.split('=')[1].strip())  
+            elif 'Size=' in line and line.split('=')[1].strip():  
+                current_disk['size'] = int(line.split('=')[1].strip())  
+                  
+                if all(key in current_disk for key in ['caption', 'free', 'size']):  
+                    free_gb = current_disk['free'] // (1024**3)  
+                    total_gb = current_disk['size'] // (1024**3)  
+                    used_percent = ((current_disk['size'] - current_disk['free']) / current_disk['size']) * 100  
+                      
+                    disks_info.append(f"{current_disk['caption']} {free_gb}GB libres de {total_gb}GB ({used_percent:.1f}% usado)")  
+                    current_disk = {}  
+          
+        result = "Espacio en disco: " + ", ".join(disks_info)  
+        logger.info(f"Verificación de disco completada: {result}")  
+        return result  
+          
+    except Exception as e:  
+        logger.error(f"Error verificando disco: {str(e)}")  
+        return f"Error al verificar espacio en disco: {e}"  
+  
+def system_file_check():  
+    """Ejecuta verificación de archivos del sistema"""  
+    try:  
+        logger.info("Ejecutando verificación de archivos del sistema")  
+          
+        # Ejecutar sfc /scannow  
+        sfc_result = subprocess.run('sfc /scannow', shell=True, capture_output=True, text=True)  
+          
+        if "no encontró ninguna infracción de integridad" in sfc_result.stdout.lower():  
+            result = "Verificación de archivos del sistema completada. No se encontraron problemas."  
+        elif "reparó correctamente" in sfc_result.stdout.lower():  
+            result = "Verificación completada. Se repararon algunos archivos del sistema."  
+        else:  
+            result = "Verificación de archivos del sistema ejecutada. Revisa los logs para más detalles."  
+          
+        logger.info("Verificación de archivos del sistema completada")  
+        return result  
+          
+    except Exception as e:  
+        logger.error(f"Error en verificación del sistema: {str(e)}")  
+        return f"Error al verificar archivos del sistema: {e}"  
+  
+# Funciones de recordatorios del código local  
+def add_reminder(activity):  
+    """Función de recordatorios del código local funcional"""  
+    from core.memory import load_memory, save_memory  
+      
+    memory = load_memory()  
+      
+    # Convertir recordatorios en diccionario si es una lista  
+    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
+        memory["recordatorios"] = {}  
+      
+    # Dividir en título y descripción (si hay)  
+    parts = activity.split(":", 1)  
+    title = parts[0].strip().lower()  # Título del recordatorio  
+    description = parts[1].strip() if len(parts) > 1 else "(Sin descripción)"  
+      
+    # Agregar timestamp al recordatorio  
+    from datetime import datetime  
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  
+    memory["recordatorios"][title] = {  
+        "description": description,  
+        "created": timestamp  
+    }  
+      
+    save_memory({"recordatorios": memory["recordatorios"]})  
+      
+    logger.info(f"Recordatorio agregado: {title} - {description}")  
+    return f"Recordatorio agregado: {title} - {description}."  
+  
+def get_reminders():  
+    """Función para obtener recordatorios del código local"""  
+    from core.memory import load_memory  
+      
+    memory = load_memory()  
+      
+    # Convertir a diccionario si es una lista  
+    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
+        memory["recordatorios"] = {}  
+      
+    if memory["recordatorios"]:  
+        result = "Tus recordatorios son:\\\\n"  
+        for title, data in memory["recordatorios"].items():  
+            if isinstance(data, dict):  
+                result += f"- {title}: {data['description']} (creado: {data.get('created', 'fecha desconocida')})\\\\n"  
+            else:  
+                # Compatibilidad con formato anterior  
+                result += f"- {title}: {data}\\\\n"  
+          
+        logger.info(f"Recordatorios obtenidos: {len(memory['recordatorios'])} items")  
+        return result  
+      
+    logger.info("No hay recordatorios pendientes")  
+    return "No tienes recordatorios pendientes."  
+  
+def remove_reminder(activity):  
+    """Función para eliminar recordatorios del código local"""  
+    from core.memory import load_memory, save_memory  
+      
+    memory = load_memory()  
+      
+    # Convertir a diccionario si es una lista  
+    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
+        memory["recordatorios"] = {}  
+      
+    title = activity.strip().lower()  
+      
+    # Búsqueda flexible  
+    matches = [key for key in memory["recordatorios"] if title in key]  
+      
+    if len(matches) == 1:  
+        removed_title = matches[0]  
+        removed_data = memory["recordatorios"].pop(removed_title)  
+        save_memory({"recordatorios": memory["recordatorios"]})  
+        logger.info(f"Recordatorio eliminado: {removed_title}")  
+        return f"Recordatorio '{removed_title}' eliminado."  
+    elif len(matches) > 1:  
+        logger.warning(f"Múltiples recordatorios encontrados para: {title}")  
+        return "Hay múltiples recordatorios similares. Dime el título exacto."  
+    else:  
+        logger.warning(f"No se encontró recordatorio para: {title}")  
+        return "No encontré un recordatorio con ese título."
