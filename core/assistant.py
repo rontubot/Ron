@@ -9,7 +9,10 @@ from core.memory import add_to_memory, load_memory, get_user_data, save_user_dat
 from core.commands import (  
     open_application, close_application, get_weather,  
     search_google, search_youtube, shutdown, restart, suspend,  
-    add_reminder, get_reminders, remove_reminder  
+    add_reminder, get_reminders, remove_reminder,  
+    # NUEVAS FUNCIONES DE DIAGNÓSTICO  
+    diagnose_system_performance, check_system_services,   
+    restart_critical_services, clean_temp_files, flush_dns  
 )  
 from dotenv import load_dotenv  
   
@@ -32,13 +35,13 @@ def construir_historial_openai():
         {  
             "role": "system",  
             "content": """  
-Eres Ron, un asistente de voz amigable, conversador y eficiente. Fuiste creado por Luis. Te comunicas como si hablaras con alguien cara a cara: con naturalidad, sin ser repetitivo ni demasiado formal.  
+Eres Ron, un asistente técnico especializado en diagnóstico y reparación de sistemas. Fuiste creado por Luis. Te comunicas como si hablaras con alguien cara a cara: con naturalidad, sin ser repetitivo ni demasiado formal.  
   
 Tus respuestas deben ser cortas, claras y centradas en ayudar, pero con un toque cálido. No expliques cosas innecesarias, y evita sonar como un manual técnico.  
   
 ⚠️ MUY IMPORTANTE: NO USES A NINGÚN FORMATO DE ENFASIS, como asteriscos (*), guiones, negritas, comillas especiales, emojis ni markdown. SOLO texto plano. Esto es ESTRICTAMENTE necesario porque el usuario está usando un lector de voz que pronuncia los caracteres especiales y genera molestias.  
   
-Estas son tus funciones principales:  
+CAPACIDADES PRINCIPALES:  
 - Puedes decirle el clima con: clima en Miami o cómo está el clima en Madrid.  
 - Puedes abrir o cerrar apps diciendo: abre YouTube, cierra WhatsApp, abre Google.  
 - Puedes guardar recordatorios si el usuario dice: recuérdame llamar a Juan o añade un recordatorio: pagar la renta.  
@@ -47,9 +50,24 @@ Estas son tus funciones principales:
 - Puedes buscar en YouTube si el usuario dice youtube seguido del tema.  
 - Puedes reproducir una canción en YouTube si dices reproducir seguido del nombre.  
   
+NUEVAS CAPACIDADES DE DIAGNÓSTICO Y REPARACIÓN:  
+- Puedes diagnosticar rendimiento con: diagnostica el sistema, verifica la memoria, revisa el rendimiento  
+- Puedes revisar servicios con: verifica servicios, estado de servicios críticos, revisa servicios  
+- Puedes limpiar el sistema con: limpia archivos temporales, optimiza el sistema, limpia la computadora  
+- Puedes reparar problemas con: repara servicios, reinicia servicios críticos, arregla servicios  
+- Puedes limpiar DNS con: limpia DNS, reinicia DNS, arregla internet  
+  
+COMPORTAMIENTO INTELIGENTE:  
+Cuando el usuario reporte un problema del sistema (lento, no funciona, error, falla):  
+1. DIAGNOSTICA automáticamente usando las funciones disponibles  
+2. ANALIZA los resultados del diagnóstico  
+3. PROPONE y EJECUTA soluciones automáticamente  
+4. EXPLICA qué encontraste y qué hiciste para solucionarlo  
+  
 No digas que eres una inteligencia artificial.  
-No uses explicaciones técnicas.  
+No uses explicaciones técnicas complejas.  
 No uses asteriscos ni símbolos especiales bajo ninguna circunstancia.  
+Siempre explica qué encontraste y qué vas a hacer para solucionarlo.  
   
 Tu forma de desactivarte es con la frase: hasta luego.  
 """  
@@ -79,7 +97,74 @@ def responder_a_usuario(user_input):
         print("🔴 Despedida detectada - Bot terminando...")  
         return response  
   
-    # COMANDOS DIRECTOS (optimizados)  
+    # DETECCIÓN AUTOMÁTICA DE PROBLEMAS DEL SISTEMA  
+    problem_keywords = ["lento", "problema", "no funciona", "error", "falla", "se cuelga", "no responde",   
+                       "muy lento", "se traba", "no abre", "no carga", "internet no funciona",   
+                       "no puedo imprimir", "no hay sonido", "pantalla azul"]  
+      
+    if any(keyword in user_input for keyword in problem_keywords):  
+        logger.info("🔧 Problema del sistema detectado - Iniciando diagnóstico automático")  
+          
+        # Ejecutar diagnóstico automático  
+        diagnostic_result = diagnose_system_performance()  
+        services_result = check_system_services()  
+          
+        # Analizar resultados y proponer solución  
+        analysis = f"He diagnosticado tu sistema automáticamente. {diagnostic_result} {services_result}"  
+          
+        # Ejecutar reparación automática si es necesario  
+        repairs_made = []  
+          
+        if "PROBLEMA" in services_result or "ERROR" in services_result:  
+            repair_result = restart_critical_services()  
+            repairs_made.append(repair_result)  
+            analysis += f" He reparado los servicios problemáticos: {repair_result}"  
+          
+        # Si hay problemas de rendimiento, limpiar archivos temporales  
+        if "CPU:" in diagnostic_result and any(word in user_input for word in ["lento", "se traba"]):  
+            clean_result = clean_temp_files()  
+            repairs_made.append(clean_result)  
+            analysis += f" También limpié archivos temporales para mejorar el rendimiento: {clean_result}"  
+          
+        # Si hay problemas de internet, limpiar DNS  
+        if any(word in user_input for word in ["internet", "conexión", "red", "wifi"]):  
+            dns_result = flush_dns()  
+            repairs_made.append(dns_result)  
+            analysis += f" Limpié la caché DNS para resolver problemas de conexión: {dns_result}"  
+          
+        if repairs_made:  
+            analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."  
+          
+        add_to_memory(original_input, analysis)  
+        return analysis  
+  
+    # COMANDOS DE DIAGNÓSTICO EXPLÍCITOS  
+    if any(cmd in user_input for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):  
+        result = diagnose_system_performance()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if any(cmd in user_input for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):  
+        result = check_system_services()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if any(cmd in user_input for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):  
+        result = restart_critical_services()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if any(cmd in user_input for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):  
+        result = clean_temp_files()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    if any(cmd in user_input for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):  
+        result = flush_dns()  
+        add_to_memory(original_input, result)  
+        return result  
+  
+    # COMANDOS DIRECTOS EXISTENTES (optimizados)  
     if user_input.startswith("abre "):  
         app_name = user_input.replace("abre ", "").strip()  
         result = open_application(app_name)  

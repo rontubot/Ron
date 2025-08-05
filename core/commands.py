@@ -3,6 +3,7 @@ import subprocess
 import webbrowser  
 import requests  
 import logging  
+import re  
 from config import WEATHER_API_KEY  
   
 # Configurar logging  
@@ -180,70 +181,129 @@ def suspend():
         logger.error(f"Error al suspender: {str(e)}")  
         return f"Error al suspender: {e}"  
   
-# Funciones de recordatorios del código local  
-def add_reminder(activity):  
-    """Función de recordatorios del código local funcional"""  
-    from core.memory import load_memory, save_memory  
-      
-    memory = load_memory()  
-      
-    # Convertir recordatorios en diccionario si es una lista  
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
-        memory["recordatorios"] = {}  
-      
-    # Dividir en título y descripción (si hay)  
-    parts = activity.split(":", 1)  
-    title = parts[0].strip().lower()  # Título del recordatorio  
-    description = parts[1].strip() if len(parts) > 1 else "(Sin descripción)"  
-      
-    memory["recordatorios"][title] = description  # Guardar en diccionario  
-    save_memory({"recordatorios": memory["recordatorios"]})  
-      
-    logger.info(f"Recordatorio agregado: {title} - {description}")  
-    return f"Recordatorio agregado: {title} - {description}."  
+# ===== NUEVAS FUNCIONES DE DIAGNÓSTICO Y REPARACIÓN =====  
   
-def get_reminders():  
-    """Función para obtener recordatorios del código local"""  
-    from core.memory import load_memory  
-      
-    memory = load_memory()  
-      
-    # Convertir a diccionario si es una lista  
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
-        memory["recordatorios"] = {}  
-      
-    if memory["recordatorios"]:  
-        result = "Tus recordatorios son:\\n" + "\\n".join(f"- {title}: {desc}" for title, desc in memory["recordatorios"].items())  
-        logger.info(f"Recordatorios obtenidos: {len(memory['recordatorios'])} items")  
+def diagnose_system_performance():  
+    """Diagnostica rendimiento del sistema"""  
+    try:  
+        logger.info("Iniciando diagnóstico de rendimiento del sistema")  
+          
+        # Verificar uso de CPU  
+        cpu_result = subprocess.run('wmic cpu get loadpercentage /value', shell=True, capture_output=True, text=True)  
+        cpu_usage = re.search(r'LoadPercentage=(\\d+)', cpu_result.stdout)  
+        cpu_percent = cpu_usage.group(1) if cpu_usage else 'N/A'  
+          
+        # Verificar memoria  
+        memory_result = subprocess.run('wmic OS get TotalVisibleMemorySize,FreePhysicalMemory /value', shell=True, capture_output=True, text=True)  
+        total_memory = re.search(r'TotalVisibleMemorySize=(\\d+)', memory_result.stdout)  
+        free_memory = re.search(r'FreePhysicalMemory=(\\d+)', memory_result.stdout)  
+          
+        if total_memory and free_memory:  
+            total_mb = int(total_memory.group(1)) // 1024  
+            free_mb = int(free_memory.group(1)) // 1024  
+            used_percent = ((total_mb - free_mb) / total_mb) * 100  
+            memory_status = f"Memoria: {used_percent:.1f}% en uso ({free_mb}MB libres de {total_mb}MB)"  
+        else:  
+            memory_status = "Memoria: No se pudo obtener información"  
+          
+        # Verificar espacio en disco  
+        disk_result = subprocess.run('wmic logicaldisk get size,freespace,caption /value', shell=True, capture_output=True, text=True)  
+          
+        result = f"CPU: {cpu_percent}% de uso. {memory_status}. Diagnóstico completado."  
+        logger.info(f"Diagnóstico completado: {result}")  
         return result  
-      
-    logger.info("No hay recordatorios pendientes")  
-    return "No tienes recordatorios pendientes."  
+          
+    except Exception as e:  
+        logger.error(f"Error en diagnóstico de rendimiento: {str(e)}")  
+        return f"Error al diagnosticar el sistema: {e}"  
   
-def remove_reminder(activity):  
-    """Función para eliminar recordatorios del código local"""  
-    from core.memory import load_memory, save_memory  
-      
-    memory = load_memory()  
-      
-    # Convertir a diccionario si es una lista  
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
-        memory["recordatorios"] = {}  
-      
-    title = activity.strip().lower()  
-      
-    # Búsqueda flexible  
-    matches = [key for key in memory["recordatorios"] if title in key]  
-      
-    if len(matches) == 1:  
-        removed_title = matches[0]  
-        removed_desc = memory["recordatorios"].pop(removed_title)  
-        save_memory({"recordatorios": memory["recordatorios"]})  
-        logger.info(f"Recordatorio eliminado: {removed_title}")  
-        return f"Recordatorio '{removed_title}' eliminado."  
-    elif len(matches) > 1:  
-        logger.warning(f"Múltiples recordatorios encontrados para: {title}")  
-        return "Hay múltiples recordatorios similares. Dime el título exacto."  
-    else:  
-        logger.warning(f"No se encontró recordatorio para: {title}")  
-        return "No encontré un recordatorio con ese título."
+def check_system_services():  
+    """Verifica servicios críticos del sistema"""  
+    try:  
+        logger.info("Verificando servicios críticos del sistema")  
+        critical_services = ['Spooler', 'Themes', 'AudioSrv', 'BITS', 'Dhcp', 'Dnscache']  
+        results = []  
+        problems = []  
+          
+        for service in critical_services:  
+            try:  
+                result = subprocess.run(f'sc query "{service}"', shell=True, capture_output=True, text=True)  
+                if "RUNNING" in result.stdout:  
+                    results.append(f"{service}: OK")  
+                else:  
+                    results.append(f"{service}: PROBLEMA")  
+                    problems.append(service)  
+            except:  
+                results.append(f"{service}: ERROR")  
+                problems.append(service)  
+          
+        status = "Servicios verificados: " + ", ".join(results)  
+        if problems:  
+            status += f". Servicios con problemas detectados: {', '.join(problems)}"  
+          
+        logger.info(f"Verificación de servicios completada: {len(problems)} problemas encontrados")  
+        return status  
+          
+    except Exception as e:  
+        logger.error(f"Error verificando servicios: {str(e)}")  
+        return f"Error al verificar servicios: {e}"  
+  
+def restart_critical_services():  
+    """Reinicia servicios críticos que están parados"""  
+    try:  
+        logger.info("Reiniciando servicios críticos")  
+        critical_services = ['Spooler', 'Themes', 'AudioSrv', 'BITS']  
+        restarted = []  
+          
+        for service in critical_services:  
+            try:  
+                # Verificar estado actual  
+                check_result = subprocess.run(f'sc query "{service}"', shell=True, capture_output=True, text=True)  
+                if "RUNNING" not in check_result.stdout:  
+                    # Intentar reiniciar  
+                    stop_result = subprocess.run(f'net stop "{service}"', shell=True, capture_output=True, text=True)  
+                    start_result = subprocess.run(f'net start "{service}"', shell=True, capture_output=True, text=True)  
+                    if start_result.returncode == 0:  
+                        restarted.append(service)  
+                        logger.info(f"Servicio {service} reiniciado exitosamente")  
+            except Exception as e:  
+                logger.warning(f"No se pudo reiniciar {service}: {e}")  
+          
+        if restarted:  
+            return f"Servicios reiniciados: {', '.join(restarted)}"  
+        else:  
+            return "No fue necesario reiniciar servicios o no se pudieron reiniciar"  
+              
+    except Exception as e:  
+        logger.error(f"Error reiniciando servicios: {str(e)}")  
+        return f"Error al reiniciar servicios: {e}"  
+  
+def clean_temp_files():  
+    """Limpia archivos temporales del sistema"""  
+    try:  
+        logger.info("Iniciando limpieza de archivos temporales")  
+          
+        # Limpiar archivos temporales del usuario  
+        temp_result = subprocess.run('del /q /f /s "%temp%\\\\*" 2>nul', shell=True, capture_output=True, text=True)  
+          
+        # Limpiar archivos temporales del sistema  
+        system_temp_result = subprocess.run('del /q /f /s "C:\\\\Windows\\\\Temp\\\\*" 2>nul', shell=True, capture_output=True, text=True)  
+          
+        # Limpiar papelera de reciclaje  
+        recycle_result = subprocess.run('rd /s /q "%systemdrive%\\\\$Recycle.bin" 2>nul', shell=True, capture_output=True, text=True)  
+          
+        logger.info("Limpieza de archivos temporales completada")  
+        return "Archivos temporales limpiados. Se liberó espacio en disco."  
+          
+    except Exception as e:  
+        logger.error(f"Error limpiando archivos temporales: {str(e)}")  
+        return f"Error al limpiar archivos temporales: {e}"  
+  
+def flush_dns():  
+    """Limpia la caché DNS"""  
+    try:  
+        logger.info  
+  
+Wiki pages you might want to explore:  
+- [Overview (rontubot/Ron)](/wiki/rontubot/Ron#1)  
+- [Core System Architecture (rontubot/Ron)](/wiki/rontubot/Ron#2)
