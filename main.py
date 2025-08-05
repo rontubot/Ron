@@ -1,74 +1,79 @@
+import speech_recognition as sr
+import pyttsx3
+import requests
 import os
-from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
-from dotenv import load_dotenv
-import openai
 import re
-from core.memory import load_memory, add_to_memory
-from core.assistant import generate_response
 
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# URL por defecto de la API de Ron (puedes cambiarla si usas local o desarrollo)
+RON_API_URL = os.getenv("RON_API_URL", "https://ron-production.up.railway.app/ron")
 
-app = FastAPI()
+# Configuración del motor de voz
+engine = pyttsx3.init()
+engine.setProperty('rate', 150)
+voices = engine.getProperty('voices')
+for v in voices:
+    if 'spanish' in getattr(v, 'name', '').lower() or 'es' in getattr(v, 'id', '').lower():
+        engine.setProperty('voice', v.id)
+        break
 
-class UserInput(BaseModel):
-    text: str
-
-# ✅ ESTA función debe ir antes del endpoint
-def detect_farewell_in_api(text: str) -> bool:
-    farewells = [
-        "hasta luego", "adiós", "nos vemos", "chau",
-        "me voy", "cerrar sesión", "hasta pronto",
-        "bye", "see you", "goodbye"
-    ]
-    return any(farewell in text for farewell in farewells)
-
-@app.get("/")
-def read_root():
-    return {"message": "Ron API está corriendo"}
-
-@app.post("/ron")
-def chat_with_ron(data: UserInput):
-    text = data.text.strip().lower()
-
-    if detect_farewell_in_api(text):
-        response = "Hasta luego. Que tengas un buen día."
-        try:
-            add_to_memory(data.text, response)
-        except:
-            pass
-        return {"ron": response, "shutdown": True}
-
+def transcribe_speech():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("🎤 Habla ahora...")
+        recognizer.adjust_for_ambient_noise(source)
+        audio = recognizer.listen(source)
     try:
-        ron_response = generate_response(text)
-        return {"ron": ron_response}
-    except Exception as e:
-        return {"error": str(e)}
+        text = recognizer.recognize_google(audio, language="es")
+        print(f"🗣 Tú: {text}")
+        return text.lower()
+    except:
+        return ""
 
-@app.get("/github-token", response_class=PlainTextResponse)
-def get_github_token():
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        return PlainTextResponse("Token no configurado", status_code=404)
-    return token
+def detect_ron_activation(text):
+    text_lower = text.lower().strip()
+    return re.search(r'\bron\b', text_lower) is not None
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-@app.get("/memory-status")
-def memory_status():
+def talk_to_ron(text):
     try:
-        memory = load_memory()
-        conversations_count = len(memory.get("conversaciones", []))
-        reminders_count = len(memory.get("recordatorios", {}))
-        return {
-            "status": "ok",
-            "conversations": conversations_count,
-            "reminders": reminders_count,
-            "device_id": memory.get("datos", {}).get("device_id", "unknown")
-        }
+        resp = requests.post(RON_API_URL, json={"text": text})
+        if resp.ok:
+            response_data = resp.json()
+            ron = response_data.get("ron", "No entendí.")
+            print(f"🤖 Ron: {ron}")
+            engine.say(ron)
+            engine.runAndWait()
+
+            # 🔴 Si la API indica que se debe desconectar
+            if response_data.get("shutdown") is True:
+                return True
+        else:
+            print("❌ Error al contactar con Ron")
+            engine.say("No puedo comunicarme con el servidor.")
+            engine.runAndWait()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"❌ {e}")
+        engine.say("Ocurrió un error al intentar responderte.")
+        engine.runAndWait()
+    return False
+
+# 🔁 Loop principal
+if __name__ == "__main__":
+    print("🟢 Di 'Ron' para activarme.")
+    activado = False
+
+    while True:
+        texto = transcribe_speech()
+
+        # Activación por palabra clave
+        if not activado and detect_ron_activation(texto):
+            activado = True
+            print("✅ Ron activado")
+            engine.say("Hola, ¿en qué puedo ayudarte?")
+            engine.runAndWait()
+            continue
+
+        if activado and texto:
+            should_shutdown = talk_to_ron(texto)
+            if should_shutdown:
+                activado = False
+                print("🔴 Ron desconectado")
