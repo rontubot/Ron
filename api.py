@@ -29,7 +29,6 @@ def read_root():
 def chat_with_ron(data: UserInput):
     text = data.text.strip().lower()
 
-    # ✅ Detectar despedida
     if detect_farewell_in_api(text):
         response = "Hasta luego. Que tengas un buen día."
         try:
