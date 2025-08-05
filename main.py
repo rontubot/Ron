@@ -46,22 +46,14 @@ def chat_with_ron(data: UserInput):
     text = data.text.strip().lower()  
       
     # Detección amplia de despedidas - DESACTIVA EL BOT  
-    if detect_farewell_in_api(text):  
-        response = "Hasta luego. Que tengas un buen día."  
-        # Guardar despedida en memoria antes de desactivar  
-        try:  
-            add_to_memory(data.text, response)  
-        except:  
-            pass  
-          
-        # Solo responder, NO apagar el servidor  
-        return {"ron": response, "disconnected": True}  
-      
-    try:  
-        ron_response = generate_response(text)  
-        return {"ron": ron_response}  
-    except Exception as e:  
-        return {"error": str(e)}
+def detect_farewell_in_api(text: str) -> bool:
+    farewells = [
+        "hasta luego", "adiós", "nos vemos", "chau", 
+        "me voy", "cerrar sesión", "hasta pronto", 
+        "bye", "see you", "goodbye"
+    ]
+    return any(farewell in text for farewell in farewells)
+
   
 @app.get("/github-token", response_class=PlainTextResponse)  
 def get_github_token():  
