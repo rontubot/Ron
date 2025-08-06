@@ -497,6 +497,14 @@ def handle_local_commands(text):
         engine.say(result)  
         engine.runAndWait()  
         return True  
+    
+    if any(cmd in text for cmd in ["reinicia red", "reinicia driver de red", "arregla driver"]):  
+        result = network_reset()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True
+
 
     return False  
 
@@ -544,12 +552,6 @@ if __name__ == "__main__":
                   
                 # Si no es comando local, enviar al servidor  
                 should_shutdown = talk_to_ron(txt)  
-                if any(cmd in text for cmd in ["reinicia red", "reinicia driver de red", "arregla driver"]):  
-    			result = network_reset()  
-    			print(f"🤖 Ron: {result}")  
-    			engine.say(result)  
-    			engine.runAndWait()  
-    				return True
                 if should_shutdown:  
                     activado = False  
                     print("🔴 Ron desconectado")
