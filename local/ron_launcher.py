@@ -306,17 +306,49 @@ def clean_temp_files():
         logger.error(f"Error limpiando archivos temporales: {str(e)}")  
         return f"Error al limpiar archivos temporales: {e}"  
   
+ 
+def network_reset():
+    """Reinicia adaptadores de red"""  
+    try:  
+        logger.info("Reiniciando adaptadores de red")  
+        print("🔧 Reiniciando adaptadores de red...")  
+          
+        # Reiniciar adaptador de red  
+        reset_result = subprocess.run('netsh winsock reset', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado netsh winsock reset: {reset_result.stdout.strip()}")  
+          
+        # Renovar IP  
+        release_result = subprocess.run('ipconfig /release', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado ipconfig /release: {release_result.stdout.strip()}")  
+          
+        renew_result = subprocess.run('ipconfig /renew', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado ipconfig /renew: {renew_result.stdout.strip()}")  
+          
+        logger.info("Adaptadores de red reiniciados")  
+        return "Adaptadores de red reiniciados. Reinicia la computadora para aplicar cambios."  
+          
+    except Exception as e:  
+        logger.error(f"Error reiniciando red: {str(e)}")  
+        return f"Error al reiniciar red: {e}"
+  
 def flush_dns():  
     """Limpia la caché DNS"""  
     try:  
         logger.info("Limpiando caché DNS")  
+        print("🔧 Limpiando caché DNS...")  
+          
         result = subprocess.run('ipconfig /flushdns', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado del comando: {result.stdout.strip()}")  
+          
         logger.info("Caché DNS limpiada exitosamente")  
         return "Caché DNS limpiada. Problemas de conexión resueltos."  
     except Exception as e:  
         logger.error(f"Error limpiando DNS: {str(e)}")  
-        return f"Error al limpiar DNS: {e}"  
+        return f"Error al limpiar DNS: {e}"
   
+
+
+
 def handle_local_commands(text):  
     """Maneja comandos localmente antes de enviar al servidor"""  
     original_text = text  
@@ -465,9 +497,11 @@ def handle_local_commands(text):
         engine.say(result)  
         engine.runAndWait()  
         return True  
-      
+
     return False  
-  
+
+   
+
 def talk_to_ron(text):  
     """Envía texto al servidor solo si no es un comando local"""  
     try:  
@@ -510,6 +544,12 @@ if __name__ == "__main__":
                   
                 # Si no es comando local, enviar al servidor  
                 should_shutdown = talk_to_ron(txt)  
+                if any(cmd in text for cmd in ["reinicia red", "reinicia driver de red", "arregla driver"]):  
+    			result = network_reset()  
+    			print(f"🤖 Ron: {result}")  
+    			engine.say(result)  
+    			engine.runAndWait()  
+    				return True
                 if should_shutdown:  
                     activado = False  
                     print("🔴 Ron desconectado")
