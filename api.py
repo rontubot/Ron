@@ -1,74 +1,555 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from fastapi.responses import PlainTextResponse
-import os
-import openai
-from dotenv import load_dotenv
-from core.memory import load_memory, add_to_memory
-from core.assistant import generate_response
+import speech_recognition as sr  
+import pyttsx3  
+import requests  
+import json  
+import re  
+import subprocess  
+import sys  
+import os  
+import webbrowser  
+import logging  
+  
+# Silenciar logs de comtypes para reducir ruido  
+logging.getLogger('comtypes').setLevel(logging.WARNING)  
+  
+RON_API_URL = os.getenv("RON_API_URL", "https://ron-production.up.railway.app/ron")  
+  
+# Configurar logging para debugging  
+logging.basicConfig(level=logging.INFO)  
+logger = logging.getLogger(__name__)  
+  
+engine = pyttsx3.init()  
+engine.setProperty('rate', 150)  
+voices = engine.getProperty('voices')  
+for v in voices:  
+    if 'spanish' in getattr(v, 'name', '').lower() or 'es' in getattr(v, 'id', '').lower():  
+        engine.setProperty('voice', v.id)  
+        break  
+  
+# Diccionario de aplicaciones web  
+web_apps = {  
+    "youtube": "https://www.youtube.com",  
+    "google": "https://www.google.com",  
+    "facebook": "https://www.facebook.com",  
+    "instagram": "https://www.instagram.com",  
+    "twitter": "https://www.twitter.com",  
+    "tiktok": "https://www.tiktok.com",  
+    "whatsapp": "https://web.whatsapp.com",  
+    "linkedin": "https://www.linkedin.com",  
+    "spotify": "https://open.spotify.com",  
+    "netflix": "https://www.netflix.com"  
+}  
+  
+def transcribe_speech():  
+    r = sr.Recognizer()  
+    with sr.Microphone() as source:  
+        print("🎤 Habla ahora...")  
+        r.adjust_for_ambient_noise(source)  
+        audio = r.listen(source)  
+    try:  
+        text = r.recognize_google(audio, language="es")  
+        print(f"🗣 Tú: {text}")  
+        return text.lower()  
+    except:  
+        return ""  
+  
+def detect_ron_activation(text):
+    """Detección simple y efectiva como en el repositorio Ron"""
+    text_lower = text.lower().strip()
 
-load_dotenv()
+    # Detección directa más simple
+    if 'ron' in text_lower:
+        # Verificar que sea palabra completa
+        if re.search(r'\bron\b', text_lower):
+            return True
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+    return False
+  
+# Funciones de control de PC y diagnóstico (basadas en core/commands.py)  
+def open_application(app_name):  
+    """Función para abrir aplicaciones localmente"""  
+    try:  
+        app_name_clean = app_name.lower().strip()  
+        logger.info(f"Intentando abrir aplicación: {app_name_clean}")  
+          
+        # Buscar en aplicaciones web primero  
+        if app_name_clean in web_apps:  
+            webbrowser.open(web_apps[app_name_clean])  
+            logger.info(f"Abriendo {app_name_clean} en navegador")  
+            return f"Abriendo {app_name.capitalize()} en el navegador."  
+          
+        # Buscar coincidencias parciales en web apps  
+        for key, url in web_apps.items():  
+            if key in app_name_clean or app_name_clean in key:  
+                webbrowser.open(url)  
+                logger.info(f"Abriendo {key} en navegador (coincidencia parcial)")  
+                return f"Abriendo {key.capitalize()} en el navegador."  
+          
+        # Intentar abrir aplicación local  
+        cmd = f'start "" "{app_name}"'  
+        logger.info(f"Ejecutando comando: {cmd}")  
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)  
+          
+        if result.returncode == 0:  
+            logger.info(f"Aplicación {app_name} abierta exitosamente")  
+            return f"Abriendo {app_name}."  
+        else:  
+            logger.error(f"Error al abrir {app_name}: {result.stderr}")  
+            return f"Intentando abrir {app_name}."  
+              
+    except Exception as e:  
+        logger.error(f"Excepción al abrir {app_name}: {str(e)}")  
+        return f"No pude abrir {app_name}: {e}"  
+  
+def close_application(app_name):  
+    """Función para cerrar aplicaciones localmente"""  
+    try:  
+        process_name = app_name.lower() + ".exe"  
+        logger.info(f"Intentando cerrar proceso: {process_name}")  
+        result = subprocess.run(f'taskkill /F /IM {process_name}', shell=True, capture_output=True, text=True)  
+          
+        if "ERROR" in result.stdout:  
+            logger.warning(f"No se encontró el proceso {app_name}")  
+            return f"No se encontró el proceso {app_name}."  
+          
+        logger.info(f"Proceso {app_name} cerrado exitosamente")  
+        return f"Cerrando {app_name}."  
+    except Exception as e:  
+        logger.error(f"Error al cerrar {app_name}: {str(e)}")  
+        return f"Error al cerrar {app_name}: {e}"  
+  
+def search_google(query):  
+    """Función para búsquedas en Google"""  
+    try:  
+        url = f"https://www.google.com/search?q={query.replace(' ', '+')}"  
+        webbrowser.open(url)  
+        logger.info(f"Búsqueda en Google ejecutada: {query}")  
+        return f"Buscando en Google: {query}"  
+    except Exception as e:  
+        logger.error(f"Error al buscar en Google: {str(e)}")  
+        return f"Error al buscar en Google: {e}"  
+  
+def search_youtube(query, play_video=False):  
+    """Función para búsquedas en YouTube"""  
+    try:  
+        if play_video:  
+            # Intentar usar youtube-search para reproducir video específico  
+            try:  
+                from youtube_search import YoutubeSearch  
+                logger.info(f"Buscando video para reproducir: {query}")  
+                results = YoutubeSearch(query, max_results=1).to_dict()  
+                if results:  
+                    video_id = results[0]["id"]  
+                    video_url = f"https://www.youtube.com/watch?v={video_id}"  
+                    webbrowser.open(video_url)  
+                    logger.info(f"Video reproducido: {video_url}")  
+                    return f"Reproduciendo {query} en YouTube."  
+                else:  
+                    logger.warning(f"No se encontraron resultados para: {query}")  
+                    return "No encontré resultados para eso en YouTube."  
+            except ImportError:  
+                logger.warning("youtube-search no disponible, usando búsqueda normal")  
+                # Fallback a búsqueda normal  
+                url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"  
+                webbrowser.open(url)  
+                return f"Buscando en YouTube: {query}"  
+        else:  
+            # Búsqueda normal en YouTube  
+            url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"  
+            webbrowser.open(url)  
+            logger.info(f"Búsqueda en YouTube ejecutada: {query}")  
+            return f"Buscando en YouTube: {query}"  
+              
+    except Exception as e:  
+        logger.error(f"Error al buscar en YouTube: {str(e)}")  
+        return f"Error al buscar en YouTube: {e}"  
+  
+def shutdown():  
+    """Función para apagar el sistema"""  
+    try:  
+        logger.info("Ejecutando comando de apagado")  
+        os.system("shutdown /s /t 1")  
+        return "Apagando la computadora..."  
+    except Exception as e:  
+        logger.error(f"Error al apagar: {str(e)}")  
+        return f"Error al apagar: {e}"  
+  
+def restart():  
+    """Función para reiniciar el sistema"""  
+    try:  
+        logger.info("Ejecutando comando de reinicio")  
+        os.system("shutdown /r /t 1")  
+        return "Reiniciando la computadora..."  
+    except Exception as e:  
+        logger.error(f"Error al reiniciar: {str(e)}")  
+        return f"Error al reiniciar: {e}"  
+  
+def suspend():  
+    """Función para suspender el sistema"""  
+    try:  
+        logger.info("Ejecutando comando de suspensión")  
+        os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")  
+        return "Suspendiendo la computadora..."  
+    except Exception as e:  
+        logger.error(f"Error al suspender: {str(e)}")  
+        return f"Error al suspender: {e}"  
+  
+# ===== NUEVAS FUNCIONES DE DIAGNÓSTICO LOCAL =====  
+  
+def diagnose_system_performance():  
+    """Diagnostica rendimiento del sistema localmente"""  
+    try:  
+        logger.info("Iniciando diagnóstico de rendimiento del sistema")  
+          
+        # Verificar uso de CPU  
+        cpu_result = subprocess.run('wmic cpu get loadpercentage /value', shell=True, capture_output=True, text=True)  
+        cpu_usage = re.search(r'LoadPercentage=(\\d+)', cpu_result.stdout)  
+        cpu_percent = cpu_usage.group(1) if cpu_usage else 'N/A'  
+          
+        # Verificar memoria  
+        memory_result = subprocess.run('wmic OS get TotalVisibleMemorySize,FreePhysicalMemory /value', shell=True, capture_output=True, text=True)  
+        total_memory = re.search(r'TotalVisibleMemorySize=(\\d+)', memory_result.stdout)  
+        free_memory = re.search(r'FreePhysicalMemory=(\\d+)', memory_result.stdout)  
+          
+        if total_memory and free_memory:  
+            total_mb = int(total_memory.group(1)) // 1024  
+            free_mb = int(free_memory.group(1)) // 1024  
+            used_percent = ((total_mb - free_mb) / total_mb) * 100  
+            memory_status = f"Memoria: {used_percent:.1f}% en uso ({free_mb}MB libres de {total_mb}MB)"  
+        else:  
+            memory_status = "Memoria: No se pudo obtener información"  
+          
+        result = f"CPU: {cpu_percent}% de uso. {memory_status}. Diagnóstico completado."  
+        logger.info(f"Diagnóstico completado: {result}")  
+        return result  
+          
+    except Exception as e:  
+        logger.error(f"Error en diagnóstico de rendimiento: {str(e)}")  
+        return f"Error al diagnosticar el sistema: {e}"  
+  
+def check_system_services():  
+    """Verifica servicios críticos del sistema localmente"""  
+    try:  
+        logger.info("Verificando servicios críticos del sistema")  
+        critical_services = ['Spooler', 'Themes', 'AudioSrv', 'BITS', 'Dhcp', 'Dnscache']  
+        results = []  
+        problems = []  
+          
+        for service in critical_services:  
+            try:  
+                result = subprocess.run(f'sc query "{service}"', shell=True, capture_output=True, text=True)  
+                if "RUNNING" in result.stdout:  
+                    results.append(f"{service}: OK")  
+                else:  
+                    results.append(f"{service}: PROBLEMA")  
+                    problems.append(service)  
+            except:  
+                results.append(f"{service}: ERROR")  
+                problems.append(service)  
+          
+        status = "Servicios verificados: " + ", ".join(results)  
+        if problems:  
+            status += f". Servicios con problemas detectados: {', '.join(problems)}"  
+          
+        logger.info(f"Verificación de servicios completada: {len(problems)} problemas encontrados")  
+        return status  
+          
+    except Exception as e:  
+        logger.error(f"Error verificando servicios: {str(e)}")  
+        return f"Error al verificar servicios: {e}"  
+  
+def restart_critical_services():  
+    """Reinicia servicios críticos que están parados"""  
+    try:  
+        logger.info("Reiniciando servicios críticos")  
+        critical_services = ['Spooler', 'Themes', 'AudioSrv', 'BITS']  
+        restarted = []  
+          
+        for service in critical_services:  
+            try:  
+                # Verificar estado actual  
+                check_result = subprocess.run(f'sc query "{service}"', shell=True, capture_output=True, text=True)  
+                if "RUNNING" not in check_result.stdout:  
+                    # Intentar reiniciar  
+                    stop_result = subprocess.run(f'net stop "{service}"', shell=True, capture_output=True, text=True)  
+                    start_result = subprocess.run(f'net start "{service}"', shell=True, capture_output=True, text=True)  
+                    if start_result.returncode == 0:  
+                        restarted.append(service)  
+                        logger.info(f"Servicio {service} reiniciado exitosamente")  
+            except Exception as e:  
+                logger.warning(f"No se pudo reiniciar {service}: {e}")  
+          
+        if restarted:  
+            return f"Servicios reiniciados: {', '.join(restarted)}"  
+        else:  
+            return "No fue necesario reiniciar servicios o no se pudieron reiniciar"  
+              
+    except Exception as e:  
+        logger.error(f"Error reiniciando servicios: {str(e)}")  
+        return f"Error al reiniciar servicios: {e}"  
+  
+def clean_temp_files():  
+    """Limpia archivos temporales del sistema"""  
+    try:  
+        logger.info("Iniciando limpieza de archivos temporales")  
+          
+        # Limpiar archivos temporales del usuario  
+        temp_result = subprocess.run('del /q /f /s "%temp%\\\\*" 2>nul', shell=True, capture_output=True, text=True)  
+          
+        # Limpiar archivos temporales del sistema  
+        system_temp_result = subprocess.run('del /q /f /s "C:\\\\Windows\\\\Temp\\\\*" 2>nul', shell=True, capture_output=True, text=True)  
+          
+        logger.info("Limpieza de archivos temporales completada")  
+        return "Archivos temporales limpiados. Se liberó espacio en disco."  
+          
+    except Exception as e:  
+        logger.error(f"Error limpiando archivos temporales: {str(e)}")  
+        return f"Error al limpiar archivos temporales: {e}"  
+  
+ 
+def network_reset():
+    """Reinicia adaptadores de red"""  
+    try:  
+        logger.info("Reiniciando adaptadores de red")  
+        print("🔧 Reiniciando adaptadores de red...")  
+          
+        # Reiniciar adaptador de red  
+        reset_result = subprocess.run('netsh winsock reset', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado netsh winsock reset: {reset_result.stdout.strip()}")  
+          
+        # Renovar IP  
+        release_result = subprocess.run('ipconfig /release', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado ipconfig /release: {release_result.stdout.strip()}")  
+          
+        renew_result = subprocess.run('ipconfig /renew', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado ipconfig /renew: {renew_result.stdout.strip()}")  
+          
+        logger.info("Adaptadores de red reiniciados")  
+        return "Adaptadores de red reiniciados. Reinicia la computadora para aplicar cambios."  
+          
+    except Exception as e:  
+        logger.error(f"Error reiniciando red: {str(e)}")  
+        return f"Error al reiniciar red: {e}"
+  
+def flush_dns():  
+    """Limpia la caché DNS"""  
+    try:  
+        logger.info("Limpiando caché DNS")  
+        print("🔧 Limpiando caché DNS...")  
+          
+        result = subprocess.run('ipconfig /flushdns', shell=True, capture_output=True, text=True)  
+        print(f"📋 Resultado del comando: {result.stdout.strip()}")  
+          
+        logger.info("Caché DNS limpiada exitosamente")  
+        return "Caché DNS limpiada. Problemas de conexión resueltos."  
+    except Exception as e:  
+        logger.error(f"Error limpiando DNS: {str(e)}")  
+        return f"Error al limpiar DNS: {e}"
+  
 
-app = FastAPI()
 
-class UserInput(BaseModel):
-    text: str
 
-# ✅ Detección de despedida
-def detect_farewell_in_api(text: str) -> bool:
-    farewells = [
-        "hasta luego", "adiós", "nos vemos", "chau",
-        "me voy", "cerrar sesión", "hasta pronto",
-        "bye", "see you", "goodbye"
-    ]
-    return any(farewell in text for farewell in farewells)
+def handle_local_commands(text):  
+    """Maneja comandos localmente antes de enviar al servidor"""  
+    original_text = text  
+    text = text.lower().strip()  
+      
+    # DETECCIÓN AUTOMÁTICA DE PROBLEMAS DEL SISTEMA  
+    problem_keywords = ["lento", "problema", "no funciona", "error", "falla", "se cuelga", "no responde",   
+                       "muy lento", "se traba", "no abre", "no carga", "internet no funciona",   
+                       "no puedo imprimir", "no hay sonido", "pantalla azul"]  
+      
+    if any(keyword in text for keyword in problem_keywords):  
+        logger.info("🔧 Problema del sistema detectado - Iniciando diagnóstico automático")  
+          
+        # Ejecutar diagnóstico automático  
+        diagnostic_result = diagnose_system_performance()  
+        services_result = check_system_services()  
+          
+        # Analizar resultados y proponer solución  
+        analysis = f"He diagnosticado tu sistema automáticamente. {diagnostic_result} {services_result}"  
+          
+        # Ejecutar reparación automática si es necesario  
+        repairs_made = []  
+          
+        if "PROBLEMA" in services_result or "ERROR" in services_result:  
+            repair_result = restart_critical_services()  
+            repairs_made.append(repair_result)  
+            analysis += f" He reparado los servicios problemáticos: {repair_result}"  
+          
+        # Si hay problemas de rendimiento, limpiar archivos temporales  
+        if "CPU:" in diagnostic_result and any(word in text for word in ["lento", "se traba"]):  
+            clean_result = clean_temp_files()  
+            repairs_made.append(clean_result)  
+            analysis += f" También limpié archivos temporales para mejorar el rendimiento: {clean_result}"  
+          
+        # Si hay problemas de internet, limpiar DNS  
+        if any(word in text for word in ["internet", "conexión", "red", "wifi"]):  
+            dns_result = flush_dns()  
+            repairs_made.append(dns_result)  
+            analysis += f" Limpié la caché DNS para resolver problemas de conexión: {dns_result}"  
+          
+        if repairs_made:  
+            analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."  
+          
+        print(f"🤖 Ron: {analysis}")  
+        engine.say(analysis)  
+        engine.runAndWait()  
+        return True  
+  
+    # COMANDOS DE DIAGNÓSTICO EXPLÍCITOS  
+    if any(cmd in text for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):  
+        result = diagnose_system_performance()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+  
+    if any(cmd in text for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):  
+        result = check_system_services()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+  
+    if any(cmd in text for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):  
+        result = restart_critical_services()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+  
+    if any(cmd in text for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):  
+        result = clean_temp_files()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+  
+    if any(cmd in text for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):  
+        result = flush_dns()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    # Comandos de abrir aplicaciones  
+    if text.startswith("abre "):  
+        app_name = text.replace("abre ", "").strip()  
+        result = open_application(app_name)  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    # Comandos de cerrar aplicaciones  
+    if text.startswith("cierra "):  
+        app_name = text.replace("cierra ", "").strip()  
+        result = close_application(app_name)  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    # Comandos de búsqueda  
+    if text.startswith("investiga "):  
+        query = text.replace("investiga ", "").strip()  
+        result = search_google(query)  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    if text.startswith("youtube "):  
+        query = text.replace("youtube ", "").strip()  
+        result = search_youtube(query)  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    if text.startswith("reproducir ") or text.startswith("reproduce "):  
+        query = text.replace("reproducir ", "").replace("reproduce ", "").strip()  
+        result = search_youtube(f"música {query}", play_video=True)  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    # Comandos de sistema  
+    if "apaga la computadora" in text or "apaga el sistema" in text:  
+        result = shutdown()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    if "reinicia la computadora" in text or "reinicia el sistema" in text:  
+        result = restart()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
+      
+    if "suspende la computadora" in text or "suspende el sistema" in text:  
+        result = suspend()  
+        print(f"🤖 Ron: {result}")  
+        engine.say(result)  
+        engine.runAndWait()  
+        return True  
 
-@app.get("/")
-def read_root():
-    return {"message": "Ron API está corriendo"}
+    return False  
 
-@app.post("/ron")
-def chat_with_ron(data: UserInput):
-    text = data.text.strip().lower()
+   
 
-    if detect_farewell_in_api(text):
-        response = "Hasta luego. Que tengas un buen día."
-        try:
-            add_to_memory(data.text, response)
-        except:
-            pass
-        return {"ron": response, "shutdown": True}
-
-    try:
-        ron_response = generate_response(text)
-        return {"ron": ron_response}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/github-token", response_class=PlainTextResponse)
-def get_github_token():
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        return PlainTextResponse("Token no configurado", status_code=404)
-    return token
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-@app.get("/memory-status")
-def memory_status():
-    try:
-        memory = load_memory()
-        conversations_count = len(memory.get("conversaciones", []))
-        reminders_count = len(memory.get("recordatorios", {}))
-        return {
-            "status": "ok",
-            "conversations": conversations_count,
-            "reminders": reminders_count,
-            "device_id": memory.get("datos", {}).get("device_id", "unknown")
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+def talk_to_ron(text):  
+    """Envía texto al servidor solo si no es un comando local"""  
+    try:  
+        resp = requests.post(RON_API_URL, json={"text": text})  
+        if resp.ok:  
+            response_data = resp.json()  
+            ron = response_data.get("ron")  
+            print(f"🤖 Ron: {ron}")  
+            engine.say(ron)  
+            engine.runAndWait()  
+              
+            # Verificar si el servidor envía señal de shutdown  
+            if response_data.get("shutdown"):  
+                return True  # Señal para terminar  
+        else:  
+            print("❌ Error al contactar con Ron")  
+    except Exception as e:  
+        print(f"❌ {e}")  
+    return False  
+  
+if __name__ == "__main__":  
+    print("🟢 Di 'Ron' para activarme.")  
+    activado = False  
+    while True:  
+        txt = transcribe_speech()  
+          
+        # Detección robusta de activación usando límites de palabra  
+        if not activado and detect_ron_activation(txt):  
+            activado = True  
+            print("✅ Ron activado")  
+            engine.say("Hola, ¿en qué puedo ayudarte?")  
+            engine.runAndWait()  
+            continue  
+              
+        if activado:  
+            if txt:  
+                # Primero intentar manejar comandos localmente  
+                if handle_local_commands(txt):  
+                    continue  # Comando manejado localmente, no enviar al servidor  
+                  
+                # Si no es comando local, enviar al servidor  
+                should_shutdown = talk_to_ron(txt)  
+                if any(cmd in text for cmd in ["reinicia red", "reinicia driver de red", "arregla driver"]):  
+    			result = network_reset()  
+    			print(f"🤖 Ron: {result}")  
+    			engine.say(result)  
+    			engine.runAndWait()  
+    				return True
+                if should_shutdown:  
+                    activado = False  
+                    print("🔴 Ron desconectado")
