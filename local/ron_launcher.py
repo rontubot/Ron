@@ -41,17 +41,18 @@ web_apps = {
 }  
   
 def transcribe_speech():  
-    r = sr.Recognizer()  
+    recognizer = sr.Recognizer()  
+    recognizer.pause_threshold = 1.5  # Aumentar tiempo de silencio  
     with sr.Microphone() as source:  
         print("🎤 Habla ahora...")  
-        r.adjust_for_ambient_noise(source)  
-        audio = r.listen(source)  
+        recognizer.adjust_for_ambient_noise(source)  
+        audio = recognizer.listen(source, phrase_time_limit=8, timeout=10)  
     try:  
-        text = r.recognize_google(audio, language="es")  
+        text = recognizer.recognize_google(audio, language="es")  
         print(f"🗣 Tú: {text}")  
         return text.lower()  
     except:  
-        return ""  
+        return "" 
   
 def detect_ron_activation(text):
     """Detección simple y efectiva como en el repositorio Ron"""

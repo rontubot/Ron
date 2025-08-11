@@ -16,12 +16,13 @@ for v in voices:
         engine.setProperty('voice', v.id)
         break
 
-def transcribe_speech():
-    recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("🎤 Habla ahora...")
-        recognizer.adjust_for_ambient_noise(source)
-        audio = recognizer.listen(source)
+def transcribe_speech():  
+    recognizer = sr.Recognizer()  
+    recognizer.pause_threshold = 1.5  # Configurar ANTES de listen()  
+    with sr.Microphone() as source:  
+        print("🎤 Habla ahora...")  
+        recognizer.adjust_for_ambient_noise(source)  
+        audio = recognizer.listen(source, phrase_time_limit=8)  # Parámetro DENTRO de listen()
     try:
         text = recognizer.recognize_google(audio, language="es")
         print(f"🗣 Tú: {text}")
