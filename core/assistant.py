@@ -98,7 +98,7 @@ def responder_a_usuario(user_input):
         return response  
   
     # DETECCIÓN AUTOMÁTICA DE PROBLEMAS DEL SISTEMA  
-    problem_keywords = ["lento", "problema", "no funciona", "error", "falla", "se cuelga", "no responde",   
+    problem_keywords = ["problema en el sistema", "problema en la computadora","problema en la pc","problema en el equipo","no funciona", "error", "falla", "se cuelga", "no responde",   
                        "muy lento", "se traba", "no abre", "no carga", "internet no funciona",   
                        "no puedo imprimir", "no hay sonido", "pantalla azul"]  
       
