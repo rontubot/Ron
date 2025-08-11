@@ -40,19 +40,20 @@ web_apps = {
     "netflix": "https://www.netflix.com"  
 }  
   
-def transcribe_speech():  
-    recognizer = sr.Recognizer()  
-    recognizer.pause_threshold = 1.5  # Aumentar tiempo de silencio  
-    with sr.Microphone() as source:  
-        print("🎤 Habla ahora...")  
-        recognizer.adjust_for_ambient_noise(source)  
-        audio = recognizer.listen(source, phrase_time_limit=8, timeout=10)  
+def transcribe_speech():    
+    recognizer = sr.Recognizer()    
+    recognizer.pause_threshold = 2.0  # Aumentar a 2 segundos  
+    recognizer.energy_threshold = 4000  # Aumentar threshold de energía  
+    with sr.Microphone() as source:    
+        print("🎤 Habla ahora...")    
+        recognizer.adjust_for_ambient_noise(source, duration=2)  # Más tiempo de calibración  
+        audio = recognizer.listen(source, phrase_time_limit=10, timeout=15)  # Más tiempo  
     try:  
         text = recognizer.recognize_google(audio, language="es")  
         print(f"🗣 Tú: {text}")  
         return text.lower()  
     except:  
-        return "" 
+        return ""
   
 def detect_ron_activation(text):
     """Detección simple y efectiva como en el repositorio Ron"""
