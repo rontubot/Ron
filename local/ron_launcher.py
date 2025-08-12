@@ -594,17 +594,17 @@ if __name__ == "__main__":
                     engine.runAndWait()  
                     continue  
                   
-                if activado and txt:  
-                    # Manejar comandos como antes  
-                    if handle_local_commands(txt):  
-                        continue  
-                      
+                if activado and txt and listening_active:  # Añadir verificación de listening_active  
+    # Manejar comandos como antes  
+                if handle_local_commands(txt):  
+                    continue  
+      
                     should_shutdown = talk_to_ron(txt)  
-                    if should_shutdown:  
-                        activado = False  
-                        print("🔴 Ron desconectado")  
+                if should_shutdown:  
+                    activado = False  
+                print("🔴 Ron desconectado")
                           
-            except queue.Empty:  
+                except queue.Empty:  
                 continue  # No hay audio nuevo, continuar  
                   
     except KeyboardInterrupt:  
