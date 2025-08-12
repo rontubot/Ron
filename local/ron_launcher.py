@@ -534,24 +534,28 @@ def handle_local_commands(text):
    
 
 def talk_to_ron(text):  
-    """Envía texto al servidor solo si no es un comando local"""  
     try:  
         resp = requests.post(RON_API_URL, json={"text": text})  
         if resp.ok:  
             response_data = resp.json()  
-            ron = response_data.get("ron")  
+            ron = response_data.get("ron", "No entendí.")  
             print(f"🤖 Ron: {ron}")  
             engine.say(ron)  
             engine.runAndWait()  
+            # Esperar un momento adicional antes de reanudar  
+            time.sleep(1)  # Esta línea es la nueva adición  
               
-            # Verificar si el servidor envía señal de shutdown  
-            if response_data.get("shutdown"):  
-                return True  # Señal para terminar  
+            if response_data.get("shutdown") is True:  
+                return True  
         else:  
             print("❌ Error al contactar con Ron")  
+            engine.say("No puedo comunicarme con el servidor.")  
+            engine.runAndWait()  
     except Exception as e:  
         print(f"❌ {e}")  
-    return False  
+        engine.say("Ocurrió un error al intentar responderte.")  
+        engine.runAndWait()  
+    return False
   
 if __name__ == "__main__":  
     print("🟢 Di 'Ron' para activarme.")  
