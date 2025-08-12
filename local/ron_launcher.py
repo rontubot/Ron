@@ -579,35 +579,34 @@ if __name__ == "__main__":
       
     activado = False  
       
-    try:  
-        while True:  
-            try:  
-                # Obtener texto del queue con timeout  
-                txt = audio_queue.get(timeout=0.1)  
-                print(f"🗣 Detectado: {txt}")  
-                  
-                # Detección de activación  
-                if not activado and detect_ron_activation(txt):  
-                    activado = True  
-                    print("✅ Ron activado")  
-                    engine.say("Hola, ¿en qué puedo ayudarte?")  
-                    engine.runAndWait()  
-                    continue  
-                  
-                if activado and txt and listening_active:  # Añadir verificación de listening_active  
-    # Manejar comandos como antes  
-                if handle_local_commands(txt):  
-                    continue  
-      
-                    should_shutdown = talk_to_ron(txt)  
-                if should_shutdown:  
-                    activado = False  
-                print("🔴 Ron desconectado")
-                          
-                except queue.Empty:  
-                continue  # No hay audio nuevo, continuar  
-                  
-    except KeyboardInterrupt:  
-        print("🔴 Cerrando Ron...")  
-    finally:  
-        stop_listening(wait_for_stop=False)
+try:    
+    while True:    
+        try:    
+            # Obtener texto del queue con timeout    
+            txt = audio_queue.get(timeout=0.1)    
+            print(f"🗣 Detectado: {txt}")    
+                
+            # Detección de activación    
+            if not activado and detect_ron_activation(txt):    
+                activado = True    
+                print("✅ Ron activado")    
+                safe_activation_response()  # Usar función segura  
+                continue    
+                
+            if activado and txt and listening_active:  # Añadir verificación de listening_active  
+                # Manejar comandos como antes    
+                if handle_local_commands(txt):    
+                    continue    
+                    
+                should_shutdown = talk_to_ron(txt)    
+                if should_shutdown:    
+                    activado = False    
+                    print("🔴 Ron desconectado")    
+                        
+        except queue.Empty:    
+            continue  # No hay audio nuevo, continuar    
+                
+except KeyboardInterrupt:    
+    print("🔴 Cerrando Ron...")    
+finally:    
+    stop_listening(wait_for_stop=False)
