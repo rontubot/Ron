@@ -4,9 +4,9 @@ openai==0.28.0
 python-dotenv==1.0.0  
 requests==2.31.0  
 pydantic==2.5.0  
-speech_recognition  
-pyttsx3 
-pyaudio  
+speech_recognition==3.10.1  
+pyttsx3==2.9  
+pyaudio==0.2.13  
 
 # Dependencia esencial para YouTube (confirmada que funciona)  
 youtube-search==2.1.2  
