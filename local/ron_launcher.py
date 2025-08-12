@@ -8,7 +8,10 @@ import sys
 import os  
 import webbrowser  
 import logging  
-  
+import threading  
+import queue  
+import time
+
 # Silenciar logs de comtypes para reducir ruido  
 logging.getLogger('comtypes').setLevel(logging.WARNING)  
   
@@ -40,31 +43,49 @@ web_apps = {
     "netflix": "https://www.netflix.com"  
 }  
   
-def transcribe_speech():    
-    recognizer = sr.Recognizer()    
-    recognizer.pause_threshold = 2.0  # Aumentar a 2 segundos  
-    recognizer.energy_threshold = 4000  # Aumentar threshold de energía  
-    with sr.Microphone() as source:    
-        print("🎤 Habla ahora...")    
-        recognizer.adjust_for_ambient_noise(source, duration=2)  # Más tiempo de calibración  
-        audio = recognizer.listen(source, phrase_time_limit=10, timeout=15)  # Más tiempo  
-    try:  
-        text = recognizer.recognize_google(audio, language="es")  
-        print(f"🗣 Tú: {text}")  
-        return text.lower()  
-    except:  
-        return ""
+def setup_streaming_recognition():  
+    """Configura el reconocimiento de voz en streaming"""  
+    recognizer = sr.Recognizer()  
+    recognizer.pause_threshold = 0.5  # Reducir para mayor velocidad  
+    recognizer.energy_threshold = 4000  
+    microphone = sr.Microphone()  
+      
+    # Calibrar ruido ambiente  
+    with microphone as source:  
+        recognizer.adjust_for_ambient_noise(source, duration=1)  
+      
+    return recognizer, microphone  
   
-def detect_ron_activation(text):
-    """Detección simple y efectiva como en el repositorio Ron"""
-    text_lower = text.lower().strip()
-
-    # Detección directa más simple
-    if 'ron' in text_lower:
-        # Verificar que sea palabra completa
-        if re.search(r'\bron\b', text_lower):
-            return True
-
+def stream_audio_recognition(recognizer, microphone, audio_queue):  
+    """Función que corre en background capturando audio"""  
+    def callback(recognizer, audio):  
+        try:  
+            # Procesar audio en chunks pequeños  
+            text = recognizer.recognize_google(audio, language="es")  
+            audio_queue.put(text.lower())  
+        except sr.UnknownValueError:  
+            pass  # Ignorar audio no reconocido  
+        except sr.RequestError:  
+            pass  # Ignorar errores de conexión  
+      
+    # Iniciar escucha en background  
+    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)  
+    return stop_listening
+  
+def detect_ron_activation(text):  
+    """Detección optimizada para streaming"""  
+    text_lower = text.lower().strip()  
+      
+    # Detección más permisiva para streaming  
+    if 'ron' in text_lower:  
+        return True  
+      
+    # Variaciones comunes en streaming  
+    variations = ['rom', 'rron', 'ronn']  
+    for var in variations:  
+        if var in text_lower:  
+            return True  
+      
     return False
   
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)  
@@ -534,26 +555,45 @@ def talk_to_ron(text):
   
 if __name__ == "__main__":  
     print("🟢 Di 'Ron' para activarme.")  
+      
+    # Configurar streaming  
+    recognizer, microphone = setup_streaming_recognition()  
+    audio_queue = queue.Queue()  
+      
+    # Iniciar captura de audio en background  
+    stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)  
+      
     activado = False  
-    while True:  
-        txt = transcribe_speech()  
-          
-        # Detección robusta de activación usando límites de palabra  
-        if not activado and detect_ron_activation(txt):  
-            activado = True  
-            print("✅ Ron activado")  
-            engine.say("Hola, ¿en qué puedo ayudarte?")  
-            engine.runAndWait()  
-            continue  
-              
-        if activado:  
-            if txt:  
-                # Primero intentar manejar comandos localmente  
-                if handle_local_commands(txt):  
-                    continue  # Comando manejado localmente, no enviar al servidor  
+      
+    try:  
+        while True:  
+            try:  
+                # Obtener texto del queue con timeout  
+                txt = audio_queue.get(timeout=0.1)  
+                print(f"🗣 Detectado: {txt}")  
                   
-                # Si no es comando local, enviar al servidor  
-                should_shutdown = talk_to_ron(txt)  
-                if should_shutdown:  
-                    activado = False  
-                    print("🔴 Ron desconectado")
+                # Detección de activación  
+                if not activado and detect_ron_activation(txt):  
+                    activado = True  
+                    print("✅ Ron activado")  
+                    engine.say("Hola, ¿en qué puedo ayudarte?")  
+                    engine.runAndWait()  
+                    continue  
+                  
+                if activado and txt:  
+                    # Manejar comandos como antes  
+                    if handle_local_commands(txt):  
+                        continue  
+                      
+                    should_shutdown = talk_to_ron(txt)  
+                    if should_shutdown:  
+                        activado = False  
+                        print("🔴 Ron desconectado")  
+                          
+            except queue.Empty:  
+                continue  # No hay audio nuevo, continuar  
+                  
+    except KeyboardInterrupt:  
+        print("🔴 Cerrando Ron...")  
+    finally:  
+        stop_listening(wait_for_stop=False)
