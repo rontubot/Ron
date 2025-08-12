@@ -50,15 +50,15 @@ web_apps = {
 def setup_streaming_recognition():    
     """Configura el reconocimiento de voz en streaming"""    
     recognizer = sr.Recognizer()    
-    recognizer.pause_threshold = 0.5  # Reducir para mayor velocidad    
+    recognizer.pause_threshold = 1.5  # Reducir para mayor velocidad    
     recognizer.energy_threshold = 4000    
     microphone = sr.Microphone()    
         
     # Calibrar ruido ambiente    
     with microphone as source:    
-        recognizer.adjust_for_ambient_noise(source, duration=1)    
+        recognizer.adjust_for_ambient_noise(source, duration=2) 
         
-    return recognizer, microphone    
+    return recognizer, microphone
     
 def stream_audio_recognition(recognizer, microphone, audio_queue):    
     """Función que corre en background capturando audio"""    
@@ -77,7 +77,7 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
                 pass  # Ignorar errores de conexión    
         
     # Iniciar escucha en background    
-    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)    
+    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=8)    
     return stop_listening  
     
 def detect_ron_activation(text):    
