@@ -3,8 +3,7 @@ uvicorn==0.24.0
 openai==0.28.0  
 python-dotenv==1.0.0  
 requests==2.31.0  
-pydantic==2.5.0  
-speech_recognition  
+pydantic==2.5.0 
 pyttsx3 
 pyaudio  
 
