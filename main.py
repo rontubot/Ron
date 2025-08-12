@@ -3,6 +3,9 @@ import pyttsx3
 import requests
 import os
 import re
+import threading  
+import queue  
+import time
 
 # URL por defecto de la API de Ron (puedes cambiarla si usas local o desarrollo)
 RON_API_URL = os.getenv("RON_API_URL", "https://ron-production.up.railway.app/ron")
@@ -59,23 +62,42 @@ def talk_to_ron(text):
     return False
 
 # 🔁 Loop principal
-if __name__ == "__main__":
-    print("🟢 Di 'Ron' para activarme.")
-    activado = False
-
-    while True:
-        texto = transcribe_speech()
-
-        # Activación por palabra clave
-        if not activado and detect_ron_activation(texto):
-            activado = True
-            print("✅ Ron activado")
-            engine.say("Hola, ¿en qué puedo ayudarte?")
-            engine.runAndWait()
-            continue
-
-        if activado and texto:
-            should_shutdown = talk_to_ron(texto)
-            if should_shutdown:
-                activado = False
-                print("🔴 Ron desconectado")
+if __name__ == "__main__":  
+    print("🟢 Di 'Ron' para activarme.")  
+      
+    # Configurar streaming  
+    recognizer, microphone = setup_streaming_recognition()  
+    audio_queue = queue.Queue()  
+      
+    # Iniciar captura de audio en background  
+    stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)  
+      
+    activado = False  
+      
+    try:  
+        while True:  
+            try:  
+                texto = audio_queue.get(timeout=0.1)  
+                print(f"🗣 Detectado: {texto}")  
+                  
+                # Activación por palabra clave  
+                if not activado and detect_ron_activation(texto):  
+                    activado = True  
+                    print("✅ Ron activado")  
+                    engine.say("Hola, ¿en qué puedo ayudarte?")  
+                    engine.runAndWait()  
+                    continue  
+  
+                if activado and texto:  
+                    should_shutdown = talk_to_ron(texto)  
+                    if should_shutdown:  
+                        activado = False  
+                        print("🔴 Ron desconectado")  
+                          
+            except queue.Empty:  
+                continue  
+                  
+    except KeyboardInterrupt:  
+        print("🔴 Cerrando Ron...")  
+    finally:  
+        stop_listening(wait_for_stop=False)
