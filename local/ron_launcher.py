@@ -60,25 +60,25 @@ def setup_streaming_recognition():
         
     return recognizer, microphone
     
-def stream_audio_recognition(recognizer, microphone, audio_queue):    
-    """Función que corre en background capturando audio"""    
-    def callback(recognizer, audio):    
+def stream_audio_recognition(recognizer, microphone, audio_queue):  
+    """Función que corre en background capturando audio"""  
+    def callback(recognizer, audio):  
         global speaking, listening_active  
           
         # Solo procesar si no estamos hablando y el listening está activo  
         if not speaking and listening_active:  
-            try:    
-                text = recognizer.recognize_google(audio, language="es")    
+            try:  
+                text = recognizer.recognize_google(audio, language="es")  
                 if text.strip():  # Solo añadir si hay texto válido  
-                    audio_queue.put(text.lower())    
-            except sr.UnknownValueError:    
-                pass  # Ignorar audio no reconocido    
-            except sr.RequestError:    
-                pass  # Ignorar errores de conexión    
-        
-    # Iniciar escucha en background    
-    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)    
-    return stop_listening  
+                    audio_queue.put(text.lower())  
+            except sr.UnknownValueError:  
+                pass  # Ignorar audio no reconocido  
+            except sr.RequestError:  
+                pass  # Ignorar errores de conexión  
+      
+    # Iniciar escucha en background  
+    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)  
+    return stop_listening 
     
 def detect_ron_activation(text):    
     """Detección optimizada para streaming"""    

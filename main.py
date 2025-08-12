@@ -37,8 +37,7 @@ def setup_streaming_recognition():
     return recognizer, microphone  
   
 def stream_audio_recognition(recognizer, microphone, audio_queue):  
-    """Inicia el streaming de reconocimiento de voz en background"""  
-      
+    """Función que corre en background capturando audio"""  
     def callback(recognizer, audio):  
         global speaking, listening_active  
           
@@ -51,21 +50,16 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
             except sr.UnknownValueError:  
                 pass  # Ignorar audio no reconocido  
             except sr.RequestError:  
-                pass  # Ignorar errores de servicio  
+                pass  # Ignorar errores de conexión  
       
-    # Iniciar listening en background  
-    stop_listening = recognizer.listen_in_background(  
-        microphone,   
-        callback,  
-        phrase_time_limit=5  
-    )  
-      
-    return stop_listening  
+    # Iniciar escucha en background  
+    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)  
+    return stop_listening
   
 def detect_ron_activation(text):  
     text_lower = text.lower().strip()  
-    return re.search(r'\\bron\\b', text_lower) is not None  
-  
+    return re.search(r'\bron\b', text_lower) is not None
+
 def talk_to_ron(text):  
     global speaking, listening_active  
       
