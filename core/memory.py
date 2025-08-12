@@ -12,16 +12,22 @@ BRANCH = "main"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{REPO_NAME}/contents"  
   
 def get_device_id():  
-    device_id_file = "device_id.txt"  
-    if os.path.exists(device_id_file):  
-        with open(device_id_file, "r") as f:  
-            return f.read().strip()  
-    else:  
-        import uuid  
-        device_id = str(uuid.uuid4())  
-        with open(device_id_file, "w") as f:  
-            f.write(device_id)  
-        return device_id  
+    """Obtiene identificador basado en usuario y computadora"""  
+    import getpass  
+    import platform  
+    import re  
+      
+    # Obtener información del sistema  
+    username = getpass.getuser()  
+    computer_name = platform.node()  
+      
+    # Crear ID combinado  
+    device_id = f"{username}_{computer_name}"  
+      
+    # Sanitizar para uso en nombres de archivo  
+    device_id = re.sub(r'[<>:"/\\\\|?*\\s]', '_', device_id).lower()  
+      
+    return device_id
   
 def get_public_ip():  
     try:  
