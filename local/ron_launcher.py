@@ -77,7 +77,7 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
                 pass  # Ignorar errores de conexión  
       
     # Iniciar escucha en background  
-    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)  
+    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)  
     return stop_listening 
     
 def detect_ron_activation(text):    
