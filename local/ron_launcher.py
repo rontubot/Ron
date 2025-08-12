@@ -372,189 +372,199 @@ def flush_dns():
 
 
 
-def handle_local_commands(text):  
+def handle_local_commands(text):    
     """Maneja comandos localmente antes de enviar al servidor"""  
-    original_text = text  
-    text = text.lower().strip()  
+    global speaking, listening_active  
       
-    # DETECCIÓN AUTOMÁTICA DE PROBLEMAS DEL SISTEMA  
-    problem_keywords = ["lento", "problema", "no funciona", "error", "falla", "se cuelga", "no responde",   
-                       "muy lento", "se traba", "no abre", "no carga", "internet no funciona",   
-                       "no puedo imprimir", "no hay sonido", "pantalla azul"]  
+    original_text = text    
+    text = text.lower().strip()    
+        
+    # DETECCIÓN AUTOMÁTICA DE PROBLEMAS DEL SISTEMA    
+    problem_keywords = ["lento", "problema", "no funciona", "error", "falla", "se cuelga", "no responde",     
+                       "muy lento", "se traba", "no abre", "no carga", "internet no funciona",     
+                       "no puedo imprimir", "no hay sonido", "pantalla azul"]    
+        
+    if any(keyword in text for keyword in problem_keywords):    
+        logger.info("🔧 Problema del sistema detectado - Iniciando diagnóstico automático")    
+          
+        # Pausar reconocimiento durante diagnóstico  
+        speaking = True  
+        listening_active = False  
+          
+        try:  
+            # Ejecutar diagnóstico automático    
+            diagnostic_result = diagnose_system_performance()    
+            services_result = check_system_services()    
+                
+            # Analizar resultados y proponer solución    
+            analysis = f"He diagnosticado tu sistema automáticamente. {diagnostic_result} {services_result}"    
+                
+            # Ejecutar reparación automática si es necesario    
+            repairs_made = []    
+                
+            if "PROBLEMA" in services_result or "ERROR" in services_result:    
+                repair_result = restart_critical_services()    
+                repairs_made.append(repair_result)    
+                analysis += f" He reparado los servicios problemáticos: {repair_result}"    
+                
+            # Si hay problemas de rendimiento, limpiar archivos temporales    
+            if "CPU:" in diagnostic_result and any(word in text for word in ["lento", "se traba"]):    
+                clean_result = clean_temp_files()    
+                repairs_made.append(clean_result)    
+                analysis += f" También limpié archivos temporales para mejorar el rendimiento: {clean_result}"    
+                
+            # Si hay problemas de internet, limpiar DNS    
+            if any(word in text for word in ["internet", "conexión", "red", "wifi"]):    
+                dns_result = flush_dns()    
+                repairs_made.append(dns_result)    
+                analysis += f" Limpié la caché DNS para resolver problemas de conexión: {dns_result}"    
+                
+            if repairs_made:    
+                analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."    
+                
+            print(f"🤖 Ron: {analysis}")    
+            engine.say(analysis)    
+            engine.runAndWait()  
+            time.sleep(0.5)  
+        finally:  
+            speaking = False  
+            listening_active = True  
+        return True    
+  
+    # Función auxiliar para manejar respuestas con control de estado  
+    def safe_response(result_text):  
+        global speaking, listening_active  
+        speaking = True  
+        listening_active = False  
+        try:  
+            print(f"🤖 Ron: {result_text}")  
+            engine.say(result_text)  
+            engine.runAndWait()  
+            time.sleep(0.5)  
+        finally:  
+            speaking = False  
+            listening_active = True  
+  
+    # COMANDOS DE DIAGNÓSTICO EXPLÍCITOS    
+    if any(cmd in text for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):    
+        result = diagnose_system_performance()    
+        safe_response(result)  
+        return True    
+  
+    if any(cmd in text for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):    
+        result = check_system_services()    
+        safe_response(result)  
+        return True    
+  
+    if any(cmd in text for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):    
+        result = restart_critical_services()    
+        safe_response(result)  
+        return True    
+  
+    if any(cmd in text for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):    
+        result = clean_temp_files()    
+        safe_response(result)  
+        return True    
+  
+    if any(cmd in text for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):    
+        result = flush_dns()    
+        safe_response(result)  
+        return True    
+        
+    # Comandos de abrir aplicaciones    
+    if text.startswith("abre "):    
+        app_name = text.replace("abre ", "").strip()    
+        result = open_application(app_name)    
+        safe_response(result)  
+        return True    
+        
+    # Comandos de cerrar aplicaciones    
+    if text.startswith("cierra "):    
+        app_name = text.replace("cierra ", "").strip()    
+        result = close_application(app_name)    
+        safe_response(result)  
+        return True    
+        
+    # Comandos de búsqueda    
+    if text.startswith("investiga "):    
+        query = text.replace("investiga ", "").strip()    
+        result = search_google(query)    
+        safe_response(result)  
+        return True    
+        
+    if text.startswith("youtube "):    
+        query = text.replace("youtube ", "").strip()    
+        result = search_youtube(query)    
+        safe_response(result)  
+        return True    
+        
+    if text.startswith("reproducir ") or text.startswith("reproduce "):    
+        query = text.replace("reproducir ", "").replace("reproduce ", "").strip()    
+        result = search_youtube(f"música {query}", play_video=True)    
+        safe_response(result)  
+        return True    
+        
+    # Comandos de sistema    
+    if "apaga la computadora" in text or "apaga el sistema" in text:    
+        result = shutdown()    
+        safe_response(result)  
+        return True    
+        
+    if "reinicia la computadora" in text or "reinicia el sistema" in text:    
+        result = restart()    
+        safe_response(result)  
+        return True    
+        
+    if "suspende la computadora" in text or "suspende el sistema" in text:    
+        result = suspend()    
+        safe_response(result)  
+        return True    
       
-    if any(keyword in text for keyword in problem_keywords):  
-        logger.info("🔧 Problema del sistema detectado - Iniciando diagnóstico automático")  
-          
-        # Ejecutar diagnóstico automático  
-        diagnostic_result = diagnose_system_performance()  
-        services_result = check_system_services()  
-          
-        # Analizar resultados y proponer solución  
-        analysis = f"He diagnosticado tu sistema automáticamente. {diagnostic_result} {services_result}"  
-          
-        # Ejecutar reparación automática si es necesario  
-        repairs_made = []  
-          
-        if "PROBLEMA" in services_result or "ERROR" in services_result:  
-            repair_result = restart_critical_services()  
-            repairs_made.append(repair_result)  
-            analysis += f" He reparado los servicios problemáticos: {repair_result}"  
-          
-        # Si hay problemas de rendimiento, limpiar archivos temporales  
-        if "CPU:" in diagnostic_result and any(word in text for word in ["lento", "se traba"]):  
-            clean_result = clean_temp_files()  
-            repairs_made.append(clean_result)  
-            analysis += f" También limpié archivos temporales para mejorar el rendimiento: {clean_result}"  
-          
-        # Si hay problemas de internet, limpiar DNS  
-        if any(word in text for word in ["internet", "conexión", "red", "wifi"]):  
-            dns_result = flush_dns()  
-            repairs_made.append(dns_result)  
-            analysis += f" Limpié la caché DNS para resolver problemas de conexión: {dns_result}"  
-          
-        if repairs_made:  
-            analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."  
-          
-        print(f"🤖 Ron: {analysis}")  
-        engine.say(analysis)  
-        engine.runAndWait()  
+    if any(cmd in text for cmd in ["reinicia red", "reinicia driver de red", "arregla driver"]):    
+        result = network_reset()    
+        safe_response(result)  
         return True  
   
-    # COMANDOS DE DIAGNÓSTICO EXPLÍCITOS  
-    if any(cmd in text for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):  
-        result = diagnose_system_performance()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-  
-    if any(cmd in text for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):  
-        result = check_system_services()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-  
-    if any(cmd in text for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):  
-        result = restart_critical_services()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-  
-    if any(cmd in text for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):  
-        result = clean_temp_files()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-  
-    if any(cmd in text for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):  
-        result = flush_dns()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    # Comandos de abrir aplicaciones  
-    if text.startswith("abre "):  
-        app_name = text.replace("abre ", "").strip()  
-        result = open_application(app_name)  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    # Comandos de cerrar aplicaciones  
-    if text.startswith("cierra "):  
-        app_name = text.replace("cierra ", "").strip()  
-        result = close_application(app_name)  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    # Comandos de búsqueda  
-    if text.startswith("investiga "):  
-        query = text.replace("investiga ", "").strip()  
-        result = search_google(query)  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    if text.startswith("youtube "):  
-        query = text.replace("youtube ", "").strip()  
-        result = search_youtube(query)  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    if text.startswith("reproducir ") or text.startswith("reproduce "):  
-        query = text.replace("reproducir ", "").replace("reproduce ", "").strip()  
-        result = search_youtube(f"música {query}", play_video=True)  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    # Comandos de sistema  
-    if "apaga la computadora" in text or "apaga el sistema" in text:  
-        result = shutdown()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    if "reinicia la computadora" in text or "reinicia el sistema" in text:  
-        result = restart()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-      
-    if "suspende la computadora" in text or "suspende el sistema" in text:  
-        result = suspend()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True  
-    
-    if any(cmd in text for cmd in ["reinicia red", "reinicia driver de red", "arregla driver"]):  
-        result = network_reset()  
-        print(f"🤖 Ron: {result}")  
-        engine.say(result)  
-        engine.runAndWait()  
-        return True
-
-
-    return False  
+    return False
 
    
 
 def talk_to_ron(text):  
+    """Envía texto al servidor solo si no es un comando local"""  
+    global speaking, listening_active  
+      
+    # Pausar reconocimiento durante la respuesta del servidor  
+    speaking = True  
+    listening_active = False  
+      
     try:  
         resp = requests.post(RON_API_URL, json={"text": text})  
         if resp.ok:  
             response_data = resp.json()  
-            ron = response_data.get("ron", "No entendí.")  
+            ron = response_data.get("ron")  
             print(f"🤖 Ron: {ron}")  
             engine.say(ron)  
             engine.runAndWait()  
-            # Esperar un momento adicional antes de reanudar  
-            time.sleep(1)  # Esta línea es la nueva adición  
+            time.sleep(0.5)  # Pausa adicional  
               
-            if response_data.get("shutdown") is True:  
-                return True  
+            # Verificar si el servidor envía señal de shutdown  
+            if response_data.get("shutdown"):  
+                return True  # Señal para terminar  
         else:  
             print("❌ Error al contactar con Ron")  
             engine.say("No puedo comunicarme con el servidor.")  
             engine.runAndWait()  
+            time.sleep(0.5)  
     except Exception as e:  
         print(f"❌ {e}")  
         engine.say("Ocurrió un error al intentar responderte.")  
         engine.runAndWait()  
+        time.sleep(0.5)  
+    finally:  
+        # Reanudar reconocimiento después de hablar  
+        speaking = False  
+        listening_active = True  
+      
     return False
   
 if __name__ == "__main__":  
