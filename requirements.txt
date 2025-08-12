@@ -4,7 +4,6 @@ openai==0.28.0
 python-dotenv==1.0.0  
 requests==2.31.0  
 pydantic==2.5.0 
-pyttsx3
 
 # Dependencia esencial para YouTube (confirmada que funciona)  
 youtube-search==2.1.2  
