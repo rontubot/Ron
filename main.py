@@ -38,27 +38,28 @@ def detect_ron_activation(text):
     text_lower = text.lower().strip()
     return re.search(r'\bron\b', text_lower) is not None
 
-def talk_to_ron(text):
-    try:
-        resp = requests.post(RON_API_URL, json={"text": text})
-        if resp.ok:
-            response_data = resp.json()
-            ron = response_data.get("ron", "No entendí.")
-            print(f"🤖 Ron: {ron}")
-            engine.say(ron)
-            engine.runAndWait()
-
-            # 🔴 Si la API indica que se debe desconectar
-            if response_data.get("shutdown") is True:
-                return True
-        else:
-            print("❌ Error al contactar con Ron")
-            engine.say("No puedo comunicarme con el servidor.")
-            engine.runAndWait()
-    except Exception as e:
-        print(f"❌ {e}")
-        engine.say("Ocurrió un error al intentar responderte.")
-        engine.runAndWait()
+def talk_to_ron(text):  
+    try:  
+        resp = requests.post(RON_API_URL, json={"text": text})  
+        if resp.ok:  
+            response_data = resp.json()  
+            ron = response_data.get("ron", "No entendí.")  
+            print(f"🤖 Ron: {ron}")  
+            engine.say(ron)  
+            engine.runAndWait()  
+            # Esperar un momento adicional antes de reanudar  
+            time.sleep(1)  # Esta línea es la nueva adición  
+              
+            if response_data.get("shutdown") is True:  
+                return True  
+        else:  
+            print("❌ Error al contactar con Ron")  
+            engine.say("No puedo comunicarme con el servidor.")  
+            engine.runAndWait()  
+    except Exception as e:  
+        print(f"❌ {e}")  
+        engine.say("Ocurrió un error al intentar responderte.")  
+        engine.runAndWait()  
     return False
 
 # 🔁 Loop principal
