@@ -264,7 +264,7 @@ def responder_a_usuario(user_input):
     try:  
         # CAMBIO CRÍTICO: Agregar timeout a la llamada de OpenAI  
         respuesta = openai.ChatCompletion.create(  
-            model="gpt-4o",  
+            model="gpt-5",  
             messages=mensajes,  
             max_tokens=400,  # Reducido de 600 para mejor rendimiento  
             temperature=0.7,  
