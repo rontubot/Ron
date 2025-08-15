@@ -1,74 +1,273 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from fastapi.responses import PlainTextResponse
-import os
-import openai
-from dotenv import load_dotenv
-from core.memory import load_memory, add_to_memory
-from core.assistant import generate_response
-
-load_dotenv()
-
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-app = FastAPI()
-
-class UserInput(BaseModel):
-    text: str
-
-# ✅ Detección de despedida
-def detect_farewell_in_api(text: str) -> bool:
-    farewells = [
-        "hasta luego", "adiós", "nos vemos", "chau",
-        "me voy", "cerrar sesión", "hasta pronto",
-        "bye", "see you", "goodbye"
-    ]
-    return any(farewell in text for farewell in farewells)
-
-@app.get("/")
-def read_root():
-    return {"message": "Ron API está corriendo"}
-
-@app.post("/ron")
-def chat_with_ron(data: UserInput):
-    text = data.text.strip().lower()
-
-    if detect_farewell_in_api(text):
-        response = "Hasta luego. Que tengas un buen día."
-        try:
-            add_to_memory(data.text, response)
-        except:
-            pass
-        return {"ron": response, "shutdown": True}
-
-    try:
-        ron_response = generate_response(text)
-        return {"ron": ron_response}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/github-token", response_class=PlainTextResponse)
-def get_github_token():
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        return PlainTextResponse("Token no configurado", status_code=404)
-    return token
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-@app.get("/memory-status")
-def memory_status():
-    try:
-        memory = load_memory()
-        conversations_count = len(memory.get("conversaciones", []))
-        reminders_count = len(memory.get("recordatorios", {}))
-        return {
-            "status": "ok",
-            "conversations": conversations_count,
-            "reminders": reminders_count,
-            "device_id": memory.get("datos", {}).get("device_id", "unknown")
-        }
-    except Exception as e:
+from fastapi import FastAPI, HTTPException, Depends, Header  
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials  
+from fastapi.middleware.cors import CORSMiddleware  
+from pydantic import BaseModel  
+from fastapi.responses import PlainTextResponse  
+import os  
+import openai  
+import jwt  
+import bcrypt  
+from datetime import datetime, timedelta  
+from dotenv import load_dotenv  
+from core.memory import load_memory, add_to_memory, save_memory  
+from core.assistant import generate_response  
+  
+load_dotenv()  
+  
+openai.api_key = os.getenv("OPENAI_API_KEY")  
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")  
+JWT_ALGORITHM = "HS256"  
+  
+app = FastAPI()  
+  
+# Configurar CORS para React  
+app.add_middleware(  
+    CORSMiddleware,  
+    allow_origins=["http://localhost:3000", "https://your-react-app.com"],  
+    allow_credentials=True,  
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)  
+  
+security = HTTPBearer()  
+  
+# Modelos Pydantic  
+class UserInput(BaseModel):  
+    text: str  
+  
+class UserCredentials(BaseModel):  
+    username: str  
+    password: str  
+  
+class UserRegister(BaseModel):  
+    username: str  
+    password: str  
+    email: str  
+  
+# Base de datos simple de usuarios (en producción usar una DB real)  
+USERS_DB = {}  
+  
+# Funciones de autenticación  
+def hash_password(password: str) -> str:  
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')  
+  
+def verify_password(password: str, hashed: str) -> bool:  
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))  
+  
+def create_jwt_token(username: str) -> str:  
+    payload = {  
+        "username": username,  
+        "exp": datetime.utcnow() + timedelta(hours=24)  
+    }  
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)  
+  
+def verify_jwt_token(token: str) -> str:  
+    try:  
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])  
+        return payload["username"]  
+    except jwt.ExpiredSignatureError:  
+        raise HTTPException(status_code=401, detail="Token expirado")  
+    except jwt.InvalidTokenError:  
+        raise HTTPException(status_code=401, detail="Token inválido")  
+  
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:  
+    return verify_jwt_token(credentials.credentials)  
+  
+# Función para cargar memoria por usuario  
+def load_user_memory(username: str):  
+    """Carga la memoria específica del usuario"""  
+    from core.memory import get_github_token  
+    import requests  
+    import json  
+      
+    token = get_github_token()  
+    if not token:  
+        return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}  
+      
+    file_path = f"memory/users/{username}.json"  
+    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"  
+    headers = {  
+        "Authorization": f"token {token}",  
+        "Accept": "application/vnd.github.v3.raw"  
+    }  
+      
+    try:  
+        r = requests.get(url, headers=headers, timeout=15)  
+        if r.status_code == 200:  
+            return json.loads(r.content)  
+        elif r.status_code == 404:  
+            return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}  
+    except Exception as e:  
+        print(f"Error cargando memoria de usuario: {e}")  
+      
+    return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}  
+  
+def save_user_memory(username: str, memory_data: dict):  
+    """Guarda la memoria específica del usuario"""  
+    from core.memory import get_github_token  
+    import requests  
+    import json  
+    import base64  
+      
+    token = get_github_token()  
+    if not token:  
+        return False  
+      
+    file_path = f"memory/users/{username}.json"  
+    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}"  
+      
+    # Obtener SHA del archivo existente  
+    headers = {"Authorization": f"token {token}"}  
+    existing_file = requests.get(url, headers=headers)  
+    sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None  
+      
+    # Preparar datos para GitHub  
+    content = base64.b64encode(json.dumps(memory_data, indent=2).encode()).decode()  
+    data = {  
+        "message": f"Actualizar memoria de {username}",  
+        "content": content,  
+        "branch": "main"  
+    }  
+    if sha:  
+        data["sha"] = sha  
+      
+    try:  
+        response = requests.put(url, json=data, headers=headers)  
+        return response.status_code in [200, 201]  
+    except Exception as e:  
+        print(f"Error guardando memoria de usuario: {e}")  
+        return False  
+  
+# Detección de despedida  
+def detect_farewell_in_api(text: str) -> bool:  
+    farewells = [  
+        "hasta luego", "adiós", "nos vemos", "chau",  
+        "me voy", "cerrar sesión", "hasta pronto",  
+        "bye", "see you", "goodbye"  
+    ]  
+    return any(farewell in text.lower() for farewell in farewells)  
+  
+# Endpoints de autenticación  
+@app.post("/auth/register")  
+def register(user_data: UserRegister):  
+    if user_data.username in USERS_DB:  
+        raise HTTPException(status_code=400, detail="Usuario ya existe")  
+      
+    USERS_DB[user_data.username] = {  
+        "password": hash_password(user_data.password),  
+        "email": user_data.email,  
+        "created_at": datetime.utcnow().isoformat()  
+    }  
+      
+    return {"message": "Usuario registrado exitosamente"}  
+  
+@app.post("/auth/login")  
+def login(credentials: UserCredentials):  
+    user = USERS_DB.get(credentials.username)  
+    if not user or not verify_password(credentials.password, user["password"]):  
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")  
+      
+    token = create_jwt_token(credentials.username)  
+    return {  
+        "access_token": token,  
+        "token_type": "bearer",  
+        "username": credentials.username  
+    }  
+  
+@app.post("/auth/logout")  
+def logout(current_user: str = Depends(get_current_user)):  
+    # En una implementación real, podrías invalidar el token en una blacklist  
+    return {"message": "Sesión cerrada exitosamente"}  
+  
+# Endpoints principales  
+@app.get("/")  
+def read_root():  
+    return {"message": "Ron API está corriendo con autenticación"}  
+  
+@app.post("/ron")  
+def chat_with_ron(data: UserInput, current_user: str = Depends(get_current_user)):  
+    text = data.text.strip().lower()  
+      
+    if detect_farewell_in_api(text):  
+        response = "Hasta luego. Que tengas un buen día."  
+        try:  
+            # Cargar memoria del usuario  
+            memory = load_user_memory(current_user)  
+            memory["conversaciones"].append({  
+                "user": data.text,  
+                "ron": response,  
+                "timestamp": datetime.utcnow().isoformat()  
+            })  
+            save_user_memory(current_user, memory)  
+        except Exception as e:  
+            print(f"Error guardando despedida: {e}")  
+        return {"ron": response, "shutdown": True}  
+      
+    try:  
+        # Generar respuesta usando el sistema existente  
+        ron_response = generate_response(text)  
+          
+        # Guardar en memoria del usuario  
+        try:  
+            memory = load_user_memory(current_user)  
+            memory["conversaciones"].append({  
+                "user": data.text,  
+                "ron": ron_response,  
+                "timestamp": datetime.utcnow().isoformat()  
+            })  
+            # Mantener solo las últimas 100 conversaciones  
+            if len(memory["conversaciones"]) > 100:  
+                memory["conversaciones"] = memory["conversaciones"][-100:]  
+            save_user_memory(current_user, memory)  
+        except Exception as e:  
+            print(f"Error guardando conversación: {e}")  
+          
+        return {"ron": ron_response}  
+    except Exception as e:  
+        return {"error": str(e)}  
+  
+@app.get("/user/profile")  
+def get_user_profile(current_user: str = Depends(get_current_user)):  
+    user_data = USERS_DB.get(current_user)  
+    if not user_data:  
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")  
+      
+    return {  
+        "username": current_user,  
+        "email": user_data["email"],  
+        "created_at": user_data["created_at"]  
+    }  
+  
+@app.get("/user/conversations")  
+def get_user_conversations(current_user: str = Depends(get_current_user)):  
+    memory = load_user_memory(current_user)  
+    return {  
+        "conversations": memory.get("conversaciones", []),  
+        "total": len(memory.get("conversaciones", []))  
+    }  
+  
+@app.get("/github-token", response_class=PlainTextResponse)  
+def get_github_token():  
+    token = os.getenv("GITHUB_TOKEN")  
+    if not token:  
+        return PlainTextResponse("Token no configurado", status_code=404)  
+    return token  
+  
+@app.get("/health")  
+def health_check():  
+    return {"status": "ok", "authenticated": True}  
+  
+@app.get("/memory-status")  
+def memory_status(current_user: str = Depends(get_current_user)):  
+    try:  
+        memory = load_user_memory(current_user)  
+        conversations_count = len(memory.get("conversaciones", []))  
+        reminders_count = len(memory.get("recordatorios", {}))  
+        return {  
+            "status": "ok",  
+            "conversations": conversations_count,  
+            "reminders": reminders_count,  
+            "user": current_user  
+        }  
+    except Exception as e:  
         return {"status": "error", "message": str(e)}
