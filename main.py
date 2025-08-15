@@ -6,6 +6,7 @@ import re
 import threading  
 import queue  
 import time  
+import random
   
 # URL por defecto de la API de Ron  
 RON_API_URL = os.getenv("RON_API_URL", "https://ron-production.up.railway.app/ron")  
@@ -19,6 +20,17 @@ for v in voices:
         engine.setProperty('voice', v.id)  
         break  
   
+# lista de frases de activacion
+activation_phrases = [  
+    "Hola",  
+    "Sí?",   
+    "Me llamaste?",  
+    "Dime",  
+    "¿En qué puedo ayudarte?",  
+    "Aquí estoy",  
+    "¿Qué necesitas?"  
+]  
+
 # Control de estado global  
 speaking = False  
 listening_active = True  

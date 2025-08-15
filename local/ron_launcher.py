@@ -11,7 +11,8 @@ import logging
 import threading    
 import queue    
 import time  
-  
+import random
+
 # Silenciar logs de comtypes para reducir ruido    
 logging.getLogger('comtypes').setLevel(logging.WARNING)    
     
@@ -28,7 +29,18 @@ for v in voices:
     if 'spanish' in getattr(v, 'name', '').lower() or 'es' in getattr(v, 'id', '').lower():    
         engine.setProperty('voice', v.id)    
         break    
-  
+
+# lista de frases de activacion
+activation_phrases = [  
+    "Hola",  
+    "Sí?",   
+    "Me llamaste?",  
+    "Dime",  
+    "¿En qué puedo ayudarte?",  
+    "Aquí estoy",  
+    "¿Qué necesitas?"  
+]  
+
 # Control de estado global  
 speaking = False  
 listening_active = True  
@@ -104,12 +116,14 @@ def safe_activation_response():
     listening_active = False  
       
     try:  
-        engine.say("Hola, ¿en qué puedo ayudarte?")  
+        # Seleccionar frase aleatoria  
+        phrase = random.choice(activation_phrases)  
+        engine.say(phrase)  
         engine.runAndWait()  
         time.sleep(0.5)  
     finally:  
         speaking = False  
-        listening_active = True  
+        listening_active = True
     
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)    
 def open_application(app_name):    
