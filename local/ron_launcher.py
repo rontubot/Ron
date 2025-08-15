@@ -31,10 +31,8 @@ for v in voices:
         break    
 
 # lista de frases de activacion
-activation_phrases = [  
-    "Hola",  
-    "Sí?",   
-    "Me llamaste?",  
+activation_phrases = [       
+    "¿Me llamaste?",  
     "Dime",  
     "¿En qué puedo ayudarte?",  
     "Aquí estoy",  
@@ -92,21 +90,21 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
     stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)  
     return stop_listening 
     
-def detect_ron_activation(text):    
-    """Detección optimizada para streaming"""    
-    text_lower = text.lower().strip()    
-        
-    # Detección más permisiva para streaming    
-    if 'ron' in text_lower:    
-        return True    
-        
-    # Variaciones comunes en streaming    
-    variations = ['rom', 'rron', 'ronn']    
-    for var in variations:    
-        if var in text_lower:    
-            return True    
-        
-    return False  
+def detect_ron_activation(text):      
+    """Detección optimizada para streaming"""      
+    text_lower = text.lower().strip()      
+          
+    # Detección precisa usando límites de palabra  
+    if re.search(r'\\bron\\b', text_lower):  
+        return True  
+          
+    # Variaciones comunes en streaming con límites de palabra  
+    variations = [r'\\brom\\b', r'\\brron\\b', r'\\bronn\\b']  
+    for var in variations:  
+        if re.search(var, text_lower):  
+            return True  
+          
+    return False
   
 def safe_activation_response():  
     """Maneja la respuesta de activación de forma segura"""  
