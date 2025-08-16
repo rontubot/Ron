@@ -43,10 +43,29 @@ class UserRegister(BaseModel):
     username: str  
     password: str  
     email: str  
+
+    
   
 # Base de datos simple de usuarios (en producción usar una DB real)  
 USERS_DB = {}  
   
+# Nuevos modelos  
+class UserRegister(BaseModel):  
+    username: str  
+    password: str  
+    email: str  
+  
+class UserLogin(BaseModel):  
+    username: str  
+    password: str  
+  
+# Nuevos endpoints  
+@app.post("/auth/register")  
+@app.post("/auth/login")   
+@app.post("/auth/logout")  
+@app.get("/user/profile")  
+@app.get("/user/conversations")
+
 # Funciones de autenticación  
 def hash_password(password: str) -> str:  
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')  
