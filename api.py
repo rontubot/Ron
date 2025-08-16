@@ -61,13 +61,6 @@ class UserLogin(BaseModel):
     username: str  
     password: str  
   
-# Nuevos endpoints  
-@app.post("/auth/register")  
-@app.post("/auth/login")   
-@app.post("/auth/logout")  
-@app.get("/user/profile")  
-@app.get("/user/conversations")
-
 # Funciones de autenticación  
 def hash_password(password: str) -> str:  
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')  
