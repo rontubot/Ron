@@ -27,11 +27,11 @@ app = FastAPI()
 # Configurar CORS para React  
 app.add_middleware(  
     CORSMiddleware,  
-    allow_origins=["http://localhost:3000", "https://your-react-app.com"],  
+    allow_origins=["*"],  # Temporalmente para debugging  
     allow_credentials=True,  
     allow_methods=["*"],  
     allow_headers=["*"],  
-)  
+)
   
 security = HTTPBearer()  
   
