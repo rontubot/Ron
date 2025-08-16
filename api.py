@@ -36,10 +36,7 @@ app.add_middleware(
     allow_headers=["*"],    
 )    
     
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")    
-JWT_ALGORITHM = "HS256"    
-security = HTTPBearer()
-  
+
   
 # Modelos Pydantic  
 class UserInput(BaseModel):  
@@ -54,17 +51,9 @@ class UserRegister(BaseModel):
     password: str  
     email: str  
 
-
-    
   
 # Base de datos simple de usuarios (en producción usar una DB real)  
-  
-# Nuevos modelos  
-class UserRegister(BaseModel):  
-    username: str  
-    password: str  
-    email: str  
-  
+
 class UserLogin(BaseModel):  
     username: str  
     password: str  
@@ -297,7 +286,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         except:  
             pass  # Continuar sin autenticación para compatibilidad  
 
-    if detect_farewell_in_api(text):  
+    if detect_farewell_in_api(data.text):  
         response = "Hasta luego. Que tengas un buen día."  
         try:  
             # Cargar memoria del usuario  
