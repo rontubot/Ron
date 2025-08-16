@@ -30,7 +30,7 @@ app = FastAPI()
 # Configurar CORS para React    
 app.add_middleware(    
     CORSMiddleware,    
-    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev/"],    
+    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev"],    
     allow_credentials=True,    
     allow_methods=["*"],    
     allow_headers=["*"],    
