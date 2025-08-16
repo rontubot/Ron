@@ -275,50 +275,71 @@ def read_root():
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):  
     # Verificar si hay token de autenticación  
     current_user = None  
+    is_web_client = False  
+      
     if authorization and authorization.startswith("Bearer "):  
         try:  
             token = authorization.split(" ")[1]  
             current_user = verify_jwt_token(token)  
+            is_web_client = True  
         except:  
-            pass  # Continuar sin autenticación para compatibilidad  
-
+            # Si hay token pero es inválido, rechazar para clientes web  
+            raise HTTPException(status_code=401, detail="Token de autenticación inválido")  
+      
+    # Para clientes web (con header Authorization), la autenticación es obligatoria  
+    if authorization is not None and not is_web_client:  
+        raise HTTPException(status_code=401, detail="Autenticación requerida")  
+  
+    # Manejar despedidas  
     if detect_farewell_in_api(data.text):  
         response = "Hasta luego. Que tengas un buen día."  
-        try:  
-            # Cargar memoria del usuario  
-            memory = load_user_memory(current_user)  
-            memory["conversaciones"].append({  
-                "user": data.text,  
-                "ron": response,  
-                "timestamp": datetime.utcnow().isoformat()  
-            })  
-            save_user_memory(current_user, memory)  
-        except Exception as e:  
-            print(f"Error guardando despedida: {e}")  
+          
+        if is_web_client and current_user:  
+            # Para usuarios autenticados, usar memoria por usuario  
+            try:  
+                memory = load_user_memory(current_user)  
+                memory["conversaciones"].append({  
+                    "user": data.text,  
+                    "ron": response,  
+                    "timestamp": datetime.utcnow().isoformat()  
+                })  
+                save_user_memory(current_user, memory)  
+            except Exception as e:  
+                print(f"Error guardando despedida: {e}")  
+        else:  
+            # Para clientes de voz, usar sistema original  
+            try:  
+                add_to_memory(data.text, response)  
+            except:  
+                pass  
+                  
         return {"ron": response, "shutdown": True}  
-      
+  
     try:  
         # Generar respuesta usando el sistema existente  
         ron_response = generate_response(data.text)  
           
-        # Guardar en memoria del usuario  
-        try:  
-            memory = load_user_memory(current_user)  
-            memory["conversaciones"].append({  
-                "user": data.text,  
-                "ron": ron_response,  
-                "timestamp": datetime.utcnow().isoformat()  
-            })  
-            # Mantener solo las últimas 100 conversaciones  
-            if len(memory["conversaciones"]) > 100:  
-                memory["conversaciones"] = memory["conversaciones"][-100:]  
-            save_user_memory(current_user, memory)  
-        except Exception as e:  
-            print(f"Error guardando conversación: {e}")  
+        # Guardar en memoria según el tipo de cliente  
+        if is_web_client and current_user:  
+            # Para usuarios autenticados web, usar memoria por usuario  
+            try:  
+                memory = load_user_memory(current_user)  
+                memory["conversaciones"].append({  
+                    "user": data.text,  
+                    "ron": ron_response,  
+                    "timestamp": datetime.utcnow().isoformat()  
+                })  
+                # Mantener solo las últimas 100 conversaciones  
+                if len(memory["conversaciones"]) > 100:  
+                    memory["conversaciones"] = memory["conversaciones"][-100:]  
+                save_user_memory(current_user, memory)  
+            except Exception as e:  
+                print(f"Error guardando conversación: {e}")  
+        # Para clientes de voz, generate_response ya maneja la memoria automáticamente  
           
         return {"ron": ron_response}  
     except Exception as e:  
-        return {"error": str(e)}  
+        return {"error": str(e)} 
   
 @app.get("/user/profile")  
 def get_user_profile(current_user: str = Depends(get_current_user)):  
