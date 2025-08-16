@@ -9,7 +9,10 @@ import jwt
 import bcrypt    
 from datetime import datetime, timedelta    
 from dotenv import load_dotenv    
-from core.memory import load_memory, add_to_memory, save_memory    
+from core.memory import (  
+    load_memory, add_to_memory, save_memory, get_github_token,  
+    load_user_memory, save_user_memory, load_users_from_github, save_users_to_github  
+)   
 from core.assistant import generate_response_no_memory    
 from core.memory import get_github_token    
 import requests    
