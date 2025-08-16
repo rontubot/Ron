@@ -15,7 +15,8 @@ from core.memory import get_github_token
 import requests  
 import json  
 import base64 
-  
+
+
 load_dotenv()  
   
 openai.api_key = os.getenv("OPENAI_API_KEY")  
@@ -24,14 +25,20 @@ JWT_ALGORITHM = "HS256"
   
 app = FastAPI()  
   
-# Configurar CORS para React  
-app.add_middleware(  
-    CORSMiddleware,  
-    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev"],  
-    allow_credentials=True,  
-    allow_methods=["*"],  
-    allow_headers=["*"],  
-)  
+
+  
+# Configurar CORS para React    
+app.add_middleware(    
+    CORSMiddleware,    
+    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev/"],    
+    allow_credentials=True,    
+    allow_methods=["*"],    
+    allow_headers=["*"],    
+)    
+    
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")    
+JWT_ALGORITHM = "HS256"    
+security = HTTPBearer()
   
 security = HTTPBearer()  
   
@@ -280,9 +287,16 @@ def read_root():
     return {"message": "Ron API está corriendo con autenticación"}  
   
 @app.post("/ron")  
-def chat_with_ron(data: UserInput, current_user: str = Depends(get_current_user)):  
-    text = data.text.strip().lower()  
-      
+def chat_with_ron(data: UserInput, authorization: str = Header(None)):  
+    # Verificar si hay token de autenticación  
+    current_user = None  
+    if authorization and authorization.startswith("Bearer "):  
+        try:  
+            token = authorization.split(" ")[1]  
+            current_user = verify_jwt_token(token)  
+        except:  
+            pass  # Continuar sin autenticación para compatibilidad  
+
     if detect_farewell_in_api(text):  
         response = "Hasta luego. Que tengas un buen día."  
         try:  
