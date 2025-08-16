@@ -11,6 +11,10 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv  
 from core.memory import load_memory, add_to_memory, save_memory  
 from core.assistant import generate_response  
+from core.memory import get_github_token  
+import requests  
+import json  
+import base64 
   
 load_dotenv()  
   
@@ -47,7 +51,6 @@ class UserRegister(BaseModel):
     
   
 # Base de datos simple de usuarios (en producción usar una DB real)  
-USERS_DB = {}  
   
 # Nuevos modelos  
 class UserRegister(BaseModel):  
@@ -166,23 +169,96 @@ def detect_farewell_in_api(text: str) -> bool:
     ]  
     return any(farewell in text.lower() for farewell in farewells)  
   
+def load_users_from_github():  
+    """Carga la base de datos de usuarios desde GitHub"""  
+    from core.memory import get_github_token  
+    import requests  
+    import json  
+      
+    token = get_github_token()  
+    if not token:  
+        return {}  
+      
+    file_path = "users/users.json"  
+    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"  
+    headers = {  
+        "Authorization": f"token {token}",  
+        "Accept": "application/vnd.github.v3.raw"  
+    }  
+      
+    try:  
+        r = requests.get(url, headers=headers, timeout=15)  
+        if r.status_code == 200:  
+            return json.loads(r.content)  
+        elif r.status_code == 404:  
+            return {}  
+    except Exception as e:  
+        print(f"Error cargando usuarios: {e}")  
+      
+    return {}  
+  
+def save_users_to_github(users_data: dict):  
+    """Guarda la base de datos de usuarios en GitHub"""  
+ 
+      
+    token = get_github_token()  
+    if not token:  
+        return False  
+      
+    file_path = "users/users.json"  
+    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}"  
+      
+    # Obtener SHA del archivo existente  
+    headers = {"Authorization": f"token {token}"}  
+    existing_file = requests.get(url, headers=headers)  
+    sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None  
+      
+    # Preparar datos para GitHub  
+    content = base64.b64encode(json.dumps(users_data, indent=2).encode()).decode()  
+    data = {  
+        "message": "Actualizar base de datos de usuarios",  
+        "content": content,  
+        "branch": "main"  
+    }  
+    if sha:  
+        data["sha"] = sha  
+      
+    try:  
+        response = requests.put(url, json=data, headers=headers)  
+        return response.status_code in [200, 201]  
+    except Exception as e:  
+        print(f"Error guardando usuarios: {e}")  
+        return False
+
+
 # Endpoints de autenticación  
 @app.post("/auth/register")  
 def register(user_data: UserRegister):  
-    if user_data.username in USERS_DB:  
+    # Cargar usuarios existentes desde GitHub  
+    users_db = load_users_from_github()  
+      
+    if user_data.username in users_db:  
         raise HTTPException(status_code=400, detail="Usuario ya existe")  
       
-    USERS_DB[user_data.username] = {  
+    # Agregar nuevo usuario  
+    users_db[user_data.username] = {  
         "password": hash_password(user_data.password),  
         "email": user_data.email,  
         "created_at": datetime.utcnow().isoformat()  
     }  
       
-    return {"message": "Usuario registrado exitosamente"}  
+    # Guardar en GitHub  
+    if save_users_to_github(users_db):  
+        return {"message": "Usuario registrado exitosamente"}  
+    else:  
+        raise HTTPException(status_code=500, detail="Error guardando usuario")
   
 @app.post("/auth/login")  
 def login(credentials: UserCredentials):  
-    user = USERS_DB.get(credentials.username)  
+    # Cargar usuarios desde GitHub  
+    users_db = load_users_from_github()  
+      
+    user = users_db.get(credentials.username)  
     if not user or not verify_password(credentials.password, user["password"]):  
         raise HTTPException(status_code=401, detail="Credenciales inválidas")  
       
@@ -191,7 +267,7 @@ def login(credentials: UserCredentials):
         "access_token": token,  
         "token_type": "bearer",  
         "username": credentials.username  
-    }  
+    }
   
 @app.post("/auth/logout")  
 def logout(current_user: str = Depends(get_current_user)):  
@@ -247,7 +323,10 @@ def chat_with_ron(data: UserInput, current_user: str = Depends(get_current_user)
   
 @app.get("/user/profile")  
 def get_user_profile(current_user: str = Depends(get_current_user)):  
-    user_data = USERS_DB.get(current_user)  
+    # Cargar usuarios desde GitHub  
+    users_db = load_users_from_github()  
+    user_data = users_db.get(current_user)  
+      
     if not user_data:  
         raise HTTPException(status_code=404, detail="Usuario no encontrado")  
       
@@ -255,7 +334,7 @@ def get_user_profile(current_user: str = Depends(get_current_user)):
         "username": current_user,  
         "email": user_data["email"],  
         "created_at": user_data["created_at"]  
-    }  
+    } 
   
 @app.get("/user/conversations")  
 def get_user_conversations(current_user: str = Depends(get_current_user)):  
