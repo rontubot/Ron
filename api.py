@@ -40,7 +40,6 @@ JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")
 JWT_ALGORITHM = "HS256"    
 security = HTTPBearer()
   
-security = HTTPBearer()  
   
 # Modelos Pydantic  
 class UserInput(BaseModel):  
@@ -54,6 +53,7 @@ class UserRegister(BaseModel):
     username: str  
     password: str  
     email: str  
+
 
     
   
