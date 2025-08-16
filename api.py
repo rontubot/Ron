@@ -20,22 +20,25 @@ import base64
 load_dotenv()  
   
 openai.api_key = os.getenv("OPENAI_API_KEY")  
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")  
-JWT_ALGORITHM = "HS256"  
+
   
 app = FastAPI()  
   
 
   
-# Configurar CORS para React    
-app.add_middleware(    
-    CORSMiddleware,    
-    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev"],    
-    allow_credentials=True,    
-    allow_methods=["*"],    
-    allow_headers=["*"],    
-)    
-    
+# Configurar CORS  
+app.add_middleware(  
+    CORSMiddleware,  
+    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev"],  
+    allow_credentials=True,  
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)  
+  
+# Configuración JWT (solo una vez)  
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")  
+JWT_ALGORITHM = "HS256"  
+security = HTTPBearer() 
 
   
 # Modelos Pydantic  
@@ -303,7 +306,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
       
     try:  
         # Generar respuesta usando el sistema existente  
-        ron_response = generate_response(text)  
+        ron_response = generate_response(data.text)  
           
         # Guardar en memoria del usuario  
         try:  
