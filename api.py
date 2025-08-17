@@ -28,7 +28,7 @@ app = FastAPI()
 # Configurar CORS    
 app.add_middleware(    
     CORSMiddleware,    
-    allow_origins=["http://localhost:3000", "https://redesigned-potato-v67vjjrggwq7fpg7-3000.app.github.dev"],    
+    allow_origins=["*"],    
     allow_credentials=True,    
     allow_methods=["*"],    
     allow_headers=["*"],    
@@ -263,7 +263,7 @@ def logout(current_user: str = Depends(get_current_user)):
 def read_root():    
     return {"message": "Ron API está corriendo con autenticación"}    
     
-@app.post("/ron")    
+@app.post("/")    
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
     # Verificar si hay token de autenticación    
     current_user = None    
