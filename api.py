@@ -263,7 +263,7 @@ def logout(current_user: str = Depends(get_current_user)):
 def read_root():    
     return {"message": "Ron API está corriendo con autenticación"}    
     
-@app.post("/")    
+@app.post("/ron")    
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
     # Verificar si hay token de autenticación    
     current_user = None    
