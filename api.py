@@ -237,21 +237,25 @@ def register(user_data: UserRegister):
     else:    
         raise HTTPException(status_code=500, detail="Error guardando usuario")  
     
-@app.post("/auth/login")    
-def login(credentials: UserCredentials):    
-    # Cargar usuarios desde GitHub    
-    users_db = load_users_from_github()    
-        
-    user = users_db.get(credentials.username)    
-    if not user or not verify_password(credentials.password, user["password"]):    
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")    
-        
-    token = create_jwt_token(credentials.username)    
-    return {    
-        "access_token": token,    
-        "token_type": "bearer",    
-        "username": credentials.username    
-    }  
+@app.post("/auth/login")      
+def login(credentials: UserCredentials):  
+    # AGREGAR: Logging para debugging  
+    print(f"🔍 Login recibido - Username: {credentials.username}")  
+    print(f"🔍 Datos completos: {credentials}")  
+      
+    # Cargar usuarios desde GitHub      
+    users_db = load_users_from_github()      
+          
+    user = users_db.get(credentials.username)      
+    if not user or not verify_password(credentials.password, user["password"]):      
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")      
+          
+    token = create_jwt_token(credentials.username)      
+    return {      
+        "access_token": token,      
+        "token_type": "bearer",      
+        "username": credentials.username      
+    }
     
 @app.post("/auth/logout")    
 def logout(current_user: str = Depends(get_current_user)):    
