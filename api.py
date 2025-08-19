@@ -313,7 +313,8 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     
     try:    
         # Generar respuesta usando generate_response_no_memory para usuarios web    
-        ron_response = generate_response_no_memory(data.text)    
+        from core.assistant import generate_response_with_user_memory  
+        ron_response = generate_response_with_user_memory(data.text, current_user)    
             
         # Guardar en memoria según el tipo de cliente    
         if is_web_client and current_user:    
