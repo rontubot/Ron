@@ -487,7 +487,7 @@ def _process_user_input(user_input, save_to_memory=True):
     mensajes = construir_historial_openai()    
     mensajes.append({"role": "user", "content": original_input})    
         
-try:
+    try:
         respuesta = client.chat.completions.create(
             model="gpt-4o",
             messages=mensajes,
@@ -514,3 +514,4 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
