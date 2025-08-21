@@ -487,17 +487,15 @@ def _process_user_input(user_input, save_to_memory=True):
     mensajes = construir_historial_openai()    
     mensajes.append({"role": "user", "content": original_input})    
         
-    try:    
-        # CAMBIO CRÍTICO: Agregar timeout a la llamada de OpenAI    
-        respuesta = client.chat.completions.create(
-            model="gpt-4o",
-            messages=mensajes,
-            max_tokens=400,
-            temperature=0.7
-            )
-        ron_response = respuesta.choices[0].message.content.strip()    
-        # Filtro para quitar asteriscos y otros marcadores    
-        ron_response = re.sub(r'[*_`~]', '', ron_response)    
+try:    
+    respuesta = client.chat.completions.create(
+        model="gpt-4o",   # <-- guion normal
+        messages=mensajes,
+        max_tokens=400,
+        temperature=0.7
+    )
+    ron_response = respuesta.choices[0].message.content.strip()   
+    ron_response = re.sub(r'[*_`~]', '', ron_response)    
     except Exception as e:    
         logger.error(f"Error con OpenAI: {e}")    
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"    
@@ -522,6 +520,7 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
 
 
 
