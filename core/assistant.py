@@ -490,7 +490,7 @@ def _process_user_input(user_input, save_to_memory=True):
     try:    
         # CAMBIO CRÍTICO: Agregar timeout a la llamada de OpenAI    
         respuesta = client.chat.completions.create(
-            model="gpt-5-chat",
+            model="gpt-4o",
             messages=mensajes,
             max_tokens=400,
             temperature=0.7
@@ -522,6 +522,7 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
 
 
 
