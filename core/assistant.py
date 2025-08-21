@@ -278,7 +278,7 @@ def generate_response_with_user_memory(user_input, username):
             max_tokens=400,
             temperature=0.7
         )
-        ron_response = respuesta.choices[0].message.content.strip())   
+        ron_response = respuesta.choices[0].message.content.strip()   
         ron_response = re.sub(r'[*_`~]', '', ron_response)    
     except Exception as e:    
         logger.error(f"Error con OpenAI: {e}")    
@@ -522,5 +522,6 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
 
 
