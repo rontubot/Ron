@@ -1,5 +1,5 @@
 import os        
-import openai        
+from openai import OpenAI       
 import re        
 import time  
 import sys        
@@ -490,14 +490,13 @@ def _process_user_input(user_input, save_to_memory=True):
         
     try:    
         # CAMBIO CRÍTICO: Agregar timeout a la llamada de OpenAI    
-        respuesta = openai.ChatCompletion.create(    
-            model="gpt-4o",    
-            messages=mensajes,    
-            max_tokens=400,  # Reducido de 600 para mejor rendimiento    
-            temperature=0.7,    
-            timeout=25  # Timeout de 25 segundos para evitar que Railway falle    
-        )    
-        ron_response = respuesta['choices'][0]['message']['content'].strip()    
+        respuesta = client.chat.completions.create(
+            model="gpt-5-chat",
+            messages=mensajes,
+            max_tokens=400,
+            temperature=0.7
+            )
+        ron_response = respuesta.choices[0].message.content.strip()    
         # Filtro para quitar asteriscos y otros marcadores    
         ron_response = re.sub(r'[*_`~]', '', ron_response)    
     except Exception as e:    
@@ -524,3 +523,4 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
