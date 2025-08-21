@@ -280,11 +280,11 @@ def generate_response_with_user_memory(user_input, username):
         )
         ron_response = respuesta.choices[0].message.content.strip()   
         ron_response = re.sub(r'[*_`~]', '', ron_response)     
-        except Exception as e:    
-            logger.error(f"Error con OpenAI: {e}")    
-            ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"    
+    except Exception as e:    
+        logger.error(f"Error con OpenAI: {e}")    
+        ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"    
         
-        return ron_response  
+    return ron_response  
   
 def _process_user_input(user_input, save_to_memory=True):    
     """Función interna que procesa la entrada del usuario"""    
@@ -514,6 +514,8 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
+
 
 
 
