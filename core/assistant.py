@@ -272,8 +272,8 @@ def generate_response_with_user_memory(user_input, username):
     mensajes.append({"role": "user", "content": original_input})    
         
     try:    
-        respuesta = client.chat.completions.create(
-            model="gpt‑4o",
+       respuesta = client.chat.completions.create(
+            model="gpt-4o",   # <-- guion normal
             messages=mensajes,
             max_tokens=400,
             temperature=0.7
@@ -522,11 +522,6 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
-
-
-
-
-
 
 
 
