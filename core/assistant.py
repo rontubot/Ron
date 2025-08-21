@@ -273,7 +273,7 @@ def generate_response_with_user_memory(user_input, username):
         
     try:    
         respuesta = openai.ChatCompletion.create(    
-            model="gpt-4o",    
+            model="gpt-5-chat",    
             messages=mensajes,    
             max_tokens=400,    
             temperature=0.7,    
@@ -522,4 +522,5 @@ def generate_response_no_memory(user_input):
     return _process_user_input(user_input, save_to_memory=False)    
     
 # Mantener el alias original para compatibilidad    
+
 generate_response = responder_a_usuario
