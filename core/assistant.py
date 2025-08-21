@@ -16,8 +16,8 @@ from core.commands import (
 )        
 from dotenv import load_dotenv        
         
-load_dotenv()        
-openai.api_key = os.getenv("OPENAI_API_KEY")        
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))        
         
 # Configurar logging para debugging        
 logging.basicConfig(level=logging.INFO)        
@@ -272,14 +272,13 @@ def generate_response_with_user_memory(user_input, username):
     mensajes.append({"role": "user", "content": original_input})    
         
     try:    
-        respuesta = openai.ChatCompletion.create(    
-            model="gpt-5-chat",    
-            messages=mensajes,    
-            max_tokens=400,    
-            temperature=0.7,    
-            timeout=25    
-        )    
-        ron_response = respuesta['choices'][0]['message']['content'].strip()    
+        respuesta = client.chat.completions.create(
+            model="gpt-5-chat",
+            messages=mensajes,
+            max_tokens=400,
+            temperature=0.7
+        )
+        ron_response = respuesta.choices[0].message.content.strip())   
         ron_response = re.sub(r'[*_`~]', '', ron_response)    
     except Exception as e:    
         logger.error(f"Error con OpenAI: {e}")    
@@ -523,4 +522,5 @@ def generate_response_no_memory(user_input):
 # Mantener el alias original para compatibilidad    
 
 generate_response = responder_a_usuario
+
 
