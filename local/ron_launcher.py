@@ -12,6 +12,17 @@ import threading
 import queue    
 import time  
 import random
+import argparse  # Nuevo import  
+  
+# Configuración de argumentos de línea de comandos  
+parser = argparse.ArgumentParser(description='Ron 24/7 Voice Assistant')  
+parser.add_argument('--username', type=str, help='Username del usuario autenticado')  
+parser.add_argument('--control-port', type=int, default=9999, help='Puerto para control externo')  
+args = parser.parse_args()  
+  
+# Variables globales para control externo  
+current_username = args.username  
+control_enabled = True
 
 # Silenciar logs de comtypes para reducir ruido    
 logging.getLogger('comtypes').setLevel(logging.WARNING)    
