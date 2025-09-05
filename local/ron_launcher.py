@@ -92,7 +92,7 @@ def handle_external_control():
                 try:    
                     client, addr = server.accept()    
                     data = client.recv(1024).decode('utf-8')    
-                        
+                    print(f"📨 Comando recibido: {data}")    
                     if data == 'START':    
                         listening_active = True    
                         print("✅ Ron 24/7 activado por control externo")    
