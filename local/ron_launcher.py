@@ -14,6 +14,8 @@ import time
 import random  
 import argparse  # Nuevo import  
 import sys, io
+import socket
+import unicodedata
 # Asegurar UTF-8 en cualquier consola/salida capturada
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -89,20 +91,18 @@ def handle_external_control():
     import threading
 
     def control_server():
-        # MUY IMPORTANTE: declarar globales AQUÍ (esta es la causa del UnboundLocalError)
         global listening_active, speaking, control_enabled
-
         try:
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.bind(('127.0.0.1', args.control_port))
             server.listen(5)
-            server.settimeout(0.5)  # evita bloquear el hilo al cerrar
+            server.settimeout(0.5)
             print(f"🎛️ Control server listening on port {args.control_port}", flush=True)
 
             while control_enabled:
                 try:
-                    client, addr = server.accept()
+                    client, _ = server.accept()
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -112,55 +112,43 @@ def handle_external_control():
                 try:
                     data = client.recv(1024)
                     if not data:
-                        # responde algo siempre
-                        client.sendall(b'EMPTY')
-                        client.close()
-                        continue
+                        client.sendall(b'EMPTY'); client.close(); continue
+                    cmd = (data.decode('utf-8', errors='ignore') or '').strip().upper()
 
-                    cmd = data.decode('utf-8', errors='ignore').strip().upper()
-                    print(f"📨 Comando recibido: {cmd}", flush=True)
-
+                    # No imprimimos STATUS nunca
                     if cmd == 'START':
-                        listening_active = True
-                        speaking = False
-                        client.sendall(b'OK')  # mantenemos protocolo original
-                    elif cmd == 'STOP':
-                        listening_active = False
-                        speaking = False
+                        listening_active = True; speaking = False
                         client.sendall(b'OK')
+                        print("📨 Comando recibido: START", flush=True)
+                    elif cmd == 'STOP':
+                        listening_active = False; speaking = False
+                        client.sendall(b'OK')
+                        print("📨 Comando recibido: STOP", flush=True)
                     elif cmd == 'STATUS':
-                        # responde siempre (evita "reply was never sent")
-                        status = b'ACTIVE' if listening_active else b'INACTIVE'
-                        client.sendall(status)
+                        client.sendall(b'ACTIVE' if listening_active else b'INACTIVE')
                     else:
                         client.sendall(b'UNKNOWN')
-
+                        print(f"📨 Comando recibido: {cmd}", flush=True)
                 except Exception as e:
-                    # pase lo que pase, responde algo antes de cerrar
-                    try:
-                        client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))
-                    except Exception:
-                        pass
+                    try: client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))
+                    except Exception: pass
                     print(f"Error en control server: {e}", flush=True)
                 finally:
-                    try:
-                        client.close()
-                    except Exception:
-                        pass
-
+                    try: client.close()
+                    except Exception: pass
         except Exception as e:
             print(f"Error iniciando control server: {e}", flush=True)
 
-    # Iniciar servidor de control en thread separado
-    control_thread = threading.Thread(target=control_server, daemon=True)
-    control_thread.start()
+    threading.Thread(target=control_server, daemon=True).start()
+
+
  
   
 def setup_streaming_recognition():
     """Configura el reconocimiento de voz en streaming"""
     recognizer = sr.Recognizer()
-    recognizer.pause_threshold = 1.5  # más ágil
-    recognizer.energy_threshold = 4000
+    recognizer.pause_threshold = 1.0  # más ágil
+    recognizer.energy_threshold = 3000
 
     try:
         microphone = sr.Microphone()  # usa default (WASAPI/MME)
@@ -194,21 +182,33 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
     stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)    
     return stop_listening   
       
-def detect_ron_activation(text):        
-    """Detección optimizada para streaming"""        
-    text_lower = text.lower().strip()        
-            
-    # Detección precisa usando límites de palabra    
-    if re.search(r'\\bron\\b', text_lower):    
-        return True    
-            
-    # Variaciones comunes en streaming con límites de palabra    
-    variations = [r'\\brom\\b', r'\\brron\\b', r'\\bronn\\b']    
-    for var in variations:    
-        if re.search(var, text_lower):    
-            return True    
-            
-    return False  
+
+ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn"}  # ajusta aquí las variantes permitidas
+
+def _normalize_text(s: str) -> str:
+    """Minúsculas y sin acentos/diacríticos para comparar tokens."""
+    if not s:
+        return ""
+    s = unicodedata.normalize('NFKD', s)
+    s = s.encode('ascii', 'ignore').decode('utf-8', 'ignore')
+    return s.lower()
+
+def detect_ron_activation(text: str) -> bool:
+    """
+    Activa SOLO si aparece la palabra aislada 'ron' (o alguna variante explícita en ALLOWED_WAKE_WORDS).
+    NO activa con subcadenas dentro de otras palabras (p. ej., 'chicharron', 'romel').
+    """
+    if not text:
+        return False
+
+    t = _normalize_text(text)
+
+    # Tokenizar por límites de palabra: solo palabras alfanuméricas separadas
+    tokens = re.findall(r'\b\w+\b', t)
+
+    # Coincidencia exacta solo si el token completo está en la lista permitida
+    # Esto cubre frases como "oye ron", "como estas ron", "ron", "oye rom", etc.
+    return any(tok in ALLOWED_WAKE_WORDS for tok in tokens)
     
 def safe_activation_response():    
     """Maneja la respuesta de activación de forma segura"""    
