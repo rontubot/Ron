@@ -16,6 +16,16 @@ import argparse  # Nuevo import
 import sys, io
 import socket
 import unicodedata
+
+# ===== Ventana de interacción tras la wake-word =====
+SILENCE_TIMEOUT_SEC = 1.2   # si no llega nada nuevo en 1.2s, se manda la orden
+MAX_BUFFER_TIME_SEC = 12.0  # seguridad: no acumular más de 12s por turno
+
+# Estado para agrupar
+conversation_buffer = []
+last_speech_time = 0.0
+activation_time = 0.0
+
 # Asegurar UTF-8 en cualquier consola/salida capturada
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -162,25 +172,26 @@ def setup_streaming_recognition():
 
     return recognizer, microphone 
       
-def stream_audio_recognition(recognizer, microphone, audio_queue):    
-    """Función que corre en background capturando audio"""    
-    def callback(recognizer, audio):    
-        global speaking, listening_active    
-            
-        # Solo procesar si no estamos hablando y el listening está activo    
-        if not speaking and listening_active:    
-            try:    
-                text = recognizer.recognize_google(audio, language="es")    
-                if text.strip():  # Solo añadir si hay texto válido    
-                    audio_queue.put(text.lower())    
-            except sr.UnknownValueError:    
-                pass  # Ignorar audio no reconocido    
-            except sr.RequestError:    
-                pass  # Ignorar errores de conexión    
-        
-    # Iniciar escucha en background    
-    stop_listening = recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)    
-    return stop_listening   
+def stream_audio_recognition(recognizer, microphone, audio_queue):
+    """Función que corre en background capturando audio"""
+    def callback(recognizer, audio):
+        global speaking, listening_active
+        if not speaking and listening_active:
+            try:
+                text = recognizer.recognize_google(audio, language="es")
+                text = (text or "").strip()
+                if text:
+                    # ⬇️ Encolamos (texto, momento) para poder detectar silencios
+                    audio_queue.put((text.lower(), time.time()))
+            except sr.UnknownValueError:
+                pass
+            except sr.RequestError:
+                pass
+
+    stop_listening = recognizer.listen_in_background(
+        microphone, callback, phrase_time_limit=10
+    )
+    return stop_listening
       
 
 ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn"}  # ajusta aquí las variantes permitidas
@@ -824,39 +835,85 @@ if __name__ == "__main__":
     # Iniciar captura de audio en background        
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)        
             
-    activado = False        
-            
-    try:        
-        while True:        
-            try:        
-                # Solo procesar si listening_active está habilitado    
-                if not listening_active:    
-                    time.sleep(0.1)    
-                    continue    
-                        
-                # Obtener texto del queue con timeout        
-                txt = audio_queue.get(timeout=0.1)        
-                print(f"🗣 Detectado: {txt}")        
-                        
-                # Detección de activación        
-                if not activado and detect_ron_activation(txt):        
-                    activado = True        
-                    print("✅ Ron activado")        
-                    safe_activation_response()  # Usar función segura      
-                    continue        
-                        
-                if activado and txt and listening_active:  # Añadir verificación de listening_active      
-                    # Manejar comandos como antes        
-                    if handle_local_commands(txt):        
-                        continue        
-                            
-                    should_shutdown = talk_to_ron(txt)        
-                    if should_shutdown:        
-                        activado = False        
-                        print("🔴 Ron desconectado")        
-                                
-            except queue.Empty:        
-                continue  # No hay audio nuevo, continuar        
+    activado = False
+    try:
+        while True:
+            try:
+                if not listening_active:
+                    time.sleep(0.05)
+                    continue
+
+                # ⬇️ esperamos trozos; ahora vienen como (texto, ts)
+                txt_ts = audio_queue.get(timeout=0.1)
+                if not isinstance(txt_ts, tuple) or len(txt_ts) != 2:
+                    # retrocompatibilidad por si quedó algo viejo en la cola
+                    txt, ts = str(txt_ts), time.time()
+                else:
+                    txt, ts = txt_ts
+
+                # DEBUG: comenta esta línea si te ensucia el log
+                print(f"🗣 Detectado: {txt}")
+
+                # 1) Si no está activado, buscar wake-word exacta (palabra aislada)
+                if not activado:
+                    if detect_ron_activation(txt):
+                        activado = True
+                        activation_time = ts
+                        conversation_buffer.clear()
+                        last_speech_time = ts
+                        print("✅ Ron activado")
+                        safe_activation_response()
+                        # No seguimos con este chunk: el usuario dirá su orden luego
+                        continue
+                    else:
+                        # sin wake-word → seguimos escuchando
+                        continue
+
+                # 2) Ya activado: acumular texto y actualizar reloj
+                conversation_buffer.append(txt)
+                last_speech_time = ts
+
+                # 3) Cada iteración, chequear silencio o tiempo máximo
+                now = time.time()
+                time_since_last = now - last_speech_time
+                time_since_activation = now - activation_time
+
+                # ¿se acabó la frase? (silencio)
+                if time_since_last >= SILENCE_TIMEOUT_SEC or time_since_activation >= MAX_BUFFER_TIME_SEC:
+                    utterance = " ".join(conversation_buffer).strip()
+                    conversation_buffer.clear()
+
+                    if utterance:
+                        # Primero comandos locales
+                        if handle_local_commands(utterance):
+                            # Comando manejado localmente; volvemos a modo pasivo
+                            activado = False
+                            print("🔁 Vuelvo a escucha pasiva (comando local).")
+                            continue
+
+                        # Si no fue comando local → enviar a Ron (API/memoria)
+                        should_shutdown = talk_to_ron(utterance)
+                        activado = False
+                        if should_shutdown:
+                            print("🔴 Ron desconectado")
+                    else:
+                        # Sin contenido => reset a escucha pasiva
+                        activado = False
+
+            except queue.Empty:
+                # Además de la cola vacía, si seguimos activados, chequea silencio
+                if activado and (time.time() - last_speech_time) >= SILENCE_TIMEOUT_SEC and conversation_buffer:
+                    utterance = " ".join(conversation_buffer).strip()
+                    conversation_buffer.clear()
+                    if utterance:
+                        if handle_local_commands(utterance):
+                            activado = False
+                        else:
+                            should_shutdown = talk_to_ron(utterance)
+                            activado = False
+                            if should_shutdown:
+                                print("🔴 Ron desconectado")
+                continue        
                         
     except KeyboardInterrupt:        
         print("🔴 Cerrando Ron...")        
