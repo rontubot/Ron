@@ -83,63 +83,96 @@ web_apps = {
 }
 
 
-def handle_external_control():    
-    """Maneja comandos de control desde Electron"""    
-    global listening_active, speaking, control_enabled    
-        
-    import socket    
-    import threading    
-        
-    def control_server():    
-        try:    
-            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
-            server.bind(('localhost', args.control_port))    
-            server.listen(1)    
-            print(f"🎛️ Control server listening on port {args.control_port}")    
-                
-            while control_enabled:    
-                try:    
-                    client, addr = server.accept()    
-                    data = client.recv(1024).decode('utf-8')    
-                    print(f"📨 Comando recibido: {data}")    
-                    if data == 'START':    
-                        listening_active = True    
-                        print("✅ Ron 24/7 activado por control externo")    
-                        client.send(b'OK')    
-                    elif data == 'STOP':    
-                        listening_active = False    
-                        speaking = False    
-                        print("🔴 Ron 24/7 desactivado por control externo")    
-                        client.send(b'OK')    
-                    elif data == 'STATUS':    
-                        status = 'ACTIVE' if listening_active else 'INACTIVE'    
-                        client.send(status.encode('utf-8'))    
-                        
-                    client.close()    
-                except socket.timeout:    
-                    continue    
-                except Exception as e:    
-                    print(f"Error en control server: {e}")    
-                        
-        except Exception as e:    
-            print(f"Error iniciando control server: {e}")    
-        
-    # Iniciar servidor de control en thread separado    
-    control_thread = threading.Thread(target=control_server, daemon=True)    
-    control_thread.start()  
+def handle_external_control():
+    """Maneja comandos de control desde Electron"""
+    import socket
+    import threading
+
+    def control_server():
+        # MUY IMPORTANTE: declarar globales AQUÍ (esta es la causa del UnboundLocalError)
+        global listening_active, speaking, control_enabled
+
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(('127.0.0.1', args.control_port))
+            server.listen(5)
+            server.settimeout(0.5)  # evita bloquear el hilo al cerrar
+            print(f"🎛️ Control server listening on port {args.control_port}", flush=True)
+
+            while control_enabled:
+                try:
+                    client, addr = server.accept()
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"Error en control server (accept): {e}", flush=True)
+                    continue
+
+                try:
+                    data = client.recv(1024)
+                    if not data:
+                        # responde algo siempre
+                        client.sendall(b'EMPTY')
+                        client.close()
+                        continue
+
+                    cmd = data.decode('utf-8', errors='ignore').strip().upper()
+                    print(f"📨 Comando recibido: {cmd}", flush=True)
+
+                    if cmd == 'START':
+                        listening_active = True
+                        speaking = False
+                        client.sendall(b'OK')  # mantenemos protocolo original
+                    elif cmd == 'STOP':
+                        listening_active = False
+                        speaking = False
+                        client.sendall(b'OK')
+                    elif cmd == 'STATUS':
+                        # responde siempre (evita "reply was never sent")
+                        status = b'ACTIVE' if listening_active else b'INACTIVE'
+                        client.sendall(status)
+                    else:
+                        client.sendall(b'UNKNOWN')
+
+                except Exception as e:
+                    # pase lo que pase, responde algo antes de cerrar
+                    try:
+                        client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))
+                    except Exception:
+                        pass
+                    print(f"Error en control server: {e}", flush=True)
+                finally:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            print(f"Error iniciando control server: {e}", flush=True)
+
+    # Iniciar servidor de control en thread separado
+    control_thread = threading.Thread(target=control_server, daemon=True)
+    control_thread.start()
+ 
   
-def setup_streaming_recognition():      
-    """Configura el reconocimiento de voz en streaming"""      
-    recognizer = sr.Recognizer()      
-    recognizer.pause_threshold = 1.5  # Reducir para mayor velocidad      
-    recognizer.energy_threshold = 4000      
-    microphone = sr.Microphone()      
-          
-    # Calibrar ruido ambiente      
-    with microphone as source:      
-        recognizer.adjust_for_ambient_noise(source, duration=2)   
-          
-    return recognizer, microphone  
+def setup_streaming_recognition():
+    """Configura el reconocimiento de voz en streaming"""
+    recognizer = sr.Recognizer()
+    recognizer.pause_threshold = 1.5  # más ágil
+    recognizer.energy_threshold = 4000
+
+    try:
+        microphone = sr.Microphone()  # usa default (WASAPI/MME)
+    except OSError as e:
+        print(f"❌ No se encontró micrófono o no hay permisos: {e}", flush=True)
+        raise
+
+    # Calibrar ruido ambiente
+    with microphone as source:
+        recognizer.adjust_for_ambient_noise(source, duration=2)
+
+    return recognizer, microphone 
       
 def stream_audio_recognition(recognizer, microphone, audio_queue):    
     """Función que corre en background capturando audio"""    
@@ -827,6 +860,11 @@ if __name__ == "__main__":
                         
     except KeyboardInterrupt:        
         print("🔴 Cerrando Ron...")        
-    finally:        
-        control_enabled = False    
-        stop_listening(wait_for_stop=False)
+    
+    finally:
+        control_enabled = False
+        try:
+            stop_listening(wait_for_stop=False)
+        except Exception:
+            pass
+        print("🔴 Ron 24/7 detenido.", flush=True)
