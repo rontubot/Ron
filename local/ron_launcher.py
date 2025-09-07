@@ -113,7 +113,7 @@ def handle_external_control():
 
             while control_enabled:
                 try:
-                    client, _ = server.accept()
+                    socket_client, _ = server.accept()
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -302,7 +302,7 @@ Tu forma de desactivarte es con la frase: hasta luego.
             response = client.chat.completions.create(  
                 model="gpt-4o",  
                 messages=mensajes,  
-                max_tokens=400,  
+                max_tokens=400,     
                 temperature=0.7,  
                 timeout=25  
             )  
