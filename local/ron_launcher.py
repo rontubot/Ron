@@ -16,6 +16,7 @@ import argparse  # Nuevo import
 import sys, io
 import socket
 import unicodedata
+from core.assistant import client
 
 # ===== Ventana de interacción tras la wake-word =====
 SILENCE_TIMEOUT_SEC = 1.2   # si no llega nada nuevo en 1.2s, se manda la orden
@@ -297,9 +298,6 @@ Tu forma de desactivarte es con la frase: hasta luego.
             # Añadir mensaje actual  
             mensajes.append({"role": "user", "content": user_input})  
               
-            # Llamar a OpenAI  
-            from openai import OpenAI  
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
               
             response = client.chat.completions.create(  
                 model="gpt-4o",  
