@@ -127,31 +127,31 @@ def handle_external_control():
                     continue
 
                 try:
-                    data = client.recv(1024)
+                    data = socket_client.recv(1024)
                     if not data:
-                        client.sendall(b'EMPTY'); client.close(); continue
+                        socket_client.sendall(b'EMPTY'); socket_client.close(); continue
                     cmd = (data.decode('utf-8', errors='ignore') or '').strip().upper()
 
                     # No imprimimos STATUS nunca
                     if cmd == 'START':
                         listening_active = True; speaking = False
-                        client.sendall(b'OK')
+                        socket_client.sendall(b'OK')
                         print("📨 Comando recibido: START", flush=True)
                     elif cmd == 'STOP':
                         listening_active = False; speaking = False
-                        client.sendall(b'OK')
+                        socket_client.sendall(b'OK')
                         print("📨 Comando recibido: STOP", flush=True)
                     elif cmd == 'STATUS':
-                        client.sendall(b'ACTIVE' if listening_active else b'INACTIVE')
+                        socket_client.sendall(b'ACTIVE' if listening_active else b'INACTIVE')
                     else:
-                        client.sendall(b'UNKNOWN')
+                        socket_client.sendall(b'UNKNOWN')
                         print(f"📨 Comando recibido: {cmd}", flush=True)
                 except Exception as e:
-                    try: client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))
+                    try: socket_client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))
                     except Exception: pass
                     print(f"Error en control server: {e}", flush=True)
                 finally:
-                    try: client.close()
+                    try: socket_client.close()
                     except Exception: pass
         except Exception as e:
             print(f"Error iniciando control server: {e}", flush=True)
