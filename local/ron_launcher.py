@@ -15,8 +15,15 @@ import random
 import argparse  # Nuevo import  
 import sys, io
 import socket
-import unicodedata
-from core.assistant import client
+import unicodedata 
+print(f"🔍 Directorio actual: {os.getcwd()}")  
+print(f"🔍 Directorio del archivo: {os.path.dirname(__file__)}")  
+print(f"🔍 sys.path: {sys.path}")  
+try:  
+    from core.assistant import client  
+    print("✅ Importación exitosa del cliente OpenAI")  
+except ImportError as e:  
+    print(f"❌ Error de importación: {e}")
 
 # ===== Ventana de interacción tras la wake-word =====
 SILENCE_TIMEOUT_SEC = 1.2   # si no llega nada nuevo en 1.2s, se manda la orden
@@ -98,8 +105,7 @@ web_apps = {
 
 def handle_external_control():
     """Maneja comandos de control desde Electron"""
-    import socket
-    import threading
+
 
     def control_server():
         global listening_active, speaking, control_enabled
