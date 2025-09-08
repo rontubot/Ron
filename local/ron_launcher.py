@@ -17,6 +17,25 @@ import sys, io
 import socket
 import unicodedata 
  
+# --- Asegurar UTF-8 primero ---
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+else:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# --- Guardar stdout/stderr originales ---
+_orig_stdout, _orig_stderr = sys.stdout, sys.stderr
+
+# --- Silenciar prints de arranque si se pide ---
+_silenced_stdout = None
+_silenced_stderr = None
+if os.getenv("RON_SUPPRESS_STARTUP", "1") == "1":
+    _silenced_stdout = sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    _silenced_stderr = sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+
+    
 try:  
     from core.assistant import client  
     print("✅ Importación exitosa del cliente OpenAI")  
@@ -818,6 +837,12 @@ def talk_to_ron(text):
         listening_active = True        
             
     return False  
+
+try:
+    sys.stdout = _orig_stdout
+    sys.stderr = _orig_stderr
+except Exception:
+    pass    
     
 if __name__ == "__main__":        
     print("🟢 Ron 24/7 iniciado.")    
