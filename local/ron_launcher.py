@@ -16,9 +16,7 @@ import argparse  # Nuevo import
 import sys, io
 import socket
 import unicodedata 
-print(f"🔍 Directorio actual: {os.getcwd()}")  
-print(f"🔍 Directorio del archivo: {os.path.dirname(__file__)}")  
-print(f"🔍 sys.path: {sys.path}")  
+ 
 try:  
     from core.assistant import client  
     print("✅ Importación exitosa del cliente OpenAI")  
