@@ -102,7 +102,10 @@ activation_phrases = [
   
 # Control de estado global    
 speaking = False    
-listening_active = False  
+listening_active = False
+manual_recording = False  
+manual_recording_buffer = []  
+manual_recording_start_time = 0.0  
 external_control = True    
       
 # Diccionario de aplicaciones web      
@@ -120,61 +123,72 @@ web_apps = {
 }
 
 
-def handle_external_control():
-    """Maneja comandos de control desde Electron"""
-
-
-    def control_server():
-        global listening_active, speaking, control_enabled
-        try:
-            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server.bind(('127.0.0.1', args.control_port))
-            server.listen(5)
-            server.settimeout(0.5)
-            print(f"🎛️ Control server listening on port {args.control_port}", flush=True)
-
-            while control_enabled:
-                try:
-                    socket_client, _ = server.accept()
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    print(f"Error en control server (accept): {e}", flush=True)
-                    continue
-
-                try:
-                    data = socket_client.recv(1024)
-                    if not data:
-                        socket_client.sendall(b'EMPTY'); socket_client.close(); continue
-                    cmd = (data.decode('utf-8', errors='ignore') or '').strip().upper()
-
-                    # No imprimimos STATUS nunca
-                    if cmd == 'START':
-                        listening_active = True; speaking = False
-                        socket_client.sendall(b'OK')
-                        print("📨 Comando recibido: START", flush=True)
-                    elif cmd == 'STOP':
-                        listening_active = False; speaking = False
-                        socket_client.sendall(b'OK')
-                        print("📨 Comando recibido: STOP", flush=True)
-                    elif cmd == 'STATUS':
-                        socket_client.sendall(b'ACTIVE' if listening_active else b'INACTIVE')
-                    else:
-                        socket_client.sendall(b'UNKNOWN')
-                        print(f"📨 Comando recibido: {cmd}", flush=True)
-                except Exception as e:
-                    try: socket_client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))
-                    except Exception: pass
-                    print(f"Error en control server: {e}", flush=True)
-                finally:
-                    try: socket_client.close()
-                    except Exception: pass
-        except Exception as e:
-            print(f"Error iniciando control server: {e}", flush=True)
-
+def handle_external_control():  
+    """Maneja comandos de control desde Electron"""  
+  
+    def control_server():  
+        global listening_active, speaking, control_enabled, manual_recording, manual_recording_buffer, manual_recording_start_time  
+        try:  
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  
+            server.bind(('127.0.0.1', args.control_port))  
+            server.listen(5)  
+            server.settimeout(0.5)  
+            print(f"🎛️ Control server listening on port {args.control_port}", flush=True)  
+  
+            while control_enabled:  
+                try:  
+                    socket_client, _ = server.accept()  
+                except socket.timeout:  
+                    continue  
+                except Exception as e:  
+                    print(f"Error en control server (accept): {e}", flush=True)  
+                    continue  
+  
+                try:  
+                    data = socket_client.recv(1024)  
+                    if not data:  
+                        socket_client.sendall(b'EMPTY'); socket_client.close(); continue  
+                    cmd = (data.decode('utf-8', errors='ignore') or '').strip().upper()  
+  
+                    # No imprimimos STATUS nunca  
+                    if cmd == 'START':  
+                        listening_active = True; speaking = False  
+                        socket_client.sendall(b'OK')  
+                        print("📨 Comando recibido: START", flush=True)  
+                    elif cmd == 'STOP':  
+                        listening_active = False; speaking = False  
+                        socket_client.sendall(b'OK')  
+                        print("📨 Comando recibido: STOP", flush=True)  
+                    elif cmd == 'STATUS':  
+                        socket_client.sendall(b'ACTIVE' if listening_active else b'INACTIVE')  
+                    elif cmd == 'START_MANUAL_RECORDING':  
+                        manual_recording = True  
+                        manual_recording_buffer.clear()  
+                        manual_recording_start_time = time.time()  
+                        listening_active = True  
+                        speaking = False  
+                        socket_client.sendall(b'RECORDING_STARTED')  
+                        print("📨 Comando recibido: START_MANUAL_RECORDING", flush=True)  
+                    elif cmd == 'STOP_MANUAL_RECORDING':  
+                        manual_recording = False  
+                        listening_active = False  
+                        socket_client.sendall(b'RECORDING_STOPPED')  
+                        print("📨 Comando recibido: STOP_MANUAL_RECORDING", flush=True)  
+                    else:  
+                        socket_client.sendall(b'UNKNOWN')  
+                        print(f"📨 Comando recibido: {cmd}", flush=True)  
+                except Exception as e:  
+                    try: socket_client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))  
+                    except Exception: pass  
+                    print(f"Error en control server: {e}", flush=True)  
+                finally:  
+                    try: socket_client.close()  
+                    except Exception: pass  
+        except Exception as e:  
+            print(f"Error iniciando control server: {e}", flush=True)  
+  
     threading.Thread(target=control_server, daemon=True).start()
-
 
  
   
@@ -196,25 +210,29 @@ def setup_streaming_recognition():
 
     return recognizer, microphone 
       
-def stream_audio_recognition(recognizer, microphone, audio_queue):
-    """Función que corre en background capturando audio"""
-    def callback(recognizer, audio):
-        global speaking, listening_active
-        if not speaking and listening_active:
-            try:
-                text = recognizer.recognize_google(audio, language="es")
-                text = (text or "").strip()
-                if text:
-                    # ⬇️ Encolamos (texto, momento) para poder detectar silencios
-                    audio_queue.put((text.lower(), time.time()))
-            except sr.UnknownValueError:
-                pass
-            except sr.RequestError:
-                pass
-
-    stop_listening = recognizer.listen_in_background(
-        microphone, callback, phrase_time_limit=10
-    )
+def stream_audio_recognition(recognizer, microphone, audio_queue):  
+    """Función que corre en background capturando audio"""  
+    def callback(recognizer, audio):  
+        global speaking, listening_active, manual_recording, manual_recording_buffer  
+        if not speaking and listening_active:  
+            try:  
+                text = recognizer.recognize_google(audio, language="es")  
+                text = (text or "").strip()  
+                if text:  
+                    if manual_recording:  
+                        # Durante grabación manual, acumular todo el texto sin necesidad de wake word  
+                        manual_recording_buffer.append(text.lower())  
+                    else:  
+                        # Lógica normal existente para detección de wake word  
+                        audio_queue.put((text.lower(), time.time()))  
+            except sr.UnknownValueError:  
+                pass  
+            except sr.RequestError:  
+                pass  
+  
+    stop_listening = recognizer.listen_in_background(  
+        microphone, callback, phrase_time_limit=10  
+    )  
     return stop_listening
       
 
@@ -929,6 +947,23 @@ if __name__ == "__main__":
 
             except queue.Empty:
                 # Además de la cola vacía, si seguimos activados, chequea silencio
+                
+
+                # Verificar si se terminó una grabación manual  
+                if not manual_recording and manual_recording_buffer:  
+                    manual_text = " ".join(manual_recording_buffer).strip()  
+                    manual_recording_buffer.clear()  
+      
+                    if manual_text:  
+                        print(f"🎤 Procesando grabación manual: {manual_text}")  
+                        # Procesar como comando local o enviar a Ron  
+                        if not handle_local_commands(manual_text):  
+                            should_shutdown = talk_to_ron(manual_text)  
+                            if should_shutdown:  
+                                print("🔴 Ron desconectado")  
+                                break
+
+
                 if activado and (time.time() - last_speech_time) >= SILENCE_TIMEOUT_SEC and conversation_buffer:
                     utterance = " ".join(conversation_buffer).strip()
                     conversation_buffer.clear()
