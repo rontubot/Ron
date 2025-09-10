@@ -17,8 +17,78 @@ import sys, io
 import socket
 import unicodedata 
 import inspect    
+from datetime import datetime
 from core import commands
 from core.assistant import generate_response_with_user_memory as core_generate_response  
+
+
+# -------------------- HELPERS JSON / SANITIZE --------------------
+
+_CONTROL_CHARS = (
+    "\ufeff"  # BOM
+    "\u200b"  # zero width space
+    "\u200c"  # ZWNJ
+    "\u200d"  # ZWJ
+)
+
+def sanitize_text(s: str) -> str:
+    if not isinstance(s, str):
+        return s
+    for ch in _CONTROL_CHARS:
+        s = s.replace(ch, "")
+    # remueve controles no imprimibles salvo \n \r \t
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", s)
+    return s.strip()
+
+def extract_json_object(s: str) -> str:
+    """Devuelve el primer objeto JSON balanceado { ... } encontrado."""
+    s = sanitize_text(s)
+    start = s.find("{")
+    if start == -1:
+        return s
+    depth = 0
+    for i in range(start, len(s)):
+        ch = s[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start:i+1]
+    return s  # fallback si no cerró
+
+def parse_model_json(raw: str) -> dict:
+    """Devuelve {"user_response": str, "commands": list}."""
+    raw = extract_json_object(raw)
+    try:
+        data = json.loads(raw)
+    except Exception:
+        # parche suave por si el modelo usó comillas simples sin escapar
+        fixed = re.sub(r"(?<!\\)'", '"', raw)
+        data = json.loads(fixed)
+
+    user_response = data.get("user_response")
+    if not isinstance(user_response, str):
+        user_response = sanitize_text(raw)
+
+    commands = data.get("commands")
+    if not isinstance(commands, list):
+        commands = []
+
+    norm_cmds = []
+    for c in commands:
+        if not isinstance(c, dict):
+            continue
+        action = c.get("action")
+        params = c.get("params") if isinstance(c.get("params"), dict) else {}
+        if isinstance(action, str) and action.strip():
+            norm_cmds.append({"action": action.strip(), "params": params})
+
+    return {"user_response": user_response, "commands": norm_cmds}
+
+
+
+
 
 # --- Asegurar UTF-8 primero ---
 if hasattr(sys.stdout, "reconfigure"):
@@ -127,6 +197,17 @@ web_apps = {
 
 
 
+def try_web_fallback(app_name: str):
+    app = (app_name or "").lower().strip()
+    if app in web_apps:
+        webbrowser.open(web_apps[app])
+        return f"Abrí {app} en el navegador (fallback)."
+    for key, url in web_apps.items():
+        if app in key or key in app:
+            webbrowser.open(url)
+            return f"Abrí {key} en el navegador (fallback)."
+    return None
+
 # Banco de tareas
 
 
@@ -168,6 +249,41 @@ def create_command_bank():
       
     return command_bank  
   
+
+def try_execute_commands(commands_list):
+    """
+    Ejecuta comandos ya parseados: [{"action": "...", "params": {...}}, ...]
+    No imprime nada al usuario; solo ejecuta.
+    """
+    command_bank = create_command_bank()
+    for command in commands_list:
+        if not isinstance(command, dict):
+            continue
+        action = command.get("action")
+        params = command.get("params", {})
+        if not isinstance(action, str) or not action.strip():
+            continue
+
+        if action in command_bank:
+            func = command_bank[action]['function']
+            expected_params = command_bank[action]['params']
+            valid_params = {k: v for k, v in params.items() if k in expected_params}
+            try:
+                _ = func(**valid_params)
+                logger.info(f"Comando ejecutado: {action}({valid_params})")
+            except Exception as e:
+                logger.error(f"Error ejecutando comando {action}: {e}")
+                # Fallback web para open_application
+                if action == "open_application" and "app_name" in params:
+                    app_name = str(params["app_name"]).lower()
+                    web_fallback = try_web_fallback(app_name) if 'try_web_fallback' in globals() else None
+                    if web_fallback:
+                        logger.info(f"Fallback web ejecutado: {web_fallback}")
+        else:
+            logger.warning(f"Comando no encontrado en banco: {action}")
+
+
+
 def parse_and_execute_commands_dynamic(gpt_response):  
     """  
     Parser dinámico que usa el banco de comandos para ejecutar funciones  
@@ -402,6 +518,26 @@ def safe_activation_response():
         speaking = False    
         listening_active = True  
   
+# ... arriba de generate_response_with_user_memory puedes definir:
+STRICT_JSON_SYSTEM = (
+    "Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra. "
+    'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}'
+)
+
+
+
+def load_device_memory():
+    # TODO: cargar desde un JSON local si lo deseas
+    return {"conversaciones": []}
+
+def save_device_memory(mem):
+    # TODO: persistir a un JSON local si lo deseas
+    try:
+        pass
+    except Exception:
+        pass
+
+
 def generate_response_with_user_memory(user_input, username=None):  
     """Genera respuesta usando memoria de usuario si está disponible, sino usa memoria de dispositivo"""  
     global current_username  
@@ -418,6 +554,7 @@ def generate_response_with_user_memory(user_input, username=None):
             # Construir historial para OpenAI usando memoria de usuario  
             historial = memory.get("conversaciones", [])  
             mensajes = [          
+                {"role": "system", "content": STRICT_JSON_SYSTEM},
                 {          
                     "role": "system",          
                     "content": """          
@@ -507,64 +644,157 @@ def generate_response_with_user_memory(user_input, username=None):
                 }          
 ]
               
-            # Añadir últimas 20 conversaciones para contexto  
-            for mensaje in historial[-20:]:  
-                if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:  
-                    mensajes.append({"role": "user", "content": mensaje["user"]})  
-                    mensajes.append({"role": "assistant", "content": mensaje["ron"]})  
+           # Últimas 20 interacciones
+            for mensaje in historial[-20:]:
+                if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:
+                    # Nos aseguramos que sean strings
+                    mensajes.append({"role": "user", "content": str(mensaje["user"])})
+                    mensajes.append({"role": "assistant", "content": str(mensaje["ron"])}) 
               
             # Añadir mensaje actual  
             mensajes.append({"role": "user", "content": user_input})  
               
               
-            response = client.chat.completions.create(  
-                model="gpt-4o",  
-                messages=mensajes,  
-                max_tokens=400,     
-                temperature=0.7,  
-                timeout=25  
-            )  
+            # ===== Llamada a OpenAI — salida forzada a JSON =====
+            completion = client.chat.completions.create(
+                model="gpt-4o",
+                messages=mensajes,
+                response_format={"type": "json_object"},  # <- CLAVE
+                max_tokens=400,
+                temperature=0,  # agente de comandos: 0 para minimizar divagues
+                timeout=25,
+            )
               
-            gpt_response = response.choices[0].message.content.strip()  
-            ron_response = parse_and_execute_commands_dynamic(gpt_response)  
-              
-            # Guardar en memoria de usuario  
-            from datetime import datetime  
-            memory["conversaciones"].append({  
-                "user": user_input,  
-                "ron": ron_response,  
-                "timestamp": datetime.utcnow().isoformat(),  
-                "source": "voice"  # Marcar como conversación de voz  
-            })  
-              
-            # Mantener solo las últimas 100 conversaciones  
-            if len(memory["conversaciones"]) > 100:  
-                memory["conversaciones"] = memory["conversaciones"][-100:]  
-              
-            save_user_memory(actual_username, memory)  
-            return ron_response  
-              
-        else:  
-            # Fallback al sistema de memoria de dispositivo original  
-            print("🔄 Usando memoria de dispositivo (sin autenticación)")  
-            # Hacer request directo a la API como antes  
-            resp = requests.post(RON_API_URL, json={"text": user_input})  
-            if resp.ok:  
-                response_data = resp.json()  
-                return response_data.get("ron", "No entendí.")  
-            else:  
-                return "No puedo comunicarme con el servidor."  
-                  
-    except Exception as e:  
-        print(f"❌ Error en generate_response_with_user_memory: {e}")  
-        # Fallback al sistema original  
-        resp = requests.post(RON_API_URL, json={"text": user_input})  
-        if resp.ok:  
-            response_data = resp.json()  
-            return response_data.get("ron", "No entendí.")  
-        else:  
-            return "Ocurrió un error al intentar responderte."
+            raw = completion.choices[0].message.content
+            # Parseo robusto
+            parsed = parse_model_json(raw)
 
+            # 1) Mostrar SOLO el user_response al usuario
+            ron_response_text = parsed["user_response"]
+
+            # 2) Ejecutar comandos por canal oculto
+            if parsed["commands"]:
+                try_execute_commands(parsed["commands"])
+
+            # Guardar en memoria lo que el usuario vio (texto, no JSON)
+            memory.setdefault("conversaciones", []).append({
+                "user": user_input,
+                "ron": ron_response_text,
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": "voice",
+            })
+
+            # Mantener últimas 100
+            if len(memory["conversaciones"]) > 100:
+                memory["conversaciones"] = memory["conversaciones"][-100:]
+
+            save_user_memory(actual_username, memory)
+            return ron_response_text
+
+        else:
+            # === Sin usuario autenticado: usa memoria de dispositivo ===
+            print("ℹ️ Sin usuario autenticado; usando memoria de dispositivo.")
+            memory = load_device_memory()  # asegúrate de tener esta función
+            historial = memory.get("conversaciones", [])
+
+            mensajes = [
+                {"role": "system", "content": STRICT_JSON_SYSTEM},   # <- NUEVO: regla breve y prioritaria
+                {"role": "system", "content": """          
+            Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. Fuiste creado por Luis.   
+
+            TU FUNCIÓN PRINCIPAL ES EJECUTAR COMANDOS Y ACCIONES PARA EL USUARIO.
+            PRIORIDAD MÁXIMA: BUSCAR Y EJECUTAR COMANDOS
+            Antes de responder con conversación, SIEMPRE analiza exhaustivamente si el usuario está pidiendo alguna acción ejecutable. Tu trabajo principal es HACER COSAS, no solo hablar.
+
+            CAPACIDADES COMPLETAS DEL SISTEMA:
+            - Reproducir música/videos en YouTube (search_youtube)
+            - Abrir y cerrar aplicaciones (open_application, close_application)
+            - Buscar información en Google (search_google)
+            - Obtener información del clima (get_weather)
+            - Gestionar recordatorios (add_reminder, get_reminders, remove_reminder)
+            - Diagnosticar sistema (diagnose_system_performance)
+            - Verificar servicios críticos (check_system_services)
+            - Reparar servicios problemáticos (restart_critical_services)
+            - Limpiar archivos temporales (clean_temp_files)
+            - Resolver problemas de red (flush_dns)
+            - Controlar energía del sistema (shutdown, restart, suspend)
+
+            PROCESO DE ANÁLISIS OBLIGATORIO:
+            1. PRIMERO: Busca exhaustivamente cualquier solicitud de acción en el mensaje
+            2. SEGUNDO: Mapea esa acción a comandos disponibles
+            3. TERCERO: Si encuentras comandos, EJECUTA y responde
+            4. ÚLTIMO RECURSO: Si NO hay comandos, entonces conversa
+
+            EJEMPLOS DE DETECCIÓN INTELIGENTE:
+            - "pon música" → search_youtube con música
+            - "necesito concentrarme" → search_youtube con música de concentración
+            - "abre algo para ver videos" → open_application con YouTube
+            - "mi PC va lenta" → diagnose_system_performance
+            - "no tengo internet" → flush_dns
+            - "qué tiempo hace en Madrid" → get_weather
+            - "recuérdame llamar a Juan" → add_reminder
+
+            FORMATO DE RESPUESTA OBLIGATORIO:
+            {  
+              "user_response": "Tu respuesta amigable explicando qué vas a hacer",  
+              "commands": [  
+                {  
+                  "action": "nombre_comando_exacto",  
+                  "params": {"parametro": "valor"}  
+                }  
+              ]  
+            }
+
+            IMPORTANTE: Si detectas CUALQUIER intención de acción, incluye el comando correspondiente en el array "commands". Si NO detectas ninguna acción ejecutable después de análisis exhaustivo, usa array vacío: "commands": []
+
+            Usuario: "hola, cómo estás"
+            {
+              "user_response": "¡Hola! Estoy muy bien, listo para ayudarte con lo que necesites.",
+              "commands": []
+            }
+
+            RECUERDA: Tu trabajo es SER ÚTIL EJECUTANDO ACCIONES. Prioriza siempre encontrar comandos ejecutables antes que solo conversar.
+            Tu forma de desactivarte es con la frase: hasta luego.
+            """}
+            ]
+            for mensaje in historial[-20:]:
+                if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:
+                    mensajes.append({"role": "user", "content": str(mensaje["user"])})
+                    mensajes.append({"role": "assistant", "content": str(mensaje["ron"])})
+
+            mensajes.append({"role": "user", "content": user_input})
+
+            completion = client.chat.completions.create(
+                model="gpt-4o",
+                messages=mensajes,
+                response_format={"type": "json_object"},
+                max_tokens=400,
+                temperature=0,
+                timeout=25,
+            )
+
+            raw = completion.choices[0].message.content
+            parsed = parse_model_json(raw)
+            ron_response_text = parsed["user_response"]
+            if parsed["commands"]:
+                try_execute_commands(parsed["commands"])
+
+            memory.setdefault("conversaciones", []).append({
+                "user": user_input,
+                "ron": ron_response_text,
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": "voice",
+            })
+            if len(memory["conversaciones"]) > 100:
+                memory["conversaciones"] = memory["conversaciones"][-100:]
+            save_device_memory(memory)  # asegúrate de tener esta función
+
+            return ron_response_text
+
+    except Exception as e:
+        print(f"💥 Error en generate_response_with_user_memory: {e}")
+        # Fallback minimalista que NO ejecuta comandos ni muestra JSON crudo al usuario
+        return "Tuve un problema procesando la respuesta. Probemos de nuevo en un momento."
 
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)      
 def open_application(app_name):      
