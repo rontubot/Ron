@@ -29,6 +29,36 @@ logger = logging.getLogger(__name__)
 
 # Banco de tareas
 
+
+def fix_common_json_errors(response):  
+    """Corrige errores comunes de JSON de ChatGPT"""  
+    # Corregir nombres de campos incorrectos  
+    response = response.replace('"userresponse":', '"user_response":')  
+    response = response.replace('"applicationname":', '"app_name":')  
+    response = response.replace('"openapplication"', '"open_application"')  
+      
+    return response  
+  
+def try_web_fallback(app_name):  
+    """Intenta abrir la versión web de una aplicación"""  
+    from core.commands import web_apps  
+    import webbrowser  
+      
+    # Buscar en el diccionario de aplicaciones web  
+    if app_name in web_apps:  
+        webbrowser.open(web_apps[app_name])  
+        return f"Abriendo {app_name.capitalize()} en el navegador como alternativa."  
+      
+    # Buscar coincidencias parciales  
+    for key, url in web_apps.items():  
+        if key in app_name or app_name in key:  
+            webbrowser.open(url)  
+            return f"Abriendo {key.capitalize()} en el navegador como alternativa."  
+      
+    return None
+
+
+
 def get_available_commands_for_prompt():  
     """  
     Genera la lista de comandos disponibles para el prompt de ChatGPT  
