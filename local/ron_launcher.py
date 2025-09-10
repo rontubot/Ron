@@ -661,7 +661,7 @@ def generate_response_with_user_memory(user_input, username=None):
                 messages=mensajes,
                 response_format={"type": "json_object"},  # <- CLAVE
                 max_tokens=400,
-                temperature=0,  # agente de comandos: 0 para minimizar divagues
+                temperature=0.7,  # agente de comandos: 0 para minimizar divagues
                 timeout=25,
             )
               
@@ -769,7 +769,7 @@ def generate_response_with_user_memory(user_input, username=None):
                 messages=mensajes,
                 response_format={"type": "json_object"},
                 max_tokens=400,
-                temperature=0,
+                temperature=0.7,
                 timeout=25,
             )
 
