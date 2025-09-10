@@ -66,15 +66,12 @@ def create_command_bank():
     return command_bank  
   
 def parse_and_execute_commands_dynamic(gpt_response):  
-    """  
-    Parser dinámico que usa el banco de comandos para ejecutar funciones  
-    """  
+    """Parser dinámico con fallback a aplicaciones web"""  
     try:  
         response_data = json.loads(gpt_response)  
         user_response = response_data.get("user_response", "")  
         commands_to_execute = response_data.get("commands", [])  
           
-        # Crear banco de comandos dinámicamente  
         command_bank = create_command_bank()  
         command_results = []  
           
@@ -82,26 +79,31 @@ def parse_and_execute_commands_dynamic(gpt_response):
             action = command.get("action")  
             params = command.get("params", {})  
               
-            # Buscar el comando en el banco  
             if action in command_bank:  
                 func = command_bank[action]['function']  
                 expected_params = command_bank[action]['params']  
-                  
-                # Filtrar parámetros válidos para la función  
                 valid_params = {k: v for k, v in params.items() if k in expected_params}  
                   
                 try:  
-                    # Ejecutar la función con los parámetros válidos  
                     result = func(**valid_params)  
                     command_results.append(result)  
                     logger.info(f"Comando ejecutado: {action} con parámetros {valid_params}")  
                 except Exception as e:  
                     logger.error(f"Error ejecutando comando {action}: {e}")  
-                    command_results.append(f"Error ejecutando {action}: {e}")  
+                      
+                    # NUEVO: Fallback a aplicación web  
+                    if action == "open_application":  
+                        app_name = params.get("app_name", "").lower()  
+                        web_fallback = try_web_fallback(app_name)  
+                        if web_fallback:  
+                            command_results.append(web_fallback)  
+                        else:  
+                            command_results.append(f"No pude abrir {app_name}")  
+                    else:  
+                        command_results.append(f"Error ejecutando {action}: {e}")  
             else:  
                 logger.warning(f"Comando no encontrado en banco: {action}")  
           
-        # Combinar respuesta con resultados  
         if command_results:  
             final_response = f"{user_response}\\n\\n" + "\\n".join(command_results)  
         else:  
@@ -110,11 +112,15 @@ def parse_and_execute_commands_dynamic(gpt_response):
         return final_response  
           
     except json.JSONDecodeError:  
+        # NUEVO: Intentar corregir JSON malformado común  
+        corrected_response = fix_common_json_errors(gpt_response)  
+        if corrected_response != gpt_response:  
+            return parse_and_execute_commands_dynamic(corrected_response)  
+          
         logger.warning("Respuesta no es JSON válido")  
-        return gpt_response  
-    except Exception as e:  
-        logger.error(f"Error en parser dinámico: {e}")  
         return gpt_response
+
+
 
 
 
