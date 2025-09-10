@@ -16,6 +16,9 @@ import argparse  # Nuevo import
 import sys, io
 import socket
 import unicodedata 
+import inspect    
+from core import commands
+from core.assistant import generate_response_with_user_memory as core_generate_response  
  
 # --- Asegurar UTF-8 primero ---
 if hasattr(sys.stdout, "reconfigure"):
@@ -121,6 +124,99 @@ web_apps = {
     "spotify": "https://open.spotify.com",      
     "netflix": "https://www.netflix.com"      
 }
+
+
+
+# Banco de tareas
+
+def get_available_commands_for_prompt():  
+    """  
+    Genera la lista de comandos disponibles para el prompt de ChatGPT  
+    """  
+    command_bank = create_command_bank()  
+    commands_list = []  
+      
+    for name, info in command_bank.items():  
+        doc = info['docstring'].split('\\n')[0] if info['docstring'] else "Sin descripción"  
+        commands_list.append(f"- {name}: {doc}")  
+      
+    return "\\n".join(commands_list)
+
+
+def create_command_bank():  
+    """  
+    Crea un banco dinámico de comandos disponibles desde core.commands  
+    """  
+    command_bank = {}  
+      
+    # Obtener todas las funciones del módulo commands  
+    for name, func in inspect.getmembers(commands, inspect.isfunction):  
+        # Filtrar funciones internas o privadas  
+        if not name.startswith('_'):  
+            # Obtener la signatura de la función  
+            sig = inspect.signature(func)  
+            params = list(sig.parameters.keys())  
+              
+            command_bank[name] = {  
+                'function': func,  
+                'params': params,  
+                'docstring': func.__doc__ or ""  
+            }  
+      
+    return command_bank  
+  
+def parse_and_execute_commands_dynamic(gpt_response):  
+    """  
+    Parser dinámico que usa el banco de comandos para ejecutar funciones  
+    """  
+    try:  
+        response_data = json.loads(gpt_response)  
+        user_response = response_data.get("user_response", "")  
+        commands_to_execute = response_data.get("commands", [])  
+          
+        # Crear banco de comandos dinámicamente  
+        command_bank = create_command_bank()  
+        command_results = []  
+          
+        for command in commands_to_execute:  
+            action = command.get("action")  
+            params = command.get("params", {})  
+              
+            # Buscar el comando en el banco  
+            if action in command_bank:  
+                func = command_bank[action]['function']  
+                expected_params = command_bank[action]['params']  
+                  
+                # Filtrar parámetros válidos para la función  
+                valid_params = {k: v for k, v in params.items() if k in expected_params}  
+                  
+                try:  
+                    # Ejecutar la función con los parámetros válidos  
+                    result = func(**valid_params)  
+                    command_results.append(result)  
+                    logger.info(f"Comando ejecutado: {action} con parámetros {valid_params}")  
+                except Exception as e:  
+                    logger.error(f"Error ejecutando comando {action}: {e}")  
+                    command_results.append(f"Error ejecutando {action}: {e}")  
+            else:  
+                logger.warning(f"Comando no encontrado en banco: {action}")  
+          
+        # Combinar respuesta con resultados  
+        if command_results:  
+            final_response = f"{user_response}\\n\\n" + "\\n".join(command_results)  
+        else:  
+            final_response = user_response  
+              
+        return final_response  
+          
+    except json.JSONDecodeError:  
+        logger.warning("Respuesta no es JSON válido")  
+        return gpt_response  
+    except Exception as e:  
+        logger.error(f"Error en parser dinámico: {e}")  
+        return gpt_response
+
+
 
 
 def handle_external_control():  
@@ -348,7 +444,8 @@ Tu forma de desactivarte es con la frase: hasta luego.
                 timeout=25  
             )  
               
-            ron_response = response.choices[0].message.content.strip()  
+            gpt_response = response.choices[0].message.content.strip()  
+            ron_response = parse_and_execute_commands_dynamic(gpt_response)  
               
             # Guardar en memoria de usuario  
             from datetime import datetime  
@@ -833,7 +930,7 @@ def talk_to_ron(text):
             
     try:        
         # Usar la nueva función de memoria unificada  
-        ron_response = generate_response_with_user_memory(text, current_username)  
+        ron_response = core_generate_response(text, current_username)  
           
         print(f"🤖 Ron: {ron_response}")        
         engine.say(ron_response)        
