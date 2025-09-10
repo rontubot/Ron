@@ -96,12 +96,19 @@ def create_command_bank():
     return command_bank  
   
 def parse_and_execute_commands_dynamic(gpt_response):  
-    """Parser dinámico con fallback a aplicaciones web"""  
+    """  
+    Parser dinámico que usa el banco de comandos para ejecutar funciones  
+    con corrección de JSON y fallback a aplicaciones web  
+    """  
     try:  
-        response_data = json.loads(gpt_response)  
+        # PRIMERO: Intentar corregir JSON malformado común  
+        corrected_response = fix_common_json_errors(gpt_response)  
+        response_data = json.loads(corrected_response)  
+          
         user_response = response_data.get("user_response", "")  
         commands_to_execute = response_data.get("commands", [])  
           
+        # Crear banco de comandos dinámicamente  
         command_bank = create_command_bank()  
         command_results = []  
           
@@ -109,9 +116,12 @@ def parse_and_execute_commands_dynamic(gpt_response):
             action = command.get("action")  
             params = command.get("params", {})  
               
+            # Buscar el comando en el banco  
             if action in command_bank:  
                 func = command_bank[action]['function']  
                 expected_params = command_bank[action]['params']  
+                  
+                # Filtrar parámetros válidos  
                 valid_params = {k: v for k, v in params.items() if k in expected_params}  
                   
                 try:  
@@ -121,38 +131,33 @@ def parse_and_execute_commands_dynamic(gpt_response):
                 except Exception as e:  
                     logger.error(f"Error ejecutando comando {action}: {e}")  
                       
-                    # NUEVO: Fallback a aplicación web  
-                    if action == "open_application":  
-                        app_name = params.get("app_name", "").lower()  
+                    # Fallback específico para open_application  
+                    if action == "open_application" and "app_name" in params:  
+                        app_name = params["app_name"].lower()  
                         web_fallback = try_web_fallback(app_name)  
                         if web_fallback:  
                             command_results.append(web_fallback)  
-                        else:  
-                            command_results.append(f"No pude abrir {app_name}")  
-                    else:  
-                        command_results.append(f"Error ejecutando {action}: {e}")  
+                            logger.info(f"Fallback web ejecutado: {web_fallback}")  
             else:  
                 logger.warning(f"Comando no encontrado en banco: {action}")  
           
-        if command_results:  
-            final_response = f"{user_response}\\n\\n" + "\\n".join(command_results)  
-        else:  
-            final_response = user_response  
-              
-        return final_response  
+        # SOLO retornar la respuesta del usuario, no los resultados de comandos  
+        return user_response if user_response else "Procesando tu solicitud..."  
           
     except json.JSONDecodeError:  
-        # NUEVO: Intentar corregir JSON malformado común  
-        corrected_response = fix_common_json_errors(gpt_response)  
-        if corrected_response != gpt_response:  
-            return parse_and_execute_commands_dynamic(corrected_response)  
-          
-        logger.warning("Respuesta no es JSON válido")  
-        return gpt_response
-
-
-
-
+        logger.warning("Respuesta no es JSON válido después de corrección")  
+        # Si aún no es JSON válido, extraer solo texto legible  
+        if "user_response" in gpt_response:  
+            # Intentar extraer solo la parte de respuesta del usuario  
+            lines = gpt_response.split('\\n')  
+            for line in lines:  
+                if not line.strip().startswith('{') and not line.strip().startswith('"'):  
+                    if line.strip() and len(line.strip()) > 10:  
+                        return line.strip()  
+        return "Entendido, trabajando en ello."  
+    except Exception as e:  
+        logger.error(f"Error en parser dinámico: {e}")  
+        return "Procesando tu solicitud..."
 
 
 
