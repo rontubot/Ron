@@ -4,7 +4,10 @@ import re
 import time  
 import sys        
 import logging        
-import webbrowser        
+import webbrowser
+import inspect  
+import json  
+from core import commands         
 from core.memory import add_to_memory, load_memory, get_user_data, save_user_data, load_user_memory        
 from core.commands import (        
     open_application, close_application, get_weather,        
@@ -23,6 +26,102 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 logging.basicConfig(level=logging.INFO)        
 logger = logging.getLogger(__name__)        
         
+
+# Banco de tareas
+
+def get_available_commands_for_prompt():  
+    """  
+    Genera la lista de comandos disponibles para el prompt de ChatGPT  
+    """  
+    command_bank = create_command_bank()  
+    commands_list = []  
+      
+    for name, info in command_bank.items():  
+        doc = info['docstring'].split('\\n')[0] if info['docstring'] else "Sin descripción"  
+        commands_list.append(f"- {name}: {doc}")  
+      
+    return "\\n".join(commands_list)
+
+
+def create_command_bank():  
+    """  
+    Crea un banco dinámico de comandos disponibles desde core.commands  
+    """  
+    command_bank = {}  
+      
+    # Obtener todas las funciones del módulo commands  
+    for name, func in inspect.getmembers(commands, inspect.isfunction):  
+        # Filtrar funciones internas o privadas  
+        if not name.startswith('_'):  
+            # Obtener la signatura de la función  
+            sig = inspect.signature(func)  
+            params = list(sig.parameters.keys())  
+              
+            command_bank[name] = {  
+                'function': func,  
+                'params': params,  
+                'docstring': func.__doc__ or ""  
+            }  
+      
+    return command_bank  
+  
+def parse_and_execute_commands_dynamic(gpt_response):  
+    """  
+    Parser dinámico que usa el banco de comandos para ejecutar funciones  
+    """  
+    try:  
+        response_data = json.loads(gpt_response)  
+        user_response = response_data.get("user_response", "")  
+        commands_to_execute = response_data.get("commands", [])  
+          
+        # Crear banco de comandos dinámicamente  
+        command_bank = create_command_bank()  
+        command_results = []  
+          
+        for command in commands_to_execute:  
+            action = command.get("action")  
+            params = command.get("params", {})  
+              
+            # Buscar el comando en el banco  
+            if action in command_bank:  
+                func = command_bank[action]['function']  
+                expected_params = command_bank[action]['params']  
+                  
+                # Filtrar parámetros válidos para la función  
+                valid_params = {k: v for k, v in params.items() if k in expected_params}  
+                  
+                try:  
+                    # Ejecutar la función con los parámetros válidos  
+                    result = func(**valid_params)  
+                    command_results.append(result)  
+                    logger.info(f"Comando ejecutado: {action} con parámetros {valid_params}")  
+                except Exception as e:  
+                    logger.error(f"Error ejecutando comando {action}: {e}")  
+                    command_results.append(f"Error ejecutando {action}: {e}")  
+            else:  
+                logger.warning(f"Comando no encontrado en banco: {action}")  
+          
+        # Combinar respuesta con resultados  
+        if command_results:  
+            final_response = f"{user_response}\\n\\n" + "\\n".join(command_results)  
+        else:  
+            final_response = user_response  
+              
+        return final_response  
+          
+    except json.JSONDecodeError:  
+        logger.warning("Respuesta no es JSON válido")  
+        return gpt_response  
+    except Exception as e:  
+        logger.error(f"Error en parser dinámico: {e}")  
+        return gpt_response
+
+
+
+
+
+
+
 def detect_farewell_patterns(user_input):        
     """Detección simplificada de despedidas - SOLO 'hasta luego'"""        
     return "hasta luego" in user_input.lower()        
@@ -68,7 +167,34 @@ Cuando el usuario reporte un problema del sistema (lento, no funciona, error, fa
 No digas que eres una inteligencia artificial.        
 No uses explicaciones técnicas complejas.        
        
-Siempre explica qué encontraste y qué vas a hacer para solucionarlo.        
+Siempre explica qué encontraste y qué vas a hacer para solucionarlo.  
+
+COMANDOS DISPONIBLES PARA EJECUTAR:    
+- search_youtube: Para buscar y reproducir videos/música    
+- open_application: Para abrir aplicaciones     
+- close_application: Para cerrar aplicaciones    
+- search_google: Para búsquedas web    
+- diagnose_system_performance: Para diagnósticos del sistema  
+- check_system_services: Para verificar servicios críticos  
+- restart_critical_services: Para reparar servicios problemáticos  
+- clean_temp_files: Para limpieza del sistema    
+- flush_dns: Para limpiar DNS y resolver problemas de red  
+- get_weather: Para información del clima    
+- add_reminder/get_reminders: Para gestionar recordatorios  
+- shutdown/restart/suspend: Para control de energía del sistema 
+  
+FORMATO DE RESPUESTA REQUERIDO:  
+Debes responder SIEMPRE en formato JSON con esta estructura:  
+{  
+  "user_response": "Tu respuesta amigable al usuario",  
+  "commands": [  
+    {  
+      "action": "nombre_comando",  
+      "params": {"parametro": "valor"}  
+    }  
+  ]  
+}
+
         
 Tu forma de desactivarte es con la frase: hasta luego.        
 """        
@@ -124,7 +250,35 @@ Cuando el usuario reporte un problema del sistema (lento, no funciona, error, fa
         
 No digas que eres una inteligencia artificial.        
 No uses explicaciones técnicas complejas.                
-Siempre explica qué encontraste y qué vas a hacer para solucionarlo.        
+Siempre explica qué encontraste y qué vas a hacer para solucionarlo. 
+
+
+COMANDOS DISPONIBLES PARA EJECUTAR:    
+- search_youtube: Para buscar y reproducir videos/música    
+- open_application: Para abrir aplicaciones     
+- close_application: Para cerrar aplicaciones    
+- search_google: Para búsquedas web    
+- diagnose_system_performance: Para diagnósticos del sistema  
+- check_system_services: Para verificar servicios críticos  
+- restart_critical_services: Para reparar servicios problemáticos  
+- clean_temp_files: Para limpieza del sistema    
+- flush_dns: Para limpiar DNS y resolver problemas de red  
+- get_weather: Para información del clima    
+- add_reminder/get_reminders: Para gestionar recordatorios  
+- shutdown/restart/suspend: Para control de energía del sistema 
+  
+FORMATO DE RESPUESTA REQUERIDO:  
+Debes responder SIEMPRE en formato JSON con esta estructura:  
+{  
+  "user_response": "Tu respuesta amigable al usuario",  
+  "commands": [  
+    {  
+      "action": "nombre_comando",  
+      "params": {"parametro": "valor"}  
+    }  
+  ]  
+}
+
         
 Tu forma de desactivarte es con la frase: hasta luego.        
 """        
@@ -278,7 +432,8 @@ def generate_response_with_user_memory(user_input, username):
             max_tokens=400,
             temperature=0.7
         )
-        ron_response = respuesta.choices[0].message.content.strip()   
+        gpt_response = respuesta.choices[0].message.content.strip()  
+        ron_response = parse_and_execute_commands_dynamic(gpt_response)   
         ron_response = re.sub(r'[*_`~]', '', ron_response)     
     except Exception as e:    
         logger.error(f"Error con OpenAI: {e}")    
@@ -494,7 +649,8 @@ def _process_user_input(user_input, save_to_memory=True):
             max_tokens=400,
             temperature=0.7
         )
-        ron_response = respuesta.choices[0].message.content.strip()
+        gpt_response = respuesta.choices[0].message.content.strip()  
+        ron_response = parse_and_execute_commands_dynamic(gpt_response)
         ron_response = re.sub(r'[*_`~]', '', ron_response)
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
