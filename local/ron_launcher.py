@@ -19,7 +19,7 @@ import unicodedata
 import inspect    
 from core import commands
 from core.assistant import generate_response_with_user_memory as core_generate_response  
- 
+
 # --- Asegurar UTF-8 primero ---
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -129,6 +129,9 @@ web_apps = {
 
 # Banco de tareas
 
+
+
+
 def get_available_commands_for_prompt():  
     """  
     Genera la lista de comandos disponibles para el prompt de ChatGPT  
@@ -228,6 +231,16 @@ def parse_and_execute_commands_dynamic(gpt_response):
     except Exception as e:  
         logger.error(f"Error en parser dinámico: {e}")  
         return "Procesando tu solicitud..."
+
+
+def fix_common_json_errors(response):  
+    """Corrige errores comunes de JSON de ChatGPT"""  
+    # Corregir nombres de campos incorrectos  
+    response = response.replace('"userresponse":', '"user_response":')  
+    response = response.replace('"applicationname":', '"app_name":')  
+    response = response.replace('"openapplication"', '"open_application"')  
+      
+    return response
 
 
 
