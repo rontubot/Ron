@@ -32,9 +32,12 @@ logger = logging.getLogger(__name__)
 
 STRICT_JSON_SYSTEM = (
     "Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra. "
-    'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}'
+    'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}. '
+    "Importante: el campo user_response admite **Markdown básico** (títulos con #, listas con -, listas numeradas con 1.) "
+    "y **saltos de línea**. Los saltos de línea deben ir como \\n dentro del string. "
+    "No uses comas finales, no incluyas comentarios ni claves extra. "
+    "Si no hay acciones, usa \"commands\": []."
 )
-
 
 
 
@@ -64,14 +67,32 @@ def _append_user_conv(username: str, user_text: str, ron_text: str, source: str 
 # Banco de tareas
 
 
-def fix_common_json_errors(response):  
-    """Corrige errores comunes de JSON de ChatGPT"""  
-    # Corregir nombres de campos incorrectos  
-    response = response.replace('"userresponse":', '"user_response":')  
-    response = response.replace('"applicationname":', '"app_name":')  
-    response = response.replace('"openapplication"', '"open_application"')  
-      
-    return response  
+def fix_common_json_errors(response: str) -> str:
+    """Intenta corregir errores comunes de JSON antes de json.loads."""
+    if not isinstance(response, str):
+        return response
+
+    # Quitar fences accidentales
+    response = response.strip()
+    if response.startswith("```"):
+        response = response.strip("`").strip()
+
+    # Normalizar algunas claves que a veces cambian
+    response = response.replace('"userresponse":', '"user_response":')
+    response = response.replace('"applicationname":', '"app_name":')
+    response = response.replace('"openapplication"', '"open_application"')
+
+    # Si hay texto fuera del primer {...}, intenta quedarte solo con el bloque JSON principal
+    first = response.find("{")
+    last = response.rfind("}")
+    if first != -1 and last != -1:
+        response = response[first:last+1]
+
+    # Eliminar comas colgantes antes de } o ]
+    import re
+    response = re.sub(r",\s*([}\]])", r"\1", response)
+
+    return response
   
 def try_web_fallback(app_name):  
     """Intenta abrir la versión web de una aplicación"""  
@@ -129,72 +150,65 @@ def create_command_bank():
       
     return command_bank  
   
-def parse_and_execute_commands_dynamic(gpt_response):  
-    """  
-    Parser dinámico que usa el banco de comandos para ejecutar funciones  
-    con corrección de JSON y fallback a aplicaciones web  
-    """  
-    try:  
-        # PRIMERO: Intentar corregir JSON malformado común  
-        corrected_response = fix_common_json_errors(gpt_response)  
-        response_data = json.loads(corrected_response)  
-          
-        user_response = response_data.get("user_response", "")  
-        commands_to_execute = response_data.get("commands", [])  
-          
-        # Crear banco de comandos dinámicamente  
-        command_bank = create_command_bank()  
-        command_results = []  
-          
-        for command in commands_to_execute:  
-            action = command.get("action")  
-            params = command.get("params", {})  
-              
-            # Buscar el comando en el banco  
-            if action in command_bank:  
-                func = command_bank[action]['function']  
-                expected_params = command_bank[action]['params']  
-                  
-                # Filtrar parámetros válidos  
-                valid_params = {k: v for k, v in params.items() if k in expected_params}  
-                  
-                try:  
-                    result = func(**valid_params)  
-                    command_results.append(result)  
-                    logger.info(f"Comando ejecutado: {action} con parámetros {valid_params}")  
-                except Exception as e:  
-                    logger.error(f"Error ejecutando comando {action}: {e}")  
-                      
-                    # Fallback específico para open_application  
-                    if action == "open_application" and "app_name" in params:  
-                        app_name = params["app_name"].lower()  
-                        web_fallback = try_web_fallback(app_name)  
-                        if web_fallback:  
-                            command_results.append(web_fallback)  
-                            logger.info(f"Fallback web ejecutado: {web_fallback}")  
-            else:  
-                logger.warning(f"Comando no encontrado en banco: {action}")  
-          
-        # SOLO retornar la respuesta del usuario, no los resultados de comandos  
-        return user_response if user_response else "Procesando tu solicitud..."  
-          
-    except json.JSONDecodeError:  
-        logger.warning("Respuesta no es JSON válido después de corrección")  
-        # Si aún no es JSON válido, extraer solo texto legible  
-        if "user_response" in gpt_response:  
-            # Intentar extraer solo la parte de respuesta del usuario  
-            lines = gpt_response.split('\\n')  
-            for line in lines:  
-                if not line.strip().startswith('{') and not line.strip().startswith('"'):  
-                    if line.strip() and len(line.strip()) > 10:  
-                        return line.strip()  
-        return "Entendido, trabajando en ello."  
-    except Exception as e:  
-        logger.error(f"Error en parser dinámico: {e}")  
+def parse_and_execute_commands_dynamic(gpt_response: str) -> str:
+    """
+    Parser dinámico que usa el banco de comandos para ejecutar funciones.
+    Más tolerante con JSON imperfecto y con mejor fallback para user_response.
+    """
+    try:
+        corrected = fix_common_json_errors(gpt_response)
+        response_data = json.loads(corrected)
+
+    except json.JSONDecodeError:
+        logger.warning("JSON inválido; intentando extracción por regex de user_response/commands...")
+
+        # Fallback 1: extraer user_response por regex (multilínea)
+        import re
+        ur_match = re.search(r'"user_response"\s*:\s*"(.+?)"', gpt_response, flags=re.DOTALL)
+        if ur_match:
+            # Des-escapar \n y \"
+            raw = ur_match.group(1)
+            try:
+                # Vía JSON para decodificar escapes estándar
+                user_response = json.loads(f'"{raw}"')
+            except Exception:
+                user_response = raw.replace('\\n', '\n').replace('\\"', '"')
+            return user_response
+
+        # Fallback 2: si no encontramos el campo, devolver todo el texto limpio (pero completo)
+        clean = gpt_response.strip().strip("`")
+        return clean if clean else "Entendido, trabajando en ello."
+
+    except Exception as e:
+        logger.error(f"Error inesperado parseando JSON: {e}")
         return "Procesando tu solicitud..."
 
+    # Si llegamos aquí, tenemos JSON bien formado
+    user_response = response_data.get("user_response", "")
+    commands_to_execute = response_data.get("commands", [])
 
+    # Ejecutar comandos disponibles
+    command_bank = create_command_bank()
+    for command in commands_to_execute or []:
+        action = command.get("action")
+        params = command.get("params", {})
+        if action in command_bank:
+            func = command_bank[action]['function']
+            expected = command_bank[action]['params']
+            valid_params = {k: v for k, v in params.items() if k in expected}
+            try:
+                func(**valid_params)
+                logger.info(f"Comando ejecutado: {action} {valid_params}")
+            except Exception as e:
+                logger.error(f"Error ejecutando comando {action}: {e}")
+                if action == "open_application" and "app_name" in params:
+                    web_fb = try_web_fallback(params["app_name"].lower())
+                    if web_fb:
+                        logger.info(f"Fallback web ejecutado: {web_fb}")
+        else:
+            logger.warning(f"Comando no encontrado en banco: {action}")
 
+    return user_response if user_response else "Procesando tu solicitud..."
 
 
 def detect_farewell_patterns(user_input):        
