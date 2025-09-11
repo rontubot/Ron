@@ -548,12 +548,11 @@ def generate_response_with_user_memory(user_input, username):
             model="gpt-4o",
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=400,
+            max_tokens=900,
             temperature=0.7
         )
         gpt_response = respuesta.choices[0].message.content.strip()
         ron_response = parse_and_execute_commands_dynamic(gpt_response)
-        ron_response = re.sub(r'[*_`~]', '', ron_response)
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
@@ -768,7 +767,7 @@ def _process_user_input(user_input, save_to_memory=True):
             model="gpt-4o",
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=400,
+            max_tokens=900,
             temperature=0.7
         )
         gpt_response = respuesta.choices[0].message.content.strip()  
