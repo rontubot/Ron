@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 from core import commands         
-from core.memory import add_to_memory, load_memory, get_user_data, save_user_data, load_user_memory        
+from core.memory import add_to_memory, load_memory, get_user_data, save_user_data, load_user_memory, save_user_memory        
 from core.commands import (        
     open_application, close_application, get_weather,        
     search_google, search_youtube, shutdown, restart, suspend,        
@@ -34,6 +34,31 @@ STRICT_JSON_SYSTEM = (
     "Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra. "
     'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}'
 )
+
+
+
+
+
+def _append_user_conv(username: str, user_text: str, ron_text: str, source: str = "voice"):
+    """Guarda un turno en la memoria del usuario (con recorte a 100)."""
+    try:
+        mem = load_user_memory(username) or {}
+        conv = mem.get("conversaciones", [])
+        conv.append({
+            "user": user_text,
+            "ron": ron_text,
+            "timestamp": datetime.utcnow().isoformat(),
+            "source": source,
+        })
+        if len(conv) > 100:
+            conv = conv[-100:]
+        mem["conversaciones"] = conv
+        save_user_memory(username, mem)
+    except Exception as e:
+        logger.error(f"Error guardando conversación de usuario '{username}': {e}")
+
+
+
 
 
 # Banco de tareas
@@ -356,139 +381,155 @@ Tu forma de desactivarte es con la frase: hasta luego.
 
     return mensajes
   
-def generate_response_with_user_memory(user_input, username):    
-    """Genera respuesta con memoria específica del usuario"""    
-    original_input = user_input    
-    user_input = user_input.lower().strip()    
-      
-    # DETECCIÓN DE DESPEDIDA SIMPLIFICADA    
-    if detect_farewell_patterns(user_input):    
-        return "Hasta luego. Que tengas un buen día."  
-      
-    # DETECCIÓN AUTOMÁTICA DE PROBLEMAS DEL SISTEMA    
-    problem_keywords = ["problema en el sistema", "problema en la computadora","problema en la pc","problema en el equipo","no funciona", "error", "falla", "se cuelga", "no responde",    
-                       "muy lento", "se traba", "no abre", "no carga", "internet no funciona",    
-                       "no puedo imprimir", "no hay sonido", "pantalla azul"]    
-            
-    if any(keyword in user_input for keyword in problem_keywords):    
-        # Ejecutar diagnóstico automático    
-        diagnostic_result = diagnose_system_performance()    
-        services_result = check_system_services()    
-                
-        # Analizar resultados y proponer solución    
-        analysis = f"He diagnosticado tu sistema automáticamente. {diagnostic_result} {services_result}"    
-                
-        # Ejecutar reparación automática si es necesario    
-        repairs_made = []    
-                
-        if "PROBLEMA" in services_result or "ERROR" in services_result:    
-            repair_result = restart_critical_services()    
-            repairs_made.append(repair_result)    
-            analysis += f" He reparado los servicios problemáticos: {repair_result}"    
-                
-        # Si hay problemas de rendimiento, limpiar archivos temporales    
-        if "CPU:" in diagnostic_result and any(word in user_input for word in ["lento", "se traba"]):    
-            clean_result = clean_temp_files()    
-            repairs_made.append(clean_result)    
-            analysis += f" También limpié archivos temporales para mejorar el rendimiento: {clean_result}"    
-                
-        # Si hay problemas de internet, limpiar DNS    
-        if any(word in user_input for word in ["internet", "conexión", "red", "wifi"]):    
-            dns_result = flush_dns()    
-            repairs_made.append(dns_result)    
-            analysis += f" Limpié la caché DNS para resolver problemas de conexión: {dns_result}"    
-                
-        if repairs_made:    
-            analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."    
-                
+def generate_response_with_user_memory(user_input, username):
+    """Genera respuesta con memoria específica del usuario"""
+    original_input = user_input
+    user_input = user_input.lower().strip()
+
+    # Despedida
+    if detect_farewell_patterns(user_input):
+        resp = "Hasta luego. Que tengas un buen día."
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    # Diagnóstico automático
+    problem_keywords = [
+        "problema en el sistema", "problema en la computadora","problema en la pc","problema en el equipo",
+        "no funciona", "error", "falla", "se cuelga", "no responde", "muy lento", "se traba", "no abre",
+        "no carga", "internet no funciona", "no puedo imprimir", "no hay sonido", "pantalla azul"
+    ]
+    if any(keyword in user_input for keyword in problem_keywords):
+        diagnostic_result = diagnose_system_performance()
+        services_result = check_system_services()
+
+        analysis = f"He diagnosticado tu sistema automáticamente. {diagnostic_result} {services_result}"
+        repairs_made = []
+
+        if "PROBLEMA" in services_result or "ERROR" in services_result:
+            repair_result = restart_critical_services()
+            repairs_made.append(repair_result)
+            analysis += f" He reparado los servicios problemáticos: {repair_result}"
+
+        if "CPU:" in diagnostic_result and any(word in user_input for word in ["lento", "se traba"]):
+            clean_result = clean_temp_files()
+            repairs_made.append(clean_result)
+            analysis += f" También limpié archivos temporales para mejorar el rendimiento: {clean_result}"
+
+        if any(word in user_input for word in ["internet", "conexión", "red", "wifi"]):
+            dns_result = flush_dns()
+            repairs_made.append(dns_result)
+            analysis += f" Limpié la caché DNS para resolver problemas de conexión: {dns_result}"
+
+        if repairs_made:
+            analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."
+
+        _append_user_conv(username, original_input, analysis, source="voice")
         return analysis
-    # COMANDOS DE DIAGNÓSTICO EXPLÍCITOS    
-    if any(cmd in user_input for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):    
-        return diagnose_system_performance()  
-        
-    if any(cmd in user_input for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):    
-        return check_system_services()  
-        
-    if any(cmd in user_input for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):    
-        return restart_critical_services()  
-        
-    if any(cmd in user_input for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):    
-        return clean_temp_files()  
-        
-    if any(cmd in user_input for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):    
-        return flush_dns()  
-  
-    # COMANDOS DIRECTOS EXISTENTES (optimizados)    
-    if user_input.startswith("abre "):    
-        app_name = user_input.replace("abre ", "").strip()    
-        return open_application(app_name)  
-        
-    if user_input.startswith("cierra "):    
-        app_name = user_input.replace("cierra ", "").strip()    
-        return close_application(app_name)  
-        
-    if user_input.startswith("investiga "):    
-        query = user_input.replace("investiga ", "").strip()    
-        url = f"https://www.google.com/search?q={query.replace(' ', '+')}"    
-        webbrowser.open(url)    
-        return f"Investigando en Google: {query}"  
-        
-    if user_input.startswith("reproducir ") or user_input.startswith("reproduce "):    
-        query = user_input.replace("reproducir ", "").replace("reproduce ", "").strip()    
-        try:    
-            return search_youtube(f"música {query}", play_video=True)  
-        except Exception as e:    
-            return f"No pude buscar en YouTube: {e}"  
-        
-    if "clima en" in user_input:    
-        city = user_input.split("clima en")[-1].strip()    
-        return get_weather(city)  
-        
-    if user_input.startswith("youtube "):    
-        query = user_input.replace("youtube ", "").strip()    
-        return search_youtube(query)  
-        
-    # Comandos de sistema    
-    if "apaga la computadora" in user_input or "apaga el sistema" in user_input:    
-        return shutdown()  
-        
-    if "reinicia la computadora" in user_input or "reinicia el sistema" in user_input:    
-        return restart()  
-        
-    if "suspende la computadora" in user_input or "suspende el sistema" in user_input:    
-        return suspend()  
-        
-    # Comandos de recordatorios    
-    if "recuérdame" in user_input or "añade un recordatorio" in user_input:    
-        activity = user_input.split("recuérdame")[-1].strip() if "recuérdame" in user_input else user_input.split("añade un recordatorio")[-1].strip()    
-        return add_reminder(activity)  
-            
-    if "qué recordatorios tengo" in user_input or "cuál es mi agenda" in user_input:    
-        return get_reminders()  
-            
-    if "he completado" in user_input or "elimina" in user_input:    
-        activity = user_input.split("he completado")[-1].strip() if "he completado" in user_input else user_input.split("elimina")[-1].strip()    
-        return remove_reminder(activity)  
-        
-    # Respuestas directas sin usar OpenAI    
-    if user_input.startswith("soy "):    
-        nombre = user_input[4:].strip()    
-        if nombre:    
-            save_user_data("nombre", nombre)    
-            return f"Hola {nombre}, ¡mucho gusto en conocerte!"  
-        
-    if "cómo te llamas" in user_input or "cuál es tu nombre" in user_input:    
-        return "Me llamo Ron."  
-    if "quién te creó" in user_input or "quién es tu creador" in user_input:    
-        return "Fui creado por Luis."  
-    if "cómo me llamo" in user_input or "mi nombre" in user_input:    
-        return "No tengo esa información guardada para usuarios web."  
-        
-    # Para conversación compleja, usar el historial del usuario    
-    mensajes = construir_historial_usuario_openai(username)    
-    mensajes.append({"role": "user", "content": original_input})    
-        
-    try:    
+
+    # Comandos explícitos (cada uno guarda)
+    if any(cmd in user_input for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):
+        resp = diagnose_system_performance()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if any(cmd in user_input for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):
+        resp = check_system_services()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if any(cmd in user_input for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):
+        resp = restart_critical_services()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if any(cmd in user_input for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):
+        resp = clean_temp_files()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if any(cmd in user_input for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):
+        resp = flush_dns()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    # Directos
+    if user_input.startswith("abre "):
+        resp = open_application(user_input.replace("abre ", "").strip())
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if user_input.startswith("cierra "):
+        resp = close_application(user_input.replace("cierra ", "").strip())
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if user_input.startswith("investiga "):
+        query = user_input.replace("investiga ", "").strip()
+        url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        webbrowser.open(url)
+        resp = f"Investigando en Google: {query}"
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if user_input.startswith("reproducir ") or user_input.startswith("reproduce "):
+        query = user_input.replace("reproducir ", "").replace("reproduce ", "").strip()
+        try:
+            resp = search_youtube(f"música {query}", play_video=True)
+        except Exception as e:
+            resp = f"No pude buscar en YouTube: {e}"
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if "clima en" in user_input:
+        city = user_input.split("clima en")[-1].strip()
+        resp = get_weather(city)
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if user_input.startswith("youtube "):
+        resp = search_youtube(user_input.replace("youtube ", "").strip())
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    # Sistema
+    if "apaga la computadora" in user_input or "apaga el sistema" in user_input:
+        resp = shutdown()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if "reinicia la computadora" in user_input or "reinicia el sistema" in user_input:
+        resp = restart()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if "suspende la computadora" in user_input or "suspende el sistema" in user_input:
+        resp = suspend()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    # Recordatorios
+    if "recuérdame" in user_input or "añade un recordatorio" in user_input:
+        activity = user_input.split("recuérdame")[-1].strip() if "recuérdame" in user_input else user_input.split("añade un recordatorio")[-1].strip()
+        resp = add_reminder(activity)
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if "qué recordatorios tengo" in user_input or "cuál es mi agenda" in user_input:
+        resp = get_reminders()
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    if "he completado" in user_input or "elimina" in user_input:
+        activity = user_input.split("he completado")[-1].strip() if "he completado" in user_input else user_input.split("elimina")[-1].strip()
+        resp = remove_reminder(activity)
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    # Conversación con OpenAI (rama final)
+    mensajes = construir_historial_usuario_openai(username)
+    mensajes.append({"role": "user", "content": original_input})
+
+    try:
         respuesta = client.chat.completions.create(
             model="gpt-4o",
             messages=mensajes,
@@ -496,14 +537,16 @@ def generate_response_with_user_memory(user_input, username):
             max_tokens=400,
             temperature=0.7
         )
-        gpt_response = respuesta.choices[0].message.content.strip()  
-        ron_response = parse_and_execute_commands_dynamic(gpt_response)   
-        ron_response = re.sub(r'[*_`~]', '', ron_response)     
-    except Exception as e:    
-        logger.error(f"Error con OpenAI: {e}")    
-        ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"    
-        
-    return ron_response  
+        gpt_response = respuesta.choices[0].message.content.strip()
+        ron_response = parse_and_execute_commands_dynamic(gpt_response)
+        ron_response = re.sub(r'[*_`~]', '', ron_response)
+    except Exception as e:
+        logger.error(f"Error con OpenAI: {e}")
+        ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
+
+    _append_user_conv(username, original_input, ron_response, source="voice")
+    return ron_response
+  
   
 def _process_user_input(user_input, save_to_memory=True):    
     """Función interna que procesa la entrada del usuario"""    
