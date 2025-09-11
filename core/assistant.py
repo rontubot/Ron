@@ -192,6 +192,10 @@ def parse_and_execute_commands_dynamic(gpt_response: str) -> str:
     for command in commands_to_execute or []:
         action = command.get("action")
         params = command.get("params", {})
+        
+        if action == "search_youtube":
+            params.setdefault("play_video", True)       
+
         if action in command_bank:
             func = command_bank[action]['function']
             expected = command_bank[action]['params']
@@ -500,8 +504,21 @@ def generate_response_with_user_memory(user_input, username):
         _append_user_conv(username, original_input, resp, source="voice")
         return resp
 
-    if user_input.startswith("youtube "):
-        resp = search_youtube(user_input.replace("youtube ", "").strip())
+    # --- YouTube (buscar y reproducir) ---
+    if user_input.startswith("youtube ") or user_input.startswith("yt "):
+        query = (
+            user_input.replace("youtube ", "", 1)
+                      .replace("yt ", "", 1)
+                      .strip()
+        )
+        resp = search_youtube(query, play_video=True)
+        _append_user_conv(username, original_input, resp, source="voice")
+        return resp
+
+    # --- YouTube (solo buscar, sin reproducir) ---
+    if user_input.startswith("buscar en youtube "):
+        query = user_input.replace("buscar en youtube ", "", 1).strip()
+        resp = search_youtube(query, play_video=False)
         _append_user_conv(username, original_input, resp, source="voice")
         return resp
 
@@ -558,6 +575,9 @@ def generate_response_with_user_memory(user_input, username):
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
     _append_user_conv(username, original_input, ron_response, source="voice")
+
+    if save_to_memory:
+        add_to_memory(original_input, ron_response)    
     return ron_response
   
   
@@ -696,12 +716,27 @@ def _process_user_input(user_input, save_to_memory=True):
             add_to_memory(original_input, result)    
         return result    
         
-    if user_input.startswith("youtube "):    
-        query = user_input.replace("youtube ", "").strip()    
-        result = search_youtube(query)    
-        if save_to_memory:    
-            add_to_memory(original_input, result)    
-        return result    
+    # --- YouTube (buscar y reproducir) ---
+    if user_input.startswith("youtube ") or user_input.startswith("yt "):
+        query = (
+            user_input.replace("youtube ", "", 1)
+                      .replace("yt ", "", 1)
+                      .strip()
+        )
+        result = search_youtube(query, play_video=True)
+        if save_to_memory:
+            add_to_memory(original_input, result)
+        return result
+
+    # --- YouTube (solo buscar) ---
+    if user_input.startswith("buscar en youtube "):
+        query = user_input.replace("buscar en youtube ", "", 1).strip()
+        result = search_youtube(query, play_video=False)
+        if save_to_memory:
+            add_to_memory(original_input, result)
+        return result
+
+ 
         
     # Comandos de sistema    
     if "apaga la computadora" in user_input or "apaga el sistema" in user_input:    
@@ -772,11 +807,11 @@ def _process_user_input(user_input, save_to_memory=True):
         )
         gpt_response = respuesta.choices[0].message.content.strip()  
         ron_response = parse_and_execute_commands_dynamic(gpt_response)
-        ron_response = re.sub(r'[*_`~]', '', ron_response)
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
-
+    if save_to_memory:
+        add_to_memory(original_input, ron_response)
     return ron_response
     
 # FUNCIONES WRAPPER PARA COMPATIBILIDAD    
