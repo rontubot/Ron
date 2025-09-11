@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 from core import commands         
-from core.memory import add_to_memory, load_memory, get_user_data, save_user_data, load_user_memory, save_user_memory        
+from core.memory import save_to_memory, add_to_memory, load_memory, get_user_data, save_user_data, load_user_memory, save_user_memory        
 from core.commands import (        
     open_application, close_application, get_weather,        
     search_google, search_youtube, shutdown, restart, suspend,        
