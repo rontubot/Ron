@@ -393,3 +393,8 @@ def clean_duplicates():
     save_memory_direct(memory)    
     print(f"Limpieza completada: {len(conversaciones)} -> {len(cleaned)} conversaciones")    
     return len(cleaned)
+
+
+def save_to_memory(*args, **kwargs):
+    """Compat: alias para código antiguo que invoca save_to_memory."""
+    return add_to_memory(*args, **kwargs)
