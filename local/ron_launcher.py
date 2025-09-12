@@ -1,6 +1,5 @@
 import speech_recognition as sr      
-import pyttsx3      
-import requests      
+import pyttsx3            
 import json      
 import re      
 import subprocess      
@@ -15,78 +14,11 @@ import random
 import argparse  # Nuevo import  
 import sys, io
 import socket
-import unicodedata 
-import inspect    
-from datetime import datetime
-from core import commands
+import unicodedata    
 from core.assistant import generate_response_with_user_memory as core_generate_response  
 
 
 # -------------------- HELPERS JSON / SANITIZE --------------------
-
-_CONTROL_CHARS = (
-    "\ufeff"  # BOM
-    "\u200b"  # zero width space
-    "\u200c"  # ZWNJ
-    "\u200d"  # ZWJ
-)
-
-def sanitize_text(s: str) -> str:
-    if not isinstance(s, str):
-        return s
-    for ch in _CONTROL_CHARS:
-        s = s.replace(ch, "")
-    # remueve controles no imprimibles salvo \n \r \t
-    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", s)
-    return s.strip()
-
-def extract_json_object(s: str) -> str:
-    """Devuelve el primer objeto JSON balanceado { ... } encontrado."""
-    s = sanitize_text(s)
-    start = s.find("{")
-    if start == -1:
-        return s
-    depth = 0
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return s[start:i+1]
-    return s  # fallback si no cerró
-
-def parse_model_json(raw: str) -> dict:
-    """Devuelve {"user_response": str, "commands": list}."""
-    raw = extract_json_object(raw)
-    try:
-        data = json.loads(raw)
-    except Exception:
-        # parche suave por si el modelo usó comillas simples sin escapar
-        fixed = re.sub(r"(?<!\\)'", '"', raw)
-        data = json.loads(fixed)
-
-    user_response = data.get("user_response")
-    if not isinstance(user_response, str):
-        user_response = sanitize_text(raw)
-
-    commands = data.get("commands")
-    if not isinstance(commands, list):
-        commands = []
-
-    norm_cmds = []
-    for c in commands:
-        if not isinstance(c, dict):
-            continue
-        action = c.get("action")
-        params = c.get("params") if isinstance(c.get("params"), dict) else {}
-        if isinstance(action, str) and action.strip():
-            norm_cmds.append({"action": action.strip(), "params": params})
-
-    return {"user_response": user_response, "commands": norm_cmds}
-
-
 
 
 
@@ -124,18 +56,10 @@ conversation_buffer = []
 last_speech_time = 0.0
 activation_time = 0.0
 
-# Asegurar UTF-8 en cualquier consola/salida capturada
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-else:
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-  
 # NUEVAS IMPORTACIONES para memoria unificada  
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  
-from core.memory import load_user_memory, save_user_memory, add_to_memory, load_memory  
+
   
 # Configuración de argumentos de línea de comandos    
 parser = argparse.ArgumentParser(description='Ron 24/7 Voice Assistant')    
@@ -149,8 +73,7 @@ control_enabled = True
   
 # Silenciar logs de comtypes para reducir ruido      
 logging.getLogger('comtypes').setLevel(logging.WARNING)      
-      
-RON_API_URL = os.getenv("RON_API_URL", "https://ron-production.up.railway.app/ron")      
+          
       
 # Configurar logging para debugging      
 logging.basicConfig(level=logging.INFO)      
@@ -197,166 +120,6 @@ web_apps = {
 
 
 
-def try_web_fallback(app_name: str):
-    app = (app_name or "").lower().strip()
-    if app in web_apps:
-        webbrowser.open(web_apps[app])
-        return f"Abrí {app} en el navegador (fallback)."
-    for key, url in web_apps.items():
-        if app in key or key in app:
-            webbrowser.open(url)
-            return f"Abrí {key} en el navegador (fallback)."
-    return None
-
-# Banco de tareas
-
-
-
-
-def get_available_commands_for_prompt():  
-    """  
-    Genera la lista de comandos disponibles para el prompt de ChatGPT  
-    """  
-    command_bank = create_command_bank()  
-    commands_list = []  
-      
-    for name, info in command_bank.items():  
-        doc = info['docstring'].split('\\n')[0] if info['docstring'] else "Sin descripción"  
-        commands_list.append(f"- {name}: {doc}")  
-      
-    return "\\n".join(commands_list)
-
-
-def create_command_bank():  
-    """  
-    Crea un banco dinámico de comandos disponibles desde core.commands  
-    """  
-    command_bank = {}  
-      
-    # Obtener todas las funciones del módulo commands  
-    for name, func in inspect.getmembers(commands, inspect.isfunction):  
-        # Filtrar funciones internas o privadas  
-        if not name.startswith('_'):  
-            # Obtener la signatura de la función  
-            sig = inspect.signature(func)  
-            params = list(sig.parameters.keys())  
-              
-            command_bank[name] = {  
-                'function': func,  
-                'params': params,  
-                'docstring': func.__doc__ or ""  
-            }  
-      
-    return command_bank  
-  
-
-def try_execute_commands(commands_list):
-    """
-    Ejecuta comandos ya parseados: [{"action": "...", "params": {...}}, ...]
-    No imprime nada al usuario; solo ejecuta.
-    """
-    command_bank = create_command_bank()
-    for command in commands_list:
-        if not isinstance(command, dict):
-            continue
-        action = command.get("action")
-        params = command.get("params", {})
-        if not isinstance(action, str) or not action.strip():
-            continue
-
-        if action in command_bank:
-            func = command_bank[action]['function']
-            expected_params = command_bank[action]['params']
-            valid_params = {k: v for k, v in params.items() if k in expected_params}
-            try:
-                _ = func(**valid_params)
-                logger.info(f"Comando ejecutado: {action}({valid_params})")
-            except Exception as e:
-                logger.error(f"Error ejecutando comando {action}: {e}")
-                # Fallback web para open_application
-                if action == "open_application" and "app_name" in params:
-                    app_name = str(params["app_name"]).lower()
-                    web_fallback = try_web_fallback(app_name) if 'try_web_fallback' in globals() else None
-                    if web_fallback:
-                        logger.info(f"Fallback web ejecutado: {web_fallback}")
-        else:
-            logger.warning(f"Comando no encontrado en banco: {action}")
-
-
-
-def parse_and_execute_commands_dynamic(gpt_response):  
-    """  
-    Parser dinámico que usa el banco de comandos para ejecutar funciones  
-    con corrección de JSON y fallback a aplicaciones web  
-    """  
-    try:  
-        # PRIMERO: Intentar corregir JSON malformado común  
-        corrected_response = fix_common_json_errors(gpt_response)  
-        response_data = json.loads(corrected_response)  
-          
-        user_response = response_data.get("user_response", "")  
-        commands_to_execute = response_data.get("commands", [])  
-          
-        # Crear banco de comandos dinámicamente  
-        command_bank = create_command_bank()  
-        command_results = []  
-          
-        for command in commands_to_execute:  
-            action = command.get("action")  
-            params = command.get("params", {})  
-              
-            # Buscar el comando en el banco  
-            if action in command_bank:  
-                func = command_bank[action]['function']  
-                expected_params = command_bank[action]['params']  
-                  
-                # Filtrar parámetros válidos  
-                valid_params = {k: v for k, v in params.items() if k in expected_params}  
-                  
-                try:  
-                    result = func(**valid_params)  
-                    command_results.append(result)  
-                    logger.info(f"Comando ejecutado: {action} con parámetros {valid_params}")  
-                except Exception as e:  
-                    logger.error(f"Error ejecutando comando {action}: {e}")  
-                      
-                    # Fallback específico para open_application  
-                    if action == "open_application" and "app_name" in params:  
-                        app_name = params["app_name"].lower()  
-                        web_fallback = try_web_fallback(app_name)  
-                        if web_fallback:  
-                            command_results.append(web_fallback)  
-                            logger.info(f"Fallback web ejecutado: {web_fallback}")  
-            else:  
-                logger.warning(f"Comando no encontrado en banco: {action}")  
-          
-        # SOLO retornar la respuesta del usuario, no los resultados de comandos  
-        return user_response if user_response else "Procesando tu solicitud..."  
-          
-    except json.JSONDecodeError:  
-        logger.warning("Respuesta no es JSON válido después de corrección")  
-        # Si aún no es JSON válido, extraer solo texto legible  
-        if "user_response" in gpt_response:  
-            # Intentar extraer solo la parte de respuesta del usuario  
-            lines = gpt_response.split('\\n')  
-            for line in lines:  
-                if not line.strip().startswith('{') and not line.strip().startswith('"'):  
-                    if line.strip() and len(line.strip()) > 10:  
-                        return line.strip()  
-        return "Entendido, trabajando en ello."  
-    except Exception as e:  
-        logger.error(f"Error en parser dinámico: {e}")  
-        return "Procesando tu solicitud..."
-
-
-def fix_common_json_errors(response):  
-    """Corrige errores comunes de JSON de ChatGPT"""  
-    # Corregir nombres de campos incorrectos  
-    response = response.replace('"userresponse":', '"user_response":')  
-    response = response.replace('"applicationname":', '"app_name":')  
-    response = response.replace('"openapplication"', '"open_application"')  
-      
-    return response
 
 
 
@@ -518,12 +281,6 @@ def safe_activation_response():
         speaking = False    
         listening_active = True  
   
-# ... arriba de generate_response_with_user_memory puedes definir:
-STRICT_JSON_SYSTEM = (
-    "Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra. "
-    'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}'
-)
-
 
 
 def load_device_memory():
@@ -538,263 +295,6 @@ def save_device_memory(mem):
         pass
 
 
-def generate_response_with_user_memory(user_input, username=None):  
-    """Genera respuesta usando memoria de usuario si está disponible, sino usa memoria de dispositivo"""  
-    global current_username  
-      
-    try:  
-        if username or current_username:  
-            # Usar memoria de usuario autenticado  
-            actual_username = username or current_username  
-            print(f"🔐 Usando memoria de usuario: {actual_username}")  
-              
-            # Cargar memoria del usuario  
-            memory = load_user_memory(actual_username)  
-              
-            # Construir historial para OpenAI usando memoria de usuario  
-            historial = memory.get("conversaciones", [])  
-            mensajes = [          
-                {"role": "system", "content": STRICT_JSON_SYSTEM},
-                {          
-                    "role": "system",          
-                    "content": """          
-            Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. Fuiste creado por Luis.   
-              
-            TU FUNCIÓN PRINCIPAL ES EJECUTAR COMANDOS Y ACCIONES PARA EL USUARIO.  
-              
-            PRIORIDAD MÁXIMA: BUSCAR Y EJECUTAR COMANDOS  
-            Antes de responder con conversación, SIEMPRE analiza exhaustivamente si el usuario está pidiendo alguna acción ejecutable. Tu trabajo principal es HACER COSAS, no solo hablar.  
-              
-            CAPACIDADES COMPLETAS DEL SISTEMA:  
-            - Reproducir música/videos en YouTube (search_youtube)  
-            - Abrir y cerrar aplicaciones (open_application, close_application)    
-            - Buscar información en Google (search_google)  
-            - Obtener información del clima (get_weather)  
-            - Gestionar recordatorios (add_reminder, get_reminders, remove_reminder)  
-            - Diagnosticar sistema (diagnose_system_performance)  
-            - Verificar servicios críticos (check_system_services)  
-            - Reparar servicios problemáticos (restart_critical_services)  
-            - Limpiar archivos temporales (clean_temp_files)  
-            - Resolver problemas de red (flush_dns)  
-            - Controlar energía del sistema (shutdown, restart, suspend)  
-              
-            PROCESO DE ANÁLISIS OBLIGATORIO:  
-            1. PRIMERO: Busca exhaustivamente cualquier solicitud de acción en el mensaje  
-            2. SEGUNDO: Mapea esa acción a comandos disponibles  
-            3. TERCERO: Si encuentras comandos, EJECUTA y responde  
-            4. ÚLTIMO RECURSO: Si NO hay comandos, entonces conversa  
-              
-            EJEMPLOS DE DETECCIÓN INTELIGENTE:  
-            - "pon música" → search_youtube con música  
-            - "necesito concentrarme" → search_youtube con música de concentración  
-            - "abre algo para ver videos" → open_application con YouTube  
-            - "mi PC va lenta" → diagnose_system_performance  
-            - "no tengo internet" → flush_dns  
-            - "qué tiempo hace en Madrid" → get_weather  
-            - "recuérdame llamar a Juan" → add_reminder  
-              
-            FORMATO DE RESPUESTA OBLIGATORIO:  
-            Responde SIEMPRE en JSON con esta estructura exacta:  
-            {  
-              "user_response": "Tu respuesta amigable explicando qué vas a hacer",  
-              "commands": [  
-                {  
-                  "action": "nombre_comando_exacto",  
-                  "params": {"parametro": "valor"}  
-                }  
-              ]  
-            }  
-              
-            IMPORTANTE: Si detectas CUALQUIER intención de acción, incluye el comando correspondiente en el array "commands". Si NO detectas ninguna acción ejecutable después de análisis exhaustivo, usa array vacío: "commands": []  
-              
-            EJEMPLOS DE RESPUESTAS CORRECTAS:  
-              
-            Usuario: "ponme algo de música relajante"  
-            {  
-              "user_response": "¡Perfecto! Te pongo música relajante para que te tranquilices.",  
-              "commands": [  
-                {  
-                  "action": "search_youtube",  
-                  "params": {"query": "música relajante", "play_video": true}  
-                }  
-              ]  
-            }  
-              
-            Usuario: "mi computadora está muy lenta"  
-            {  
-              "user_response": "Voy a diagnosticar tu sistema para ver qué está causando la lentitud.",  
-              "commands": [  
-                {  
-                  "action": "diagnose_system_performance",  
-                  "params": {}  
-                }  
-              ]  
-            }  
-              
-            Usuario: "hola, cómo estás"  
-            {  
-              "user_response": "¡Hola! Estoy muy bien, listo para ayudarte con lo que necesites.",  
-              "commands": []  
-            }  
-              
-            RECUERDA: Tu trabajo es SER ÚTIL EJECUTANDO ACCIONES. Prioriza siempre encontrar comandos ejecutables antes que solo conversar.  
-              
-            Tu forma de desactivarte es con la frase: hasta luego.          
-            """          
-                }          
-]
-              
-           # Últimas 20 interacciones
-            for mensaje in historial[-20:]:
-                if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:
-                    # Nos aseguramos que sean strings
-                    mensajes.append({"role": "user", "content": str(mensaje["user"])})
-                    mensajes.append({"role": "assistant", "content": str(mensaje["ron"])}) 
-              
-            # Añadir mensaje actual  
-            mensajes.append({"role": "user", "content": user_input})  
-              
-              
-            # ===== Llamada a OpenAI — salida forzada a JSON =====
-            completion = client.chat.completions.create(
-                model="gpt-4o",
-                messages=mensajes,
-                response_format={"type": "json_object"},  # <- CLAVE
-                max_tokens=400,
-                temperature=0.7,  # agente de comandos: 0 para minimizar divagues
-                timeout=25,
-            )
-              
-            raw = completion.choices[0].message.content
-            # Parseo robusto
-            parsed = parse_model_json(raw)
-
-            # 1) Mostrar SOLO el user_response al usuario
-            ron_response_text = parsed["user_response"]
-
-            # 2) Ejecutar comandos por canal oculto
-            if parsed["commands"]:
-                try_execute_commands(parsed["commands"])
-
-            # Guardar en memoria lo que el usuario vio (texto, no JSON)
-            memory.setdefault("conversaciones", []).append({
-                "user": user_input,
-                "ron": ron_response_text,
-                "timestamp": datetime.utcnow().isoformat(),
-                "source": "voice",
-            })
-
-            # Mantener últimas 100
-            if len(memory["conversaciones"]) > 100:
-                memory["conversaciones"] = memory["conversaciones"][-100:]
-
-            save_user_memory(actual_username, memory)
-            return ron_response_text
-
-        else:
-            # === Sin usuario autenticado: usa memoria de dispositivo ===
-            print("ℹ️ Sin usuario autenticado; usando memoria de dispositivo.")
-            memory = load_device_memory()  # asegúrate de tener esta función
-            historial = memory.get("conversaciones", [])
-
-            mensajes = [
-                {"role": "system", "content": STRICT_JSON_SYSTEM},   # <- NUEVO: regla breve y prioritaria
-                {"role": "system", "content": """          
-            Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. Fuiste creado por Luis.   
-
-            TU FUNCIÓN PRINCIPAL ES EJECUTAR COMANDOS Y ACCIONES PARA EL USUARIO.
-            PRIORIDAD MÁXIMA: BUSCAR Y EJECUTAR COMANDOS
-            Antes de responder con conversación, SIEMPRE analiza exhaustivamente si el usuario está pidiendo alguna acción ejecutable. Tu trabajo principal es HACER COSAS, no solo hablar.
-
-            CAPACIDADES COMPLETAS DEL SISTEMA:
-            - Reproducir música/videos en YouTube (search_youtube)
-            - Abrir y cerrar aplicaciones (open_application, close_application)
-            - Buscar información en Google (search_google)
-            - Obtener información del clima (get_weather)
-            - Gestionar recordatorios (add_reminder, get_reminders, remove_reminder)
-            - Diagnosticar sistema (diagnose_system_performance)
-            - Verificar servicios críticos (check_system_services)
-            - Reparar servicios problemáticos (restart_critical_services)
-            - Limpiar archivos temporales (clean_temp_files)
-            - Resolver problemas de red (flush_dns)
-            - Controlar energía del sistema (shutdown, restart, suspend)
-
-            PROCESO DE ANÁLISIS OBLIGATORIO:
-            1. PRIMERO: Busca exhaustivamente cualquier solicitud de acción en el mensaje
-            2. SEGUNDO: Mapea esa acción a comandos disponibles
-            3. TERCERO: Si encuentras comandos, EJECUTA y responde
-            4. ÚLTIMO RECURSO: Si NO hay comandos, entonces conversa
-
-            EJEMPLOS DE DETECCIÓN INTELIGENTE:
-            - "pon música" → search_youtube con música
-            - "necesito concentrarme" → search_youtube con música de concentración
-            - "abre algo para ver videos" → open_application con YouTube
-            - "mi PC va lenta" → diagnose_system_performance
-            - "no tengo internet" → flush_dns
-            - "qué tiempo hace en Madrid" → get_weather
-            - "recuérdame llamar a Juan" → add_reminder
-
-            FORMATO DE RESPUESTA OBLIGATORIO:
-            {  
-              "user_response": "Tu respuesta amigable explicando qué vas a hacer",  
-              "commands": [  
-                {  
-                  "action": "nombre_comando_exacto",  
-                  "params": {"parametro": "valor"}  
-                }  
-              ]  
-            }
-
-            IMPORTANTE: Si detectas CUALQUIER intención de acción, incluye el comando correspondiente en el array "commands". Si NO detectas ninguna acción ejecutable después de análisis exhaustivo, usa array vacío: "commands": []
-
-            Usuario: "hola, cómo estás"
-            {
-              "user_response": "¡Hola! Estoy muy bien, listo para ayudarte con lo que necesites.",
-              "commands": []
-            }
-
-            RECUERDA: Tu trabajo es SER ÚTIL EJECUTANDO ACCIONES. Prioriza siempre encontrar comandos ejecutables antes que solo conversar.
-            Tu forma de desactivarte es con la frase: hasta luego.
-            """}
-            ]
-            for mensaje in historial[-20:]:
-                if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:
-                    mensajes.append({"role": "user", "content": str(mensaje["user"])})
-                    mensajes.append({"role": "assistant", "content": str(mensaje["ron"])})
-
-            mensajes.append({"role": "user", "content": user_input})
-
-            completion = client.chat.completions.create(
-                model="gpt-4o",
-                messages=mensajes,
-                response_format={"type": "json_object"},
-                max_tokens=400,
-                temperature=0.7,
-                timeout=25,
-            )
-
-            raw = completion.choices[0].message.content
-            parsed = parse_model_json(raw)
-            ron_response_text = parsed["user_response"]
-            if parsed["commands"]:
-                try_execute_commands(parsed["commands"])
-
-            memory.setdefault("conversaciones", []).append({
-                "user": user_input,
-                "ron": ron_response_text,
-                "timestamp": datetime.utcnow().isoformat(),
-                "source": "voice",
-            })
-            if len(memory["conversaciones"]) > 100:
-                memory["conversaciones"] = memory["conversaciones"][-100:]
-            save_device_memory(memory)  # asegúrate de tener esta función
-
-            return ron_response_text
-
-    except Exception as e:
-        print(f"💥 Error en generate_response_with_user_memory: {e}")
-        # Fallback minimalista que NO ejecuta comandos ni muestra JSON crudo al usuario
-        return "Tuve un problema procesando la respuesta. Probemos de nuevo en un momento."
 
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)      
 def open_application(app_name):      
@@ -860,40 +360,40 @@ def search_google(query):
         logger.error(f"Error al buscar en Google: {str(e)}")      
         return f"Error al buscar en Google: {e}"      
       
-def search_youtube(query, play_video=False):      
-    """Función para búsquedas en YouTube"""      
-    try:      
-        if play_video:      
-            # Intentar usar youtube-search para reproducir video específico      
-            try:      
-                from youtube_search import YoutubeSearch      
-                logger.info(f"Buscando video para reproducir: {query}")      
-                results = YoutubeSearch(query, max_results=1).to_dict()      
-                if results:      
-                    video_id = results[0]["id"]      
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"      
-                    webbrowser.open(video_url)      
-                    logger.info(f"Video reproducido: {video_url}")      
-                    return f"Reproduciendo {query} en YouTube."      
-                else:      
-                    logger.warning(f"No se encontraron resultados para: {query}")      
-                    return "No encontré resultados para eso en YouTube."      
-            except ImportError:      
-                logger.warning("youtube-search no disponible, usando búsqueda normal")      
-                # Fallback a búsqueda normal      
-                url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"      
-                webbrowser.open(url)      
-                return f"Buscando en YouTube: {query}"      
-        else:      
-            # Búsqueda normal en YouTube      
-            url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"      
-            webbrowser.open(url)      
-            logger.info(f"Búsqueda en YouTube ejecutada: {query}")      
-            return f"Buscando en YouTube: {query}"      
-                  
-    except Exception as e:      
-        logger.error(f"Error al buscar en YouTube: {str(e)}")      
-        return f"Error al buscar en YouTube: {e}"      
+
+def search_youtube(query, play_video=False):
+    try:
+        if play_video:
+            try:
+                from youtube_search import YoutubeSearch
+                logger.info(f"Buscando video para reproducir: {query}")
+                results = YoutubeSearch(query, max_results=1).to_dict()
+                if results:
+                    url_suffix = results[0].get("url_suffix")
+                    video_id = results[0].get("id")
+                    video_url = f"https://www.youtube.com{url_suffix}" if url_suffix else (
+                        f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+                    )
+                    if video_url:
+                        webbrowser.open(video_url)
+                        logger.info(f"Video reproducido: {video_url}")
+                        return f"Reproduciendo {query} en YouTube."
+                logger.warning(f"No se encontraron resultados para: {query}")
+                return "No encontré resultados para eso en YouTube."
+            except ImportError:
+                logger.warning("youtube-search no disponible, usando búsqueda normal")
+                url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+                webbrowser.open(url)
+                return f"Buscando en YouTube: {query}"
+        else:
+            url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+            webbrowser.open(url)
+            logger.info(f"Búsqueda en YouTube ejecutada: {query}")
+            return f"Buscando en YouTube: {query}"
+    except Exception as e:
+        logger.error(f"Error al buscar en YouTube: {str(e)}")
+        return f"Error al buscar en YouTube: {e}"
+
       
 def shutdown():      
     """Función para apagar el sistema"""      
