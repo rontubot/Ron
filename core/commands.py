@@ -4,7 +4,19 @@ import webbrowser
 import requests  
 import logging  
 import re  
-from config import WEATHER_API_KEY  
+from config import WEATHER_API_KEY 
+from core.memory import (
+    add_to_memory,
+    get_user_data,
+    save_user_data,
+    load_user_memory,
+    save_user_memory,
+    # recordatorios (nueva API por usuario)
+    add_reminder_item,
+    list_reminders,
+    update_reminder,
+    remove_reminder_item,
+) 
   
 # Configurar logging  
 logging.basicConfig(level=logging.DEBUG)  
@@ -24,6 +36,29 @@ web_apps = {
     "netflix": "https://www.netflix.com"  
 }  
   
+
+def _username(ctx: dict, params: dict | None = None) -> str:
+    """
+    Obtiene el username de:
+    - params["username"]
+    - ctx["username"] o ctx["user"]
+    - (fallback) algo como 'default'
+    """
+    if params and isinstance(params, dict) and params.get("username"):
+        return str(params["username"]).strip()
+    if ctx and isinstance(ctx, dict):
+        if ctx.get("username"):
+            return str(ctx["username"]).strip()
+        if ctx.get("user"):
+            return str(ctx["user"]).strip()
+    return "default"
+
+
+
+
+
+
+
 def open_application(app_name):  
     """Función mejorada basada en el código local funcional"""  
     try:  
@@ -78,23 +113,25 @@ def close_application(app_name):
   
 
 
-def try_web_fallback(app_name):  
-    """Intenta abrir la versión web de una aplicación"""  
-    from core.commands import web_apps  
-    import webbrowser  
-      
-    # Buscar en el diccionario de aplicaciones web  
-    if app_name in web_apps:  
-        webbrowser.open(web_apps[app_name])  
-        return f"Abriendo {app_name.capitalize()} en el navegador como alternativa."  
-      
-    # Buscar coincidencias parciales  
-    for key, url in web_apps.items():  
-        if key in app_name or app_name in key:  
-            webbrowser.open(url)  
-            return f"Abriendo {key.capitalize()} en el navegador como alternativa."  
-      
-    return None  
+def try_web_fallback(app_name):
+    """Intenta abrir la versión web de una aplicación usando la tabla local web_apps (sin imports circulares)."""
+    name = (app_name or "").strip().lower()
+    if not name:
+        return None
+
+    # Coincidencia exacta
+    if name in web_apps:
+        webbrowser.open(web_apps[name])
+        return f"Abriendo {name.capitalize()} en el navegador como alternativa."
+
+    # Coincidencias parciales
+    for key, url in web_apps.items():
+        if key in name or name in key:
+            webbrowser.open(url)
+            return f"Abriendo {key.capitalize()} en el navegador como alternativa."
+
+    return None
+
   
 def fix_common_json_errors(response):  
     """Corrige errores comunes de JSON de ChatGPT"""  
@@ -420,83 +457,164 @@ def system_file_check():
         return f"Error al verificar archivos del sistema: {e}"  
   
 # Funciones de recordatorios del código local  
-def add_reminder(activity):  
-    """Función de recordatorios del código local funcional"""  
-    from core.memory import load_memory, save_memory  
-      
-    memory = load_memory()  
-      
-    # Convertir recordatorios en diccionario si es una lista  
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
-        memory["recordatorios"] = {}  
-      
-    # Dividir en título y descripción (si hay)  
-    parts = activity.split(":", 1)  
-    title = parts[0].strip().lower()  # Título del recordatorio  
-    description = parts[1].strip() if len(parts) > 1 else "(Sin descripción)"  
-      
-    # Agregar timestamp al recordatorio  
-    from datetime import datetime  
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  
-    memory["recordatorios"][title] = {  
-        "description": description,  
-        "created": timestamp  
-    }  
-      
-    save_memory({"recordatorios": memory["recordatorios"]})  
-      
-    logger.info(f"Recordatorio agregado: {title} - {description}")  
-    return f"Recordatorio agregado: {title} - {description}."  
+def cmd_add_reminder(params, ctx):
+    username = _username(ctx, params)
+
+    raw_title = (params.get("title") or "").strip()
+    raw_activity = (params.get("activity") or "").strip()
+    raw_text = (params.get("text") or "").strip()
+    description = (params.get("description") or "").strip()
+
+    # Priorizamos: title > activity > text
+    candidate = raw_title or raw_activity or raw_text
+
+    title = candidate
+    if ":" in candidate:
+        left, right = candidate.split(":", 1)
+        title = left.strip()
+        # si no pasaron description explícita, usamos la de activity/text
+        if not description:
+            description = right.strip()
+
+    if not title:
+        return {"ok": False, "error": "Falta 'title' (puedes pasar 'activity' en formato 'Título: descripción')"}
+
+    category = (params.get("category") or "inbox").strip().lower()
+    status   = (params.get("status") or "todo").strip().lower()
+    priority = (params.get("priority") or "normal").strip().lower()
+    due_date = params.get("due_date")  # "YYYY-MM-DD"
+    due_time = params.get("due_time")  # "HH:MM"
+
+    # Asegura lista
+    raw_tags = params.get("tags")
+    tags = raw_tags if isinstance(raw_tags, list) else []
+
+    item = add_reminder_item(
+        username=username,
+        title=title,
+        description=description,
+        category=category,
+        status=status,
+        priority=priority,
+        due_date=due_date,
+        due_time=due_time,
+        tags=tags,
+    )
+    return {"ok": True, "reminder": item}
+
   
-def get_reminders():  
-    """Función para obtener recordatorios del código local"""  
-    from core.memory import load_memory  
-      
-    memory = load_memory()  
-      
-    # Convertir a diccionario si es una lista  
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
-        memory["recordatorios"] = {}  
-      
-    if memory["recordatorios"]:  
-        result = "Tus recordatorios son:\\\\n"  
-        for title, data in memory["recordatorios"].items():  
-            if isinstance(data, dict):  
-                result += f"- {title}: {data['description']} (creado: {data.get('created', 'fecha desconocida')})\\\\n"  
-            else:  
-                # Compatibilidad con formato anterior  
-                result += f"- {title}: {data}\\\\n"  
-          
-        logger.info(f"Recordatorios obtenidos: {len(memory['recordatorios'])} items")  
-        return result  
-      
-    logger.info("No hay recordatorios pendientes")  
-    return "No tienes recordatorios pendientes."  
+def cmd_get_reminders(params, ctx):
+    username = _username(ctx, params)
+    category = params.get("category")
+    status   = params.get("status")
+    items = list_reminders(username, category=category, status=status)
+    return {"ok": True, "reminders": items}
+
+
+def cmd_update_reminder(params, ctx):
+    username = _username(ctx, params)
+    reminder_id = params.get("id") or params.get("reminder_id")
+    if not reminder_id:
+        return {"ok": False, "error": "Falta 'id' del recordatorio"}
+    fields = {k: v for k, v in params.items() if k in {
+        "title","description","category","status","priority","due_date","due_time","tags"
+    }}
+    updated = update_reminder(username, reminder_id, **fields)
+    if not updated:
+        return {"ok": False, "error": "No se encontró el recordatorio"}
+    return {"ok": True, "reminder": updated}
+
+
   
-def remove_reminder(activity):  
-    """Función para eliminar recordatorios del código local"""  
-    from core.memory import load_memory, save_memory  
-      
-    memory = load_memory()  
-      
-    # Convertir a diccionario si es una lista  
-    if "recordatorios" not in memory or not isinstance(memory["recordatorios"], dict):  
-        memory["recordatorios"] = {}  
-      
-    title = activity.strip().lower()  
-      
-    # Búsqueda flexible  
-    matches = [key for key in memory["recordatorios"] if title in key]  
-      
-    if len(matches) == 1:  
-        removed_title = matches[0]  
-        removed_data = memory["recordatorios"].pop(removed_title)  
-        save_memory({"recordatorios": memory["recordatorios"]})  
-        logger.info(f"Recordatorio eliminado: {removed_title}")  
-        return f"Recordatorio '{removed_title}' eliminado."  
-    elif len(matches) > 1:  
-        logger.warning(f"Múltiples recordatorios encontrados para: {title}")  
-        return "Hay múltiples recordatorios similares. Dime el título exacto."  
-    else:  
-        logger.warning(f"No se encontró recordatorio para: {title}")  
-        return "No encontré un recordatorio con ese título."
+def cmd_remove_reminder(params, ctx):
+    username = _username(ctx, params)
+    reminder_id = params.get("id") or params.get("reminder_id")
+    if not reminder_id:
+        return {"ok": False, "error": "Falta 'id' del recordatorio"}
+    ok = remove_reminder_item(username, reminder_id)
+    return {"ok": ok}
+
+
+
+COMMANDS = {
+    # ——— Recordatorios
+    "add_reminder": cmd_add_reminder,
+    "get_reminders": cmd_get_reminders,
+    "update_reminder": cmd_update_reminder,
+    "remove_reminder": cmd_remove_reminder,
+
+    # Sinónimos (opcional)
+    "agregar_recordatorio": cmd_add_reminder,
+    "listar_recordatorios": cmd_get_reminders,
+    "actualizar_recordatorio": cmd_update_reminder,
+    "eliminar_recordatorio": cmd_remove_reminder,
+
+    # ——— Apps / web
+    "open_application": open_application,
+    "close_application": close_application,
+    "try_web_fallback": try_web_fallback,
+    "search_google": search_google,
+    "search_youtube": search_youtube,
+
+    # ——— Sistema
+    "shutdown": shutdown,
+    "restart": restart,
+    "suspend": suspend,
+    "diagnose_system_performance": diagnose_system_performance,
+    "check_system_services": check_system_services,
+    "restart_critical_services": restart_critical_services,
+    "clean_temp_files": clean_temp_files,
+    "flush_dns": flush_dns,
+    "network_reset": network_reset,
+    "check_disk_space": check_disk_space,
+    "system_file_check": system_file_check,
+
+    # ——— Utilidad
+    "get_weather": get_weather,
+}
+
+
+
+
+def run_command(cmd_name: str, params: dict | None = None, ctx: dict | None = None) -> dict:
+    """
+    Ejecuta un comando del registry y normaliza el resultado.
+    - Siempre devuelve un dict con {ok: bool, ...}
+    - Detecta handlers estilo (params, ctx) por nombre de parámetros, no por cantidad.
+    - Filtra kwargs para funciones normales según su firma.
+    """
+    import inspect
+
+    params = params or {}
+    ctx = ctx or {}
+    fn = COMMANDS.get(cmd_name)
+    if not fn:
+        return {"ok": False, "error": f"Comando desconocido: {cmd_name}"}
+
+    try:
+        sig = inspect.signature(fn)
+        arg_names = [p.name for p in sig.parameters.values()]
+
+        # Handler estilo comandos: def cmd_x(params, ctx)
+        if len(arg_names) >= 2 and arg_names[0] == "params" and arg_names[1] == "ctx":
+            result = fn(params, ctx)
+        else:
+            # Función "normal": ajustamos kwargs a su firma
+            allowed = set(arg_names)
+            filtered = {k: v for k, v in (params or {}).items() if k in allowed}
+
+            if len(arg_names) == 0:
+                result = fn()
+            else:
+                result = fn(**filtered)
+
+        # Normalización de salida
+        if isinstance(result, str):
+            return {"ok": True, "message": result}
+        if isinstance(result, dict):
+            return {"ok": result.get("ok", True), **result}
+        return {"ok": True, "result": result}
+
+    except Exception as e:
+        logger.exception(f"Error ejecutando comando '{cmd_name}'")
+        return {"ok": False, "error": str(e)}

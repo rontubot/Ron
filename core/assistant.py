@@ -9,17 +9,14 @@ import inspect
 import json 
 from datetime import datetime
 
-
-from core import commands         
-from core.memory import add_to_memory as save_to_memory, add_to_memory, load_memory, get_user_data, save_user_data, load_user_memory, save_user_memory        
-from core.commands import (        
-    open_application, close_application, get_weather,        
-    search_google, search_youtube, shutdown, restart, suspend,        
-    add_reminder, get_reminders, remove_reminder,        
-    # NUEVAS FUNCIONES DE DIAGNÓSTICO        
-    diagnose_system_performance, check_system_services,         
-    restart_critical_services, clean_temp_files, flush_dns        
-)        
+from core.commands import run_command  # dispatcher único
+from core.memory import (
+    add_to_memory,
+    load_user_memory,
+    save_user_memory,
+    get_user_data,
+    save_user_data,
+)
 from dotenv import load_dotenv        
         
 load_dotenv()
@@ -94,23 +91,7 @@ def fix_common_json_errors(response: str) -> str:
 
     return response
   
-def try_web_fallback(app_name):  
-    """Intenta abrir la versión web de una aplicación"""  
-    from core.commands import web_apps  
-    import webbrowser  
-      
-    # Buscar en el diccionario de aplicaciones web  
-    if app_name in web_apps:  
-        webbrowser.open(web_apps[app_name])  
-        return f"Abriendo {app_name.capitalize()} en el navegador como alternativa."  
-      
-    # Buscar coincidencias parciales  
-    for key, url in web_apps.items():  
-        if key in app_name or app_name in key:  
-            webbrowser.open(url)  
-            return f"Abriendo {key.capitalize()} en el navegador como alternativa."  
-      
-    return None
+
 
 
 
@@ -190,27 +171,21 @@ def parse_and_execute_commands_dynamic(gpt_response: str) -> str:
     # Ejecutar comandos disponibles
     command_bank = create_command_bank()
     for command in commands_to_execute or []:
-        action = command.get("action")
-        params = command.get("params", {})
-        
-        if action == "search_youtube":
-            params.setdefault("play_video", True)       
+        action = (command.get("action") or "").strip()
+        params = command.get("params", {}) or {}
 
-        if action in command_bank:
-            func = command_bank[action]['function']
-            expected = command_bank[action]['params']
-            valid_params = {k: v for k, v in params.items() if k in expected}
-            try:
-                func(**valid_params)
-                logger.info(f"Comando ejecutado: {action} {valid_params}")
-            except Exception as e:
-                logger.error(f"Error ejecutando comando {action}: {e}")
-                if action == "open_application" and "app_name" in params:
-                    web_fb = try_web_fallback(params["app_name"].lower())
-                    if web_fb:
-                        logger.info(f"Fallback web ejecutado: {web_fb}")
-        else:
-            logger.warning(f"Comando no encontrado en banco: {action}")
+        # Normalización específica que ya hacías:
+        if action == "search_youtube":
+            params.setdefault("play_video", True)
+
+        if not action:
+            continue
+
+        res = run_command(action, params, ctx)
+
+        # (Opcional) log
+        if not res.get("ok", True):
+            logger.warning(f"Comando '{action}' falló: {res.get('error')}")
 
     return user_response if user_response else "Procesando tu solicitud..."
 
@@ -399,6 +374,37 @@ Tu forma de desactivarte es con la frase: hasta luego.
 
     return mensajes
   
+
+
+
+def handle_tool_call(llm_payload: dict, ctx: dict):
+    """
+    llm_payload: salida del modelo ya parseada
+    ctx: debe incluir p.ej. {"username": "...", ...}
+    """
+    # Nombres compatibles
+    cmd = (llm_payload.get("cmd")
+           or llm_payload.get("command")
+           or llm_payload.get("tool")
+           or "").strip()
+
+    params = llm_payload.get("params") or llm_payload.get("arguments") or {}
+    # ¡Asegúrate que el username viaje en ctx o en params!
+    res = run_command(cmd, params, ctx)
+
+    # (opcional) graba a memoria la interacción
+    try:
+        username = ctx.get("username") or params.get("username")
+        if username:
+            user_text = llm_payload.get("user_text", "")
+            ron_text = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+            add_to_memory(username, user_text, ron_text)
+    except Exception:
+        logger.debug("No se pudo registrar la memoria de la herramienta", exc_info=True)
+
+    return res
+
+
 def generate_response_with_user_memory(user_input, username):
     """Genera respuesta con memoria específica del usuario"""
     original_input = user_input
@@ -569,7 +575,8 @@ def generate_response_with_user_memory(user_input, username):
             temperature=0.7
         )
         gpt_response = respuesta.choices[0].message.content.strip()
-        ron_response = parse_and_execute_commands_dynamic(gpt_response)
+        ron_response = parse_and_execute_commands_dynamic(gpt_response, ctx={"username": username})
+
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
@@ -580,11 +587,6 @@ def generate_response_with_user_memory(user_input, username):
         add_to_memory(original_input, ron_response)    
     return ron_response
   
-  
-def _process_user_input(user_input, save_to_memory=True):    
-    """Función interna que procesa la entrada del usuario"""    
-    original_input = user_input    
-    user_input = user_input.lower().strip()    
         
     ron_nombre = get_user_data("ron_nombre") or "Ron"    
     creador = get_user_data("creador") or "Luis"    
@@ -806,7 +808,8 @@ def _process_user_input(user_input, save_to_memory=True):
             temperature=0.7
         )
         gpt_response = respuesta.choices[0].message.content.strip()  
-        ron_response = parse_and_execute_commands_dynamic(gpt_response)
+        ron_response = parse_and_execute_commands_dynamic(gpt_response, ctx={"username": username})
+
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
@@ -814,14 +817,7 @@ def _process_user_input(user_input, save_to_memory=True):
         add_to_memory(original_input, ron_response)
     return ron_response
     
-# FUNCIONES WRAPPER PARA COMPATIBILIDAD    
-def responder_a_usuario(user_input):    
-    """Para clientes de voz - guarda en memoria automáticamente"""    
-    return _process_user_input(user_input, save_to_memory=True)    
-    
-def generate_response_no_memory(user_input):    
-    """Para usuarios web - NO guarda en memoria automáticamente"""    
-    return _process_user_input(user_input, save_to_memory=False)    
+
     
 # Mantener el alias original para compatibilidad    
 
