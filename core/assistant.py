@@ -238,19 +238,19 @@ def handle_tool_call(llm_payload: dict, ctx: dict):
 # =========================
 # FUNCIÓN PRINCIPAL (única)
 # =========================
-def _process_user_input(user_input: str, save_to_memory: bool = True, username: str = "default"):
+def _process_user_input(user_input, save_to_memory=True, username=None):
+
     """Procesa la entrada del usuario y ejecuta comandos vía run_command."""
     original_input = user_input
     user_input = (user_input or "").lower().strip()
 
-    ron_nombre = get_user_data("ron_nombre") or "Ron"
-    creador = get_user_data("creador") or "Luis"
+    ron_nombre = get_user_data(username, "ron_nombre") if username else "Ron"
+    creador = get_user_data(username, "creador") if username else "Luis"
 
     # --- Despedida ---
     if detect_farewell_patterns(user_input):
         response = "Hasta luego. Que tengas un buen día."
-        if save_to_memory:
-            add_to_memory(original_input, response)
+
         _append_user_conv(username, original_input, response, source="voice")
         return response
 
@@ -304,8 +304,7 @@ def _process_user_input(user_input: str, save_to_memory: bool = True, username: 
         if repairs:
             analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."
 
-        if save_to_memory:
-            add_to_memory(original_input, analysis)
+
         _append_user_conv(username, original_input, analysis, source="voice")
         return analysis
 
@@ -459,8 +458,7 @@ def _process_user_input(user_input: str, save_to_memory: bool = True, username: 
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
-    if save_to_memory:
-        add_to_memory(original_input, ron_response)
+
     _append_user_conv(username, original_input, ron_response, source="voice")
     return ron_response
 
@@ -476,6 +474,11 @@ def responder_a_usuario(user_input: str, username: str = "default"):
 def generate_response_no_memory(user_input: str, username: str = "default"):
     """Para clientes web - NO guarda en memoria automáticamente"""
     return _process_user_input(user_input, save_to_memory=False, username=username)
+
+
+def generate_response_with_user_memory(user_input, username=None):
+    # Guarda en memoria del usuario si hay username
+    return _process_user_input(user_input, save_to_memory=True, username=username)
 
 
 # Alias legacy
