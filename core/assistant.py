@@ -3,7 +3,7 @@ from openai import OpenAI
 import json
 import logging
 from datetime import datetime
-
+import re as _re
 from core.commands import run_command  # dispatcher único
 from core.memory import (
     add_to_memory,
@@ -25,10 +25,9 @@ logger = logging.getLogger(__name__)
 STRICT_JSON_SYSTEM = (
     "Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra. "
     'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}. '
-    "Importante: el campo user_response admite **Markdown básico** (títulos con #, listas con -, listas numeradas con 1.) "
-    "y **saltos de línea**. Los saltos de línea deben ir como \\n dentro del string. "
-    "No uses comas finales, no incluyas comentarios ni claves extra. "
-    "Si no hay acciones, usa \"commands\": []."
+    "El campo user_response admite Markdown básico y \\n. "
+    "Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'. "
+    "Nunca digas que no puedes hacer algo si existe un comando que lo haga."
 )
 
 
@@ -75,24 +74,18 @@ def fix_common_json_errors(response: str) -> str:
         response = response[first : last + 1]
 
     # Eliminar comas colgantes
-    import re as _re
+
 
     response = _re.sub(r",\s*([}\]])", r"\1", response)
     return response
 
 
 def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = None) -> str:
-    """
-    Parsea el JSON de la LLM, ejecuta los comandos que vengan y devuelve el 'user_response'.
-    Tolerante a errores leves en el JSON.
-    """
     try:
         corrected = fix_common_json_errors(gpt_response)
         response_data = json.loads(corrected)
     except json.JSONDecodeError:
-        # Fallback: intenta extraer user_response por regex
         import re as _re
-
         ur = ""
         m = _re.search(r'"user_response"\s*:\s*"(.+?)"', gpt_response, flags=_re.DOTALL)
         if m:
@@ -109,6 +102,13 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
     user_response = response_data.get("user_response", "")
     commands_to_execute = response_data.get("commands", []) or []
 
+    # Log para ver si el modelo trajo comandos
+    if commands_to_execute:
+        logger.info(f"[LLM commands] {', '.join([ (c.get('action') or '?') for c in commands_to_execute ])}")
+    else:
+        logger.info("[LLM commands] (vacío)")
+
+    # Ejecutar comandos devueltos por la LLM
     for command in commands_to_execute:
         action = (command.get("action") or "").strip()
         params = command.get("params", {}) or {}
@@ -120,6 +120,21 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
         res = run_command(action, params, ctx or {})
         if not res.get("ok", True):
             logger.warning(f"Comando '{action}' falló: {res.get('error')}")
+
+    # ---------- Fallback local (si NO hubo comandos) ----------
+    if not commands_to_execute and ctx and isinstance(ctx.get("last_user_text", ""), str):
+        ut = ctx["last_user_text"].lower()
+
+        play_triggers = ("reproduce", "reproducir", "pon ", "poné ", "poner ", "pón ", "play ")
+        if any(tok in ut for tok in play_triggers):
+            import re
+            m = re.search(r"(reproduce|reproducir|pon(?:er|é| )|play)\s+(.*)", ut)
+            query = (m.group(2) if m else ut).strip()
+            if query and query not in ("el segundo", "el primero", "esa", "ese", "eso"):
+                rc = run_command("search_youtube", {"query": query, "play_video": True}, ctx or {})
+                if rc.get("ok", True):
+                    return user_response or f"Reproduciendo **{query}** en YouTube."
+    # -----------------------------------------------------------
 
     return user_response if user_response else "Procesando tu solicitud..."
 
@@ -136,39 +151,40 @@ def construir_historial_openai():
     mensajes = [
         {"role": "system", "content": STRICT_JSON_SYSTEM},
         {
-            "role": "system",
-            "content": """
-Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. Fuiste creado por Luis.
+         "role": "system",
+         "content": """
+        Eres Ron, un asistente creado por Luis que EJECUTA acciones. Formato de salida SIEMPRE:
+        {"user_response":"...","commands":[{"action":"...","params":{...}}]}
 
-TU FUNCIÓN PRINCIPAL ES EJECUTAR COMANDOS Y ACCIONES PARA EL USUARIO.
+        REGLAS OBLIGATORIAS:
+        - Si el usuario pide reproducir música, abrir algo, buscar en YouTube/Google, crear o listar recordatorios, diagnosticar el sistema, etc., SIEMPRE incluye un comando correspondiente en 'commands'.
+        - No digas “no puedo”, usa el comando. Ej.: para música usa search_youtube con {"query": "...", "play_video": true}.
+        - Si el usuario se refiere a “el segundo artista”, “el primero”, etc., interpreta según el contexto previo y construye la query. Ej.: si antes recomendaste “Amyl and the Sniffers” como #2, y el usuario dice “reproduce el segundo”, usa {"query": "Amyl and the Sniffers canción popular", "play_video": true}.
+        - Siempre que ejecutes un comando, el 'user_response' debe confirmar lo que harás de forma breve.
 
-PRIORIDAD MÁXIMA: BUSCAR Y EJECUTAR COMANDOS
-Antes de responder con conversación, SIEMPRE analiza exhaustivamente si el usuario está pidiendo alguna acción ejecutable. Tu trabajo principal es HACER COSAS, no solo hablar.
+        EJEMPLOS (FEW-SHOT):
 
-CAPACIDADES COMPLETAS DEL SISTEMA:
-- Reproducir música/videos en YouTube (search_youtube)
-- Abrir y cerrar aplicaciones (open_application, close_application)
-- Buscar información en Google (search_google)
-- Obtener información del clima (get_weather)
-- Gestionar recordatorios (add_reminder, get_reminders, remove_reminder)
-- Diagnosticar sistema (diagnose_system_performance)
-- Verificar servicios críticos (check_system_services)
-- Reparar servicios problemáticos (restart_critical_services)
-- Limpiar archivos temporales (clean_temp_files)
-- Resolver problemas de red (flush_dns)
-- Controlar energía del sistema (shutdown, restart, suspend)
+        Usuario: "sorpréndeme con algo de música punk nuevo"
+        Asistente:
+        {"user_response":"Te propongo **Amyl and the Sniffers** y **The Linda Lindas**. ¿Quieres que ponga alguno?",
+         "commands":[]}
 
-PROCESO DE ANÁLISIS OBLIGATORIO:
-1. PRIMERO: Busca exhaustivamente cualquier solicitud de acción en el mensaje
-2. SEGUNDO: Mapea esa acción a comandos disponibles
-3. TERCERO: Si encuentras comandos, EJECUTA y responde
-4. ÚLTIMO RECURSO: Si NO hay comandos, entonces conversa
+        Usuario: "reproduce el segundo artista que dijiste"
+        Asistente:
+        {"user_response":"Poniendo **The Linda Lindas** en YouTube.",
+         "commands":[{"action":"search_youtube","params":{"query":"The Linda Lindas canción popular","play_video":true}}]}
 
-FORMATO DE RESPUESTA OBLIGATORIO:
-Siempre JSON con {"user_response": "...", "commands":[{ "action":"...", "params":{...}}]}
-Tu forma de desactivarte es con la frase: hasta luego.
-""",
-        },
+        Usuario: "pon algo de Bad Bunny"
+        Asistente:
+        {"user_response":"Reproduciendo **Bad Bunny** en YouTube.",
+         "commands":[{"action":"search_youtube","params":{"query":"Bad Bunny video oficial","play_video":true}}]}
+
+        Usuario: "recuérdame llamar a mamá a las 8pm"
+        Asistente:
+        {"user_response":"Listo, te recordaré llamar a mamá a las 8pm.",
+         "commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_time":"20:00"}}]}
+        """
+        }
     ]
 
     # Reducir historial a últimos 20 mensajes para mejor rendimiento
@@ -453,7 +469,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             temperature=0.7,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
-        ron_response = parse_and_execute_commands_dynamic(gpt_response, ctx={"username": username})
+        ron_response = parse_and_execute_commands_dynamic(gpt_response, ctx={"username": username, "last_user_text": original_input})
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
