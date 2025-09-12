@@ -587,6 +587,11 @@ def generate_response_with_user_memory(user_input, username):
         add_to_memory(original_input, ron_response)    
     return ron_response
   
+  
+def _process_user_input(user_input, save_to_memory=True):    
+    """Función interna que procesa la entrada del usuario"""    
+    original_input = user_input    
+    user_input = user_input.lower().strip()    
         
     ron_nombre = get_user_data("ron_nombre") or "Ron"    
     creador = get_user_data("creador") or "Luis"    
@@ -817,7 +822,14 @@ def generate_response_with_user_memory(user_input, username):
         add_to_memory(original_input, ron_response)
     return ron_response
     
-
+# FUNCIONES WRAPPER PARA COMPATIBILIDAD    
+def responder_a_usuario(user_input):    
+    """Para clientes de voz - guarda en memoria automáticamente"""    
+    return _process_user_input(user_input, save_to_memory=True)    
+    
+def generate_response_no_memory(user_input):    
+    """Para usuarios web - NO guarda en memoria automáticamente"""    
+    return _process_user_input(user_input, save_to_memory=False)    
     
 # Mantener el alias original para compatibilidad    
 
