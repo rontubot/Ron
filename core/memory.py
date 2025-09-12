@@ -166,13 +166,13 @@ def _sanitized_username(u: str) -> str:
 
 
 
-def add_to_memory(username: str, user_text: str, ron_response: str):
+def add_to_memory(username: str, user_text: str, ron_response: str = ""):
     _require_username(username)
     mem = load_user_memory(username) or {}
     conv = mem.get("conversaciones", [])
     conv.append({
         "user": user_text,
-        "ron": ron_response,
+        "ron": ron_response if isinstance(ron_response, str) else str(ron_response),
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
     # Mantén histórico razonable
