@@ -27,7 +27,13 @@ STRICT_JSON_SYSTEM = (
     'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}. '
     "El campo user_response admite Markdown básico y \\n. "
     "Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'. "
-    "Nunca digas que no puedes hacer algo si existe un comando que lo haga."
+    "Nunca digas que no puedes hacer algo si existe un comando que lo haga. "
+    "SOLO puedes usar estas acciones en 'commands': "
+    "[\"search_youtube\",\"open_application\",\"close_application\",\"search_google\",\"get_weather\","
+    "\"add_reminder\",\"get_reminders\",\"remove_reminder\",\"diagnose_system_performance\","
+    "\"check_system_services\",\"restart_critical_services\",\"clean_temp_files\",\"flush_dns\","
+    "\"shutdown\",\"restart\",\"suspend\"]. "
+    "Si crees que necesitas otra acción, usa la más cercana de la lista anterior."
 )
 
 
