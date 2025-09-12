@@ -6,6 +6,7 @@ import socket
 import getpass    
 import platform    
 import re    
+import uuid
 from datetime import datetime    
     
 # Configuración unificada para usar el mismo repositorio para lectura y escritura    
@@ -55,6 +56,157 @@ def load_user_memory(username: str):
         print(f"Error cargando memoria de usuario: {e}")
 
     return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
+
+
+REMINDERS_DIR = "recordatorios"
+
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def _reminders_path_for(username: str) -> str:
+    uname = _sanitized_username(username)
+    return f"{REMINDERS_DIR}/{uname}.json"
+
+def load_user_reminders(username: str) -> dict:
+    token = get_github_token()
+    if not token:
+        return {"user": username, "updated_at": _now(), "reminders": []}
+
+    file_path = _reminders_path_for(username)
+    url = f"{GITHUB_API_BASE}/{file_path}?ref={BRANCH}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3.raw",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            data = json.loads(r.content)
+            # sanity
+            data.setdefault("user", username)
+            data.setdefault("updated_at", _now())
+            data.setdefault("reminders", [])
+            return data
+        elif r.status_code == 404:
+            return {"user": username, "updated_at": _now(), "reminders": []}
+        else:
+            print(f"⚠️ Error load_user_reminders({r.status_code}): {r.text[:120]}")
+    except Exception as e:
+        print(f"Error cargando recordatorios: {e}")
+    return {"user": username, "updated_at": _now(), "reminders": []}
+
+def save_user_reminders(username: str, reminders_doc: dict) -> bool:
+    token = get_github_token()
+    if not token:
+        return False
+
+    reminders_doc = reminders_doc or {}
+    reminders_doc["user"] = username
+    reminders_doc["updated_at"] = _now()
+    reminders_doc.setdefault("reminders", [])
+
+    file_path = _reminders_path_for(username)
+    url = f"{GITHUB_API_BASE}/{file_path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    # obtener sha si existe
+    sha = None
+    try:
+        existing = requests.get(url, headers=headers, timeout=10)
+        if existing.status_code == 200:
+            sha = existing.json().get("sha")
+    except Exception as e:
+        print(f"⚠️ No se pudo obtener SHA recordatorios: {e}")
+
+    content = base64.b64encode(
+        json.dumps(reminders_doc, indent=2, ensure_ascii=False).encode("utf-8")
+    ).decode()
+
+    payload = {"message": f"Actualizar recordatorios de {username}", "content": content, "branch": BRANCH}
+    if sha:
+        payload["sha"] = sha
+
+    try:
+        resp = requests.put(url, json=payload, headers=headers, timeout=20)
+        return resp.status_code in (200, 201)
+    except Exception as e:
+        print(f"Error guardando recordatorios: {e}")
+        return False
+
+
+def add_reminder_item(
+    username: str,
+    title: str,
+    description: str = "",
+    category: str = "inbox",
+    status: str = "todo",
+    priority: str = "normal",
+    due_date: str | None = None,   # "YYYY-MM-DD"
+    due_time: str | None = None,   # "HH:MM"
+    tags: list[str] | None = None,
+) -> dict:
+    """
+    Crea y guarda un recordatorio; devuelve el item creado.
+    """
+    doc = load_user_reminders(username)
+    item = {
+        "id": str(uuid.uuid4()),
+        "title": (title or "").strip(),
+        "description": (description or "").strip(),
+        "category": (category or "inbox").strip().lower(),
+        "status": (status or "todo").strip().lower(),
+        "priority": (priority or "normal").strip().lower(),
+        "due_date": (due_date or None),
+        "due_time": (due_time or None),
+        "tags": list(tags or []),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    doc["reminders"].append(item)
+    ok = save_user_reminders(username, doc)
+    if not ok:
+        print("⚠️ No se pudo guardar el recordatorio")
+    return item
+
+def list_reminders(username: str, category: str | None = None, status: str | None = None) -> list[dict]:
+    doc = load_user_reminders(username)
+    items = doc.get("reminders", [])
+    if category:
+        items = [r for r in items if (r.get("category") or "").lower() == category.lower()]
+    if status:
+        items = [r for r in items if (r.get("status") or "").lower() == status.lower()]
+    # opcional: orden por due_date/due_time y luego prioridad
+    def _key(r):
+        dd = r.get("due_date") or "9999-12-31"
+        tt = r.get("due_time") or "23:59"
+        prio = {"urgent": 0, "high": 1, "normal": 2, "low": 3}.get((r.get("priority") or "normal").lower(), 2)
+        return (dd, tt, prio)
+    return sorted(items, key=_key)
+
+def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
+    doc = load_user_reminders(username)
+    items = doc.get("reminders", [])
+    for r in items:
+        if r.get("id") == reminder_id:
+            # solo campos permitidos
+            allowed = {"title","description","category","status","priority","due_date","due_time","tags"}
+            for k, v in fields.items():
+                if k in allowed:
+                    r[k] = v
+            r["updated_at"] = _now()
+            save_user_reminders(username, doc)
+            return r
+    return None
+
+
+def find_reminder_by_title(username: str, query: str) -> list[dict]:
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    items = load_user_reminders(username).get("reminders", [])
+    return [r for r in items if q in (r.get("title","").lower() + " " + r.get("description","").lower())]
+
+
 
 
 def save_user_memory(username: str, memory_data: dict):
@@ -228,52 +380,43 @@ def get_user_data(username: str, key):
     return mem.get("datos", {}).get(key, None)
 
 def add_reminder(username: str, activity: str):
+    """
+    Compat legado: activity puede venir 'Titulo: desc'.
+    """
     _require_username(username)
-    mem = load_user_memory(username)
-    if "recordatorios" not in mem or not isinstance(mem.get("recordatorios"), dict):
-        mem["recordatorios"] = {}
+    parts = (activity or "").split(":", 1)
+    title = parts[0].strip()
+    description = parts[1].strip() if len(parts) > 1 else ""
+    item = add_reminder_item(username, title=title, description=description)
+    return f"Recordatorio agregado: {item['title']} (id: {item['id']})."
 
-    parts = activity.split(":", 1)
-    title = parts[0].strip().lower()
-    description = parts[1].strip() if len(parts) > 1 else "(Sin descripción)"
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    mem["recordatorios"][title] = {
-        "description": description,
-        "created": timestamp
-    }
-
-    save_user_memory(username, mem)
-    return f"Recordatorio agregado: {title} - {description}."
-
-def get_reminders(username: str):
+def get_reminders(username: str, category: str | None = None):
     _require_username(username)
-    mem = load_user_memory(username)
-    recordatorios = mem.get("recordatorios", {})
-    if recordatorios:
-        result = "Tus recordatorios son:\\n"
-        for title, data in recordatorios.items():
-            if isinstance(data, dict):
-                result += f"- {title}: {data.get('description','(sin descripción)')} (creado: {data.get('created','fecha desconocida')})\\n"
-            else:
-                result += f"- {title}: {data}\\n"  # compat formato viejo
-        return result
-    return "No tienes recordatorios pendientes."
+    items = list_reminders(username, category=category)
+    if not items:
+        return "No tienes recordatorios pendientes."
+    out = ["Tus recordatorios:\n"]
+    for r in items:
+        dd = f"{r.get('due_date','')}" + (f" {r.get('due_time','')}" if r.get('due_time') else "")
+        meta = " • ".join([r.get("category","inbox"), r.get("status","todo"), r.get("priority","normal")])
+        out.append(f"- [{r['id'][:8]}] {r['title']} {f'({dd})' if dd.strip() else ''} — {meta}")
+    return "\n".join(out)
 
-def remove_reminder(username: str, activity: str):
+def remove_reminder_item(username: str, reminder_id: str) -> bool:
+    doc = load_user_reminders(username)
+    items = doc.get("reminders", [])
+    new_items = [r for r in items if r.get("id") != reminder_id]
+    if len(new_items) == len(items):
+        return False
+    doc["reminders"] = new_items
+    return save_user_reminders(username, doc)
+
+# Wrapper legacy para mantener compat en otros módulos
+def remove_reminder(username: str, reminder_id: str):
     _require_username(username)
-    mem = load_user_memory(username)
-    recordatorios = mem.get("recordatorios", {})
-    title = activity.strip().lower()
-    matches = [k for k in recordatorios if title in k]
-    if len(matches) == 1:
-        del recordatorios[matches[0]]
-        mem["recordatorios"] = recordatorios
-        save_user_memory(username, mem)
-        return f"Recordatorio '{matches[0]}' eliminado."
-    elif len(matches) > 1:
-        return "Hay múltiples recordatorios similares. Dime el título exacto."
-    return "No encontré un recordatorio con ese título."
+    ok = remove_reminder_item(username, reminder_id)
+    return "Recordatorio eliminado." if ok else "No encontré un recordatorio con ese ID."
 
 def clean_duplicates(username: str):
     """
