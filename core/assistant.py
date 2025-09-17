@@ -170,10 +170,10 @@ def detect_farewell_patterns(user_input: str) -> bool:
 
 
 def construir_historial_openai():
-    memory = load_memory(username) or {}
+    memory = load_memory() or {}
     historial = memory.get("conversaciones", []) or []
 
-    mensajes = [
+    mensajes = [        
         {"role": "system", "content": STRICT_JSON_SYSTEM},
         {
          "role": "system",
