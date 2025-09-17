@@ -37,6 +37,25 @@ STRICT_JSON_SYSTEM = (
 )
 
 
+def resolve_username(username: str | None) -> str:
+    candidate = (
+        (username or "").strip()
+        or os.getenv("RON_USERNAME", "").strip()
+        or os.getenv("USERNAME", "").strip()
+        or os.getenv("USER", "").strip()
+    )
+    if not candidate:
+        try:
+            import os as _os
+            candidate = (_os.getlogin() or "").strip()
+        except Exception:
+            candidate = "default"
+    return candidate.lower()
+
+
+
+
+
 def _append_user_conv(username: str, user_text: str, ron_text: str, source: str = "voice"):
     """Guarda un turno en la memoria del usuario (con recorte a 100)."""
     try:
@@ -263,6 +282,8 @@ def handle_tool_call(llm_payload: dict, ctx: dict):
 def _process_user_input(user_input, save_to_memory=True, username=None):
 
     """Procesa la entrada del usuario y ejecuta comandos vía run_command."""
+    username = resolve_username(username)
+
     original_input = user_input
     user_input = (user_input or "").lower().strip()
 
