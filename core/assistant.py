@@ -489,7 +489,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
 
     try:
         respuesta = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5-chat-latest",
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=900,
