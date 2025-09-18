@@ -88,7 +88,7 @@ for v in voices:
         break      
   
 # lista de frases de activacion  
-activation_phrases = [         
+activation_phrases = [
     "¿Me llamaste?",    
     "Dime",    
     "¿En qué puedo ayudarte?",    
