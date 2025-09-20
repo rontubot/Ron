@@ -186,6 +186,7 @@ def construir_historial_openai():
         - No digas “no puedo”, usa el comando. Ej.: para música usa search_youtube con {"query": "...", "play_video": true}.
         - Si el usuario se refiere a “el segundo artista”, “el primero”, etc., interpreta según el contexto previo y construye la query. Ej.: si antes recomendaste “Amyl and the Sniffers” como #2, y el usuario dice “reproduce el segundo”, usa {"query": "Amyl and the Sniffers canción popular", "play_video": true}.
         - Siempre que ejecutes un comando, el 'user_response' debe confirmar lo que harás de forma breve.
+        - NO uses stickers ni simbolos especiales, esto lo está leyendo el bot de voz, asi que evita por completo esos caracteres para que no los diga el narrador.
 
         EJEMPLOS (FEW-SHOT):
 
