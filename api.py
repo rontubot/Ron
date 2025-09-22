@@ -270,81 +270,57 @@ def logout(current_user: str = Depends(get_current_user)):
 def read_root():    
     return {"message": "Ron API está corriendo con autenticación"}    
     
-@app.post("/ron")    
-def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
-    # Verificar si hay token de autenticación    
-    current_user = None    
-    is_web_client = False    
-        
-    if authorization and authorization.startswith("Bearer "):    
-        try:    
-            token = authorization.split(" ")[1]    
-            current_user = verify_jwt_token(token)    
-            is_web_client = True    
-        except:    
-            # Si hay token pero es inválido, rechazar para clientes web    
-            raise HTTPException(status_code=401, detail="Token de autenticación inválido")    
-        
-    # Para clientes web (con header Authorization), la autenticación es obligatoria    
-    if authorization is not None and not is_web_client:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    
-    # Manejar despedidas    
-    if detect_farewell_in_api(data.text):    
-        response = "Hasta luego. Que tengas un buen día."    
-            
-        if is_web_client and current_user:    
-            # Para usuarios autenticados, usar memoria por usuario    
-            try:    
-                memory = load_user_memory(current_user)    
-                memory["conversaciones"].append({    
-                    "user": data.text,    
-                    "ron": response,    
-                    "timestamp": datetime.utcnow().isoformat()    
-                })    
-                save_user_memory(current_user, memory)    
-            except Exception as e:    
-                print(f"Error guardando despedida: {e}")    
-        else:    
-            # Para clientes de voz, usar sistema original    
-            try:    
-                add_to_memory(data.text, response)    
-            except:    
-                pass    
-                    
-        return {"ron": response, "shutdown": True}    
-    
-    try:    
-        # Generar respuesta usando generate_response_no_memory para usuarios web    
-        from core.assistant import generate_response_with_user_memory  
-        ron_response = generate_response_with_user_memory(data.text, current_user)    
-            
-        # Guardar en memoria según el tipo de cliente    
-        if is_web_client and current_user:    
-            # Para usuarios autenticados web, usar memoria por usuario    
-            try:    
-                memory = load_user_memory(current_user)    
-                memory["conversaciones"].append({    
-                    "user": data.text,    
-                    "ron": ron_response,    
-                    "timestamp": datetime.utcnow().isoformat()    
-                })    
-                # Mantener solo las últimas 100 conversaciones    
-                if len(memory["conversaciones"]) > 100:    
-                    memory["conversaciones"] = memory["conversaciones"][-100:]    
-                save_user_memory(current_user, memory)    
-            except Exception as e:    
-                print(f"Error guardando conversación: {e}")    
-        else:    
-            # Para clientes de voz sin autenticación, guardar en sistema original    
-            try:    
-                add_to_memory(data.text, ron_response)    
-            except Exception as e:    
-                print(f"Error guardando en memoria original: {e}")    
-            
-        return {"ron": ron_response}    
-    except Exception as e:    
-        return {"error": str(e)}   
+@app.post("/ron")
+def chat_with_ron(data: UserInput, authorization: str = Header(None)):
+    # Autenticación (clientes web deben traer Bearer)
+    current_user = None
+    is_web_client = False
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        current_user = verify_jwt_token(token)  # lanza 401 si inválido
+        is_web_client = True
+    elif authorization is not None:
+        # Si vino algún Authorization pero no es válido, rechazamos
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+
+    # 1) Obtener respuesta del asistente SIN guardar memoria desde el asistente
+    try:
+        # Usa username si vino en el payload; si no, usa el autenticado; fallback "default"
+        username_for_assistant = data.username or current_user or "default"
+        ron_response = generate_response_no_memory(
+            user_input=data.text,
+            username=username_for_assistant
+        )
+    except Exception as e:
+        # Falla dura del modelo
+        raise HTTPException(status_code=500, detail=f"Error generando respuesta: {str(e)}")
+
+    # 2) Guardar UNA SOLA VEZ la conversación (solo en el endpoint)
+    try:
+        if is_web_client and current_user:
+            # Memoria por usuario autenticado
+            memory = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}
+            memory.setdefault("conversaciones", [])
+            memory["conversaciones"].append({
+                "user": data.text,
+                "ron": ron_response,
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": data.source or "web"
+            })
+            # Mantén últimas 100
+            if len(memory["conversaciones"]) > 100:
+                memory["conversaciones"] = memory["conversaciones"][-100:]
+            save_user_memory(current_user, memory)
+        else:
+            # Cliente de voz/no autenticado: usa memoria global
+            add_to_memory(data.text, ron_response)
+    except Exception as e:
+        # No abortamos la respuesta por fallo de persistencia; solo lo informamos
+        return {"ron": ron_response, "warning": f"No se pudo guardar la conversación: {str(e)}"}
+
+    return {"ron": ron_response}
+
     
 @app.get("/user/profile")    
 def get_user_profile(current_user: str = Depends(get_current_user)):    
