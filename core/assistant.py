@@ -308,20 +308,6 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
         if not res.get("ok", True):
             logger.warning(f"Comando '{action}' falló: {res.get('error')}")
 
-    # ---------- Fallback local (si NO hubo comandos) ----------
-    if not commands_to_execute and ctx and isinstance(ctx.get("last_user_text", ""), str):
-        ut = ctx["last_user_text"].lower()
-
-        play_triggers = ("reproduce", "reproducir", "pon ", "poné ", "poner ", "pón ", "play ")
-        if any(tok in ut for tok in play_triggers):
-            import re
-            m = re.search(r"(reproduce|reproducir|pon(?:er|é| )|play)\s+(.*)", ut)
-            query = (m.group(2) if m else ut).strip()
-            if query and query not in ("el segundo", "el primero", "esa", "ese", "eso"):
-                rc = run_command("search_youtube", {"query": query, "play_video": True}, ctx or {})
-                if rc.get("ok", True):
-                    return user_response or f"Reproduciendo **{query}** en YouTube."
-    # -----------------------------------------------------------
 
     return user_response if user_response else "Procesando tu solicitud..."
 
