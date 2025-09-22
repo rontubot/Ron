@@ -4,7 +4,13 @@ import json
 import logging
 from datetime import datetime
 import re as _re
-from core.commands import run_command  # dispatcher único
+from core.commands import run_command
+from core.profile import (
+    get_or_init_profile,
+    append_to_profile_window,
+    build_persona,
+    purge_expired_facts,
+)
 from core.memory import (
     add_to_memory,
     load_user_memory,
@@ -37,6 +43,79 @@ STRICT_JSON_SYSTEM = (
 )
 
 
+
+CLASSIFIER_SYSTEM = (
+"Actúas como un clasificador de memoria. "
+"Dado el último mensaje del usuario y un snapshot de su perfil, decide si hay preferencias explícitas, "
+"cambios, intereses, rasgos o hechos efímeros. "
+"Responde SOLO JSON con una lista 'ops'. Cada op tiene: "
+"{op:'add|update|remove', type:'preference|interest|trait|do|dont|fact', key:'...', value:..., "
+"ttl:'PT24H|P7D|null', confidence:0-1, source:'explicit|inferred'}."
+" No inventes campos ni copies el texto completo del usuario."
+)
+
+def run_turn_classifier(client, model, last_message: str, profile_snapshot: dict) -> dict:
+    u = json.dumps({"last_message": last_message, "profile_snapshot": profile_snapshot}, ensure_ascii=False)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role":"system","content": CLASSIFIER_SYSTEM},
+                  {"role":"user","content": u}],
+        response_format={"type":"json_object"},
+        temperature=0.2,
+        max_tokens=250,
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+
+BATCH_SYSTEM = (
+"Eres un perfilador. Dado un lote de mensajes del usuario, produce SOLO JSON con: "
+"{label: 'una_palabra_minúscula_sin_espacios', traits:[hasta 3 adjetivos], "
+"interests:[hasta 5 temas snake_case], dos:[hasta 3], donts:[hasta 3]}."
+)
+
+def run_batch_profiler(client, model, recent_window: list) -> dict:
+    import json
+    u = json.dumps({"messages": recent_window}, ensure_ascii=False)
+    resp = client.chat.completions.create(
+        model=model,  
+        messages=[{"role":"system","content": BATCH_SYSTEM},
+                  {"role":"user","content": u}],
+        response_format={"type":"json_object"},
+        temperature=0.2,
+        max_tokens=250,
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+def apply_batch_result(prof: dict, data: dict):
+    from core.profile import decay_and_add, ema_trait
+    label = (data.get("label") or "").strip().lower()
+    if label:
+        decay_and_add(prof["tags"], label, 1.0)
+        prof["last_labels"] = (prof["last_labels"] + [label])[-5:]
+
+    for t in (data.get("traits") or [])[:3]:
+        ema_trait(prof["traits"], t)
+
+    for it in (data.get("interests") or [])[:5]:
+        decay_and_add(prof["interests"], it, 1.0)
+
+    if data.get("dos"):
+        for d in data["dos"]:
+            if d not in prof["dos"]:
+                prof["dos"].append(d)
+        prof["dos"] = prof["dos"][-3:]
+
+    if data.get("donts"):
+        for d in data["donts"]:
+            if d not in prof["donts"]:
+                prof["donts"].append(d)
+        prof["donts"] = prof["donts"][-3:]
+
+
+
+
 def resolve_username(username: str | None) -> str:
     candidate = (
         (username or "").strip()
@@ -52,6 +131,57 @@ def resolve_username(username: str | None) -> str:
             candidate = "default"
     return candidate.lower()
 
+
+
+
+def apply_ops(prof: dict, ops: list, confidence_threshold: float = 0.65):
+    from core.profile import decay_and_add, ema_trait, add_fact, add_history
+    for op in ops or []:
+        if op.get("confidence", 0) < confidence_threshold:
+            continue
+        t = op.get("type"); key = (op.get("key") or "").strip().lower()
+        val = op.get("value"); src = op.get("source","inferred")
+
+        if t == "preference":
+            if op["op"] in ("add","update"):
+                prefs = prof["preferences"]; prefs[key] = val
+            elif op["op"] == "remove":
+                prof["preferences"].pop(key, None)
+
+        elif t == "interest":
+            if op["op"] in ("add","update"):
+                decay_and_add(prof["interests"], key, 1.0)
+
+        elif t == "trait":
+            if op["op"] in ("add","update"):
+                ema_trait(prof["traits"], key)
+
+        elif t == "do":
+            if op["op"] in ("add","update"):
+                if key not in prof["dos"]:
+                    prof["dos"].append(key)
+                prof["dos"] = prof["dos"][-3:]
+            elif op["op"] == "remove":
+                prof["dos"] = [x for x in prof["dos"] if x != key]
+
+        elif t == "dont":
+            if op["op"] in ("add","update"):
+                if key not in prof["donts"]:
+                    prof["donts"].append(key)
+                prof["donts"] = prof["donts"][-3:]
+            elif op["op"] == "remove":
+                prof["donts"] = [x for x in prof["donts"] if x != key]
+
+        elif t == "fact":
+            # TTL en ISO 8601 (PT.. / P..), por simplicidad soportamos PT24H y P7D
+            ttl = (op.get("ttl") or "").upper()
+            seconds = 0
+            if ttl == "PT24H": seconds = 24*3600
+            elif ttl == "P7D": seconds = 7*24*3600
+            if op["op"] in ("add","update") and seconds > 0:
+                add_fact(prof, key, val, seconds)
+
+        add_history(prof, {"op": op["op"], "type": t, "key": key, "source": src})
 
 
 
@@ -270,22 +400,33 @@ def construir_historial_usuario_openai(username: str):
     memory = load_user_memory(username) or {}
     historial = memory.get("conversaciones", []) or []
 
-    mensajes = [
-        {"role": "system", "content": STRICT_JSON_SYSTEM},
-        {
-            "role": "system",
-            "content": """
-Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. Fuiste creado por Luis.
-PRIORIDAD: ejecutar comandos. Formato de salida: JSON estricto con {"user_response": "...", "commands":[...]}.
-""",
-        },
-    ]
+    # NUEVO: cargar/crear perfil y purgar facts expirados
+    prof = get_or_init_profile(memory)
+    purge_expired_facts(prof)
+    persona = build_persona(prof) if prof.get("enabled", True) else None
+
+    mensajes = []
+    if persona:
+        mensajes.append({"role": "system", "content": persona})
+
+    # Tu system base y el STRICT_JSON_SYSTEM
+    mensajes.append({"role": "system", "content": STRICT_JSON_SYSTEM})
+    mensajes.append({
+        "role": "system",
+        "content": (
+            "Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. "
+            "Fuiste creado por Luis. PRIORIDAD: ejecutar comandos. "
+            'Formato de salida: JSON estricto con {"user_response": "...", "commands":[...]}.'
+        ),
+    })
 
     for mensaje in historial[-20:]:
         if isinstance(mensaje, dict) and "user" in mensaje and "ron" in mensaje:
             mensajes.append({"role": "user", "content": mensaje["user"]})
             mensajes.append({"role": "assistant", "content": mensaje["ron"]})
 
+    # IMPORTANTE: guardamos el memory actualizado (perfil pudo purgar facts)
+    save_user_memory(username, memory)
     return mensajes
 
 
@@ -324,12 +465,51 @@ def handle_tool_call(llm_payload: dict, ctx: dict):
 # FUNCIÓN PRINCIPAL (única)
 # =========================
 def _process_user_input(user_input, save_to_memory=True, username=None):
-
     """Procesa la entrada del usuario y ejecuta comandos vía run_command."""
     username = resolve_username(username)
 
     original_input = user_input
     user_input = (user_input or "").lower().strip()
+
+    # ==== PERFIL: ventana + clasificador + contador + batch ====
+    try:
+        mem = load_user_memory(username) or {}
+        prof = get_or_init_profile(mem)
+
+        if prof.get("enabled", True):
+            # 1) ventana deslizante
+            append_to_profile_window(prof, original_input)
+
+            # 2) clasificador por turno
+            snapshot = {
+                "preferences": prof.get("preferences", {}),
+                "dos": prof.get("dos", []),
+                "donts": prof.get("donts", []),
+            }
+            try:
+                cls = run_turn_classifier(client, "gpt-5-chat-latest", original_input, snapshot)
+                ops = cls.get("ops") if isinstance(cls, dict) else None
+                if ops:
+                    apply_ops(prof, ops, confidence_threshold=0.65)
+            except Exception as _e:
+                logger.debug(f"Clasificador por turno falló (no crítico): {_e}")
+
+            # 3) batch cada 20 mensajes si hay ventana suficiente
+            prof["message_count"] = int(prof.get("message_count", 0)) + 1
+            do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)
+            if do_batch:
+                try:
+                    batch = run_batch_profiler(client, "gpt-5-chat-latest", prof["recent_window"])
+                    apply_batch_result(prof, batch)
+                except Exception as _e:
+                    logger.debug(f"Batch profiler falló (no crítico): {_e}")
+
+        # 4) limpieza de facts expirados y persistencia
+        purge_expired_facts(prof)
+        save_user_memory(username, mem)
+    except Exception as _e:
+        logger.debug(f"Hook de perfil falló (no crítico): {_e}")
+    # ==== FIN PERFIL ====
 
     ron_nombre = get_user_data(username, "ron_nombre") if username else "Ron"
     creador = get_user_data(username, "creador") if username else "Luis"
@@ -337,29 +517,17 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
     # --- Despedida ---
     if detect_farewell_patterns(user_input):
         response = "Hasta luego. Que tengas un buen día."
-
-        _append_user_conv(username, original_input, response, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, response, source="voice")
         return response
 
     # --- Detección automática de problemas del sistema ---
     problem_keywords = [
-        "problema en el sistema",
-        "problema en la computadora",
-        "problema en la pc",
-        "problema en el equipo",
-        "no funciona",
-        "error",
-        "falla",
-        "se cuelga",
-        "no responde",
-        "muy lento",
-        "se traba",
-        "no abre",
-        "no carga",
-        "internet no funciona",
-        "no puedo imprimir",
-        "no hay sonido",
-        "pantalla azul",
+        "problema en el sistema", "problema en la computadora", "problema en la pc",
+        "problema en el equipo", "no funciona", "error", "falla", "se cuelga",
+        "no responde", "muy lento", "se traba", "no abre", "no carga",
+        "internet no funciona", "no puedo imprimir", "no hay sonido", "pantalla azul",
+        "conexión", "red", "wifi"
     ]
     if any(keyword in user_input for keyword in problem_keywords):
         # Diagnóstico
@@ -378,7 +546,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             repairs.append(r.get("message") or r.get("result") or json.dumps(r, ensure_ascii=False))
             analysis += f" He reparado los servicios problemáticos: {repairs[-1]}"
 
-        if "cpu:" in diag_msg.lower() and any(w in user_input for w in ["lento", "se traba"]):
+        if "cpu:" in str(diag_msg).lower() and any(w in user_input for w in ["lento", "se traba"]):
             r = run_command("clean_temp_files", {}, {"username": username})
             repairs.append(r.get("message") or r.get("result") or json.dumps(r, ensure_ascii=False))
             analysis += f" También limpié archivos temporales para mejorar el rendimiento: {repairs[-1]}"
@@ -391,58 +559,66 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         if repairs:
             analysis += " Intenta usar tu computadora ahora para ver si el problema se resolvió."
 
-
-        _append_user_conv(username, original_input, analysis, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, analysis, source="voice")
         return analysis
 
     # --- Comandos explícitos de diagnóstico / sistema ---
     if any(cmd in user_input for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):
         res = run_command("diagnose_system_performance", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if any(cmd in user_input for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):
         res = run_command("check_system_services", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if any(cmd in user_input for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):
         res = run_command("restart_critical_services", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if any(cmd in user_input for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):
         res = run_command("clean_temp_files", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if any(cmd in user_input for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):
         res = run_command("flush_dns", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     # --- Sistema (energía) ---
     if "apaga la computadora" in user_input or "apaga el sistema" in user_input:
         res = run_command("shutdown", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if "reinicia la computadora" in user_input or "reinicia el sistema" in user_input:
         res = run_command("restart", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if "suspende la computadora" in user_input or "suspende el sistema" in user_input:
         res = run_command("suspend", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     # --- Directos ---
@@ -450,35 +626,40 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         app = user_input.replace("abre ", "").strip()
         res = run_command("open_application", {"app_name": app}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if user_input.startswith("cierra "):
         app = user_input.replace("cierra ", "").strip()
         res = run_command("close_application", {"app_name": app}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if user_input.startswith("investiga "):
         query = user_input.replace("investiga ", "").strip()
         res = run_command("search_google", {"query": query}, {"username": username})
         msg = res.get("message") or res.get("result") or f"Investigando en Google: {query}"
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if user_input.startswith("reproducir ") or user_input.startswith("reproduce "):
         query = user_input.replace("reproducir ", "").replace("reproduce ", "").strip()
         res = run_command("search_youtube", {"query": f"música {query}", "play_video": True}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if "clima en" in user_input:
         city = user_input.split("clima en")[-1].strip()
         res = run_command("get_weather", {"city": city}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     # --- YouTube (buscar y reproducir) ---
@@ -486,7 +667,8 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         query = user_input.replace("youtube ", "", 1).replace("yt ", "", 1).strip()
         res = run_command("search_youtube", {"query": query, "play_video": True}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     # --- YouTube (solo buscar) ---
@@ -494,7 +676,8 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         query = user_input.replace("buscar en youtube ", "", 1).strip()
         res = run_command("search_youtube", {"query": query, "play_video": False}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     # --- Recordatorios ---
@@ -506,17 +689,19 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         )
         res = run_command("add_reminder", {"activity": activity}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if "qué recordatorios tengo" in user_input or "cuál es mi agenda" in user_input:
         res = run_command("get_reminders", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     if "he completado" in user_input or "elimina" in user_input:
-        # aquí idealmente usarías ID; como fallback, intentamos por título
+        # como fallback intentamos por título
         activity = (
             user_input.split("he completado")[-1].strip()
             if "he completado" in user_input
@@ -524,7 +709,8 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         )
         res = run_command("remove_reminder", {"title": activity}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
-        _append_user_conv(username, original_input, msg, source="voice")
+        if save_to_memory:
+            _append_user_conv(username, original_input, msg, source="voice")
         return msg
 
     # --- Conversación con OpenAI (rama final) ---
@@ -540,15 +726,17 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             temperature=0.7,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
-        ron_response = parse_and_execute_commands_dynamic(gpt_response, ctx={"username": username, "last_user_text": original_input})
+        ron_response = parse_and_execute_commands_dynamic(
+            gpt_response,
+            ctx={"username": username, "last_user_text": original_input},
+        )
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
-
-    _append_user_conv(username, original_input, ron_response, source="voice")
+    if save_to_memory:
+        _append_user_conv(username, original_input, ron_response, source="voice")
     return ron_response
-
 
 # ================
 # WRAPPERS PÚBLICOS
