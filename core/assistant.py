@@ -187,10 +187,23 @@ def apply_ops(prof: dict, ops: list, confidence_threshold: float = 0.65):
 
 
 def _append_user_conv(username: str, user_text: str, ron_text: str, source: str = "voice"):
-    """Guarda un turno en la memoria del usuario (con recorte a 100)."""
+    """Guarda un turno en la memoria del usuario (con recorte a 100) evitando duplicados consecutivos."""
     try:
         mem = load_user_memory(username) or {}
         conv = mem.get("conversaciones", [])
+
+        # Dedupe de consecutivos: si el último tiene el mismo user y ron, no guardamos otra vez
+        if conv:
+            last = conv[-1]
+            if (
+                isinstance(last, dict)
+                and last.get("user") == user_text
+                and last.get("ron") == ron_text
+                and last.get("source") == source
+            ):
+                # Ya está este turno; no duplicar
+                return
+
         conv.append(
             {
                 "user": user_text,
@@ -205,6 +218,9 @@ def _append_user_conv(username: str, user_text: str, ron_text: str, source: str 
         save_user_memory(username, mem)
     except Exception as e:
         logger.error(f"Error guardando conversación de usuario '{username}': {e}")
+
+
+
 
 
 def fix_common_json_errors(response: str) -> str:
