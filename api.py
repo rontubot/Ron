@@ -1,8 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends, Header    
+from fastapi import FastAPI, HTTPException, Depends, Header, Response    
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials    
 from fastapi.middleware.cors import CORSMiddleware    
 from pydantic import BaseModel    
-from fastapi.responses import PlainTextResponse    
+from fastapi.responses import PlainTextResponse   
 import os    
 import openai    
 import jwt    
@@ -14,7 +14,7 @@ from core.memory import (
     load_user_memory, save_user_memory, load_users_from_github, save_users_to_github  
 )   
 from core.assistant import generate_response_no_memory    
-from core.memory import get_github_token    
+from core.memory import get_github_token as memory_get_github_token    
 import requests    
 import json    
 import base64   
@@ -87,10 +87,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     
 # Función para cargar memoria por usuario    
 def load_user_memory(username: str):    
-    """Carga la memoria específica del usuario"""    
-    from core.memory import get_github_token    
-    import requests    
-    import json    
+    """Carga la memoria específica del usuario"""       
         
     token = get_github_token()    
     if not token:    
@@ -116,11 +113,7 @@ def load_user_memory(username: str):
     
 def save_user_memory(username: str, memory_data: dict):    
     """Guarda la memoria específica del usuario"""    
-    from core.memory import get_github_token    
-    import requests    
-    import json    
-    import base64    
-        
+
     token = get_github_token()    
     if not token:    
         return False    
@@ -161,10 +154,7 @@ def detect_farewell_in_api(text: str) -> bool:
     
 def load_users_from_github():    
     """Carga la base de datos de usuarios desde GitHub"""    
-    from core.memory import get_github_token    
-    import requests    
-    import json    
-        
+
     token = get_github_token()    
     if not token:    
         return {}    
@@ -240,26 +230,42 @@ def register(user_data: UserRegister):
     else:    
         raise HTTPException(status_code=500, detail="Error guardando usuario")  
     
-@app.post("/auth/login")      
-def login(credentials: UserCredentials):  
-    # AGREGAR: Logging para debugging  
-    print(f"🔍 Login recibido - Username: {credentials.username}")  
-    print(f"🔍 Datos completos: {credentials}")  
-      
-    # Cargar usuarios desde GitHub      
-    users_db = load_users_from_github()      
-          
-    user = users_db.get(credentials.username)      
-    if not user or not verify_password(credentials.password, user["password"]):      
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")      
-          
-    token = create_jwt_token(credentials.username)      
-    return {      
-        "access_token": token,      
-        "token_type": "bearer",      
-        "username": credentials.username      
+
+@app.post("/auth/login")
+def login(credentials: UserCredentials, response: Response):
+    print(f"🔍 Login recibido - Username: {credentials.username}")
+
+    users_db = load_users_from_github()
+    user = users_db.get(credentials.username)
+    if not user or not verify_password(credentials.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    token = create_jwt_token(credentials.username)
+
+    # OPCIONAL: cookie HttpOnly (útil si tu front decide leerla o la envías por fetch con credentials)
+    response.set_cookie(
+        key="ron_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False  # True si sirves por HTTPS estrictamente
+    )
+
+    # Devolver ambas claves por compat
+    return {
+        "access_token": token,
+        "token": token,                # <- compat con front que espera 'token'
+        "token_type": "bearer",
+        "username": credentials.username
     }
+
     
+@app.get("/auth/me")
+def auth_me(current_user: str = Depends(get_current_user)):
+    return {"ok": True, "username": current_user}
+
+
+
 @app.post("/auth/logout")    
 def logout(current_user: str = Depends(get_current_user)):    
     # En una implementación real, podrías invalidar el token en una blacklist    
@@ -275,6 +281,8 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     # Autenticación (clientes web deben traer Bearer)
     current_user = None
     is_web_client = False
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
 
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ")[1]
@@ -346,7 +354,7 @@ def get_user_conversations(current_user: str = Depends(get_current_user)):
     }    
     
 @app.get("/github-token", response_class=PlainTextResponse)    
-def get_github_token():    
+def get_github_token_endpoint():    
     token = os.getenv("GITHUB_TOKEN")    
     if not token:    
         return PlainTextResponse("Token no configurado", status_code=404)    
