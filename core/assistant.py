@@ -5,6 +5,8 @@ import logging
 from datetime import datetime
 import re as _re
 from core.commands import run_command
+import hashlib
+import time
 from core.profile import (
     get_or_init_profile,
     append_to_profile_window,
@@ -187,23 +189,36 @@ def apply_ops(prof: dict, ops: list, confidence_threshold: float = 0.65):
 
 
 def _append_user_conv(username: str, user_text: str, ron_text: str, source: str = "voice"):
-    """Guarda un turno en la memoria del usuario (con recorte a 100) evitando duplicados consecutivos."""
+    """Guarda un turno en la memoria del usuario (con recorte a 100), evitando duplicados por pares y por ventana de tiempo."""
     try:
         mem = load_user_memory(username) or {}
         conv = mem.get("conversaciones", [])
 
-        # Dedupe de consecutivos: si el último tiene el mismo user y ron, no guardamos otra vez
-        if conv:
-            last = conv[-1]
+        # 1) Dedupe por pares en los últimos 5 turnos
+        pair = {"user": user_text, "ron": ron_text, "source": source}
+        for item in reversed(conv[-5:]):
             if (
-                isinstance(last, dict)
-                and last.get("user") == user_text
-                and last.get("ron") == ron_text
-                and last.get("source") == source
+                isinstance(item, dict)
+                and item.get("user") == pair["user"]
+                and item.get("ron") == pair["ron"]
+                and item.get("source") == pair["source"]
             ):
-                # Ya está este turno; no duplicar
+                # Ya existe este par recientemente
                 return
 
+        # 2) Dedupe por hash con TTL de 8s (para requests concurrentes)
+        import hashlib, time
+        phash = hashlib.sha256(f"{username}|{user_text}|{ron_text}|{source}".encode()).hexdigest()
+        now = time.time()
+        recent_pairs = mem.get("__recent_pairs__", [])
+        # elimina viejos
+        recent_pairs = [p for p in recent_pairs if (now - float(p.get("ts", 0))) < 8]
+        if any(p.get("hash") == phash for p in recent_pairs):
+            return
+        recent_pairs.append({"hash": phash, "ts": now})
+        mem["__recent_pairs__"] = recent_pairs
+
+        # 3) Guarda la conversación
         conv.append(
             {
                 "user": user_text,
@@ -218,6 +233,7 @@ def _append_user_conv(username: str, user_text: str, ron_text: str, source: str 
         save_user_memory(username, mem)
     except Exception as e:
         logger.error(f"Error guardando conversación de usuario '{username}': {e}")
+
 
 
 
@@ -487,6 +503,32 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
     original_input = user_input
     user_input = (user_input or "").lower().strip()
 
+    # ---- Idempotencia por turno (evita doble proceso del mismo input en pocos segundos)
+    mem_for_idem = load_user_memory(username) or {}
+    recent_turns = mem_for_idem.get("__recent_turns__", [])
+    now = time.time()
+    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()
+
+    # si el mismo hash fue procesado en los últimos 8s, devolvemos la misma respuesta sin repetir nada
+    for item in reversed(recent_turns[-10:]):  # mira los últimos 10
+        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:
+            cached_resp = item.get("response")
+            if cached_resp:
+                return cached_resp
+            break
+
+    # Helper: registra la respuesta en __recent_turns__ y retorna
+    def _finalize_and_return(text: str):
+        try:
+            mem_tmp = load_user_memory(username) or {}
+            rt = (mem_tmp.get("__recent_turns__", []) or [])[-19:]  # conserva hasta 20
+            rt.append({"hash": turn_hash, "ts": now, "response": text})
+            mem_tmp["__recent_turns__"] = rt
+            save_user_memory(username, mem_tmp)
+        except Exception:
+            pass
+        return text
+
     # ==== PERFIL: ventana + clasificador + contador + batch ====
     try:
         mem = load_user_memory(username) or {}
@@ -535,11 +577,16 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         response = "Hasta luego. Que tengas un buen día."
         if save_to_memory:
             _append_user_conv(username, original_input, response, source="voice")
-        return response
+        return _finalize_and_return(response)
 
     # --- Detección automática de problemas del sistema ---
     problem_keywords = [
-
+        # si querés reactivar esta rama, descomenta y ajusta la lista:
+        # "problema en el sistema", "problema en la computadora", "problema en la pc",
+        # "problema en el equipo", "no funciona", "error", "falla", "se cuelga",
+        # "no responde", "muy lento", "se traba", "no abre", "no carga",
+        # "internet no funciona", "no puedo imprimir", "no hay sonido", "pantalla azul",
+        # "conexión", "red", "wifi"
     ]
     if any(keyword in user_input for keyword in problem_keywords):
         # Diagnóstico
@@ -573,7 +620,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
 
         if save_to_memory:
             _append_user_conv(username, original_input, analysis, source="voice")
-        return analysis
+        return _finalize_and_return(analysis)
 
     # --- Comandos explícitos de diagnóstico / sistema ---
     if any(cmd in user_input for cmd in ["diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"]):
@@ -581,35 +628,35 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if any(cmd in user_input for cmd in ["verifica servicios", "estado de servicios", "revisa servicios"]):
         res = run_command("check_system_services", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if any(cmd in user_input for cmd in ["repara servicios", "reinicia servicios", "arregla servicios"]):
         res = run_command("restart_critical_services", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if any(cmd in user_input for cmd in ["limpia archivos temporales", "optimiza el sistema", "limpia la computadora"]):
         res = run_command("clean_temp_files", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if any(cmd in user_input for cmd in ["limpia dns", "reinicia dns", "arregla internet"]):
         res = run_command("flush_dns", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     # --- Sistema (energía) ---
     if "apaga la computadora" in user_input or "apaga el sistema" in user_input:
@@ -617,21 +664,21 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if "reinicia la computadora" in user_input or "reinicia el sistema" in user_input:
         res = run_command("restart", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if "suspende la computadora" in user_input or "suspende el sistema" in user_input:
         res = run_command("suspend", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     # --- Directos ---
     if user_input.startswith("abre "):
@@ -640,7 +687,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if user_input.startswith("cierra "):
         app = user_input.replace("cierra ", "").strip()
@@ -648,7 +695,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if user_input.startswith("investiga "):
         query = user_input.replace("investiga ", "").strip()
@@ -656,7 +703,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or f"Investigando en Google: {query}"
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if user_input.startswith("reproducir ") or user_input.startswith("reproduce "):
         query = user_input.replace("reproducir ", "").replace("reproduce ", "").strip()
@@ -664,7 +711,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if "clima en" in user_input:
         city = user_input.split("clima en")[-1].strip()
@@ -672,7 +719,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     # --- YouTube (buscar y reproducir) ---
     if user_input.startswith("youtube ") or user_input.startswith("yt "):
@@ -681,7 +728,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     # --- YouTube (solo buscar) ---
     if user_input.startswith("buscar en youtube "):
@@ -690,7 +737,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     # --- Recordatorios ---
     if "recuérdame" in user_input or "añade un recordatorio" in user_input:
@@ -703,14 +750,15 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     if "qué recordatorios tengo" in user_input or "cuál es mi agenda" in user_input:
         res = run_command("get_reminders", {}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
+
 
     if "he completado" in user_input or "elimina" in user_input:
         # como fallback intentamos por título
@@ -723,7 +771,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
-        return msg
+        return _finalize_and_return(msg)
 
     # --- Conversación con OpenAI (rama final) ---
     mensajes = construir_historial_usuario_openai(username)
@@ -748,7 +796,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
 
     if save_to_memory:
         _append_user_conv(username, original_input, ron_response, source="voice")
-    return ron_response
+    return _finalize_and_return(ron_response)
 
 # ================
 # WRAPPERS PÚBLICOS
