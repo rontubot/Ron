@@ -42,6 +42,9 @@ security = HTTPBearer()
 # Modelos Pydantic    
 class UserInput(BaseModel):    
     text: str    
+    return_json: bool | None = None
+    source: str | None = None
+    username: str | None = None
     
 class UserCredentials(BaseModel):    
     username: str    

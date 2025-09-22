@@ -10,11 +10,12 @@ import logging
 import threading      
 import queue      
 import time    
-import random  
+import random       
 import argparse  # Nuevo import  
-import sys, io
+import io
 import socket
 import unicodedata    
+from core.commands import run_command
 from core.assistant import generate_response_with_user_memory as core_generate_response  
 
 
@@ -126,7 +127,7 @@ web_apps = {
 
 def handle_external_control():  
     """Maneja comandos de control desde Electron"""  
-  
+
     def control_server():  
         global listening_active, speaking, control_enabled, manual_recording, manual_recording_buffer, manual_recording_start_time  
         try:  
@@ -136,7 +137,7 @@ def handle_external_control():
             server.listen(5)  
             server.settimeout(0.5)  
             print(f"🎛️ Control server listening on port {args.control_port}", flush=True)  
-  
+
             while control_enabled:  
                 try:  
                     socket_client, _ = server.accept()  
@@ -145,24 +146,30 @@ def handle_external_control():
                 except Exception as e:  
                     print(f"Error en control server (accept): {e}", flush=True)  
                     continue  
-  
+
                 try:  
-                    data = socket_client.recv(1024)  
+                    data = socket_client.recv(8192)  
                     if not data:  
                         socket_client.sendall(b'EMPTY'); socket_client.close(); continue  
-                    cmd = (data.decode('utf-8', errors='ignore') or '').strip().upper()  
-  
-                    # No imprimimos STATUS nunca  
+
+                    # ⚠️ Mantener una versión CRUDA (para EXEC/CHAT) y otra upper (para START/STOP/etc.)
+                    raw_cmd = (data.decode('utf-8', errors='ignore') or '').strip()
+                    cmd = raw_cmd.upper()
+
+                    # ---- Comandos simples (comparación insensible a mayúsculas) ----
                     if cmd == 'START':  
                         listening_active = True; speaking = False  
                         socket_client.sendall(b'OK')  
                         print("📨 Comando recibido: START", flush=True)  
+
                     elif cmd == 'STOP':  
                         listening_active = False; speaking = False  
                         socket_client.sendall(b'OK')  
                         print("📨 Comando recibido: STOP", flush=True)  
+
                     elif cmd == 'STATUS':  
                         socket_client.sendall(b'ACTIVE' if listening_active else b'INACTIVE')  
+
                     elif cmd == 'START_MANUAL_RECORDING':  
                         manual_recording = True  
                         manual_recording_buffer.clear()  
@@ -171,14 +178,48 @@ def handle_external_control():
                         speaking = False  
                         socket_client.sendall(b'RECORDING_STARTED')  
                         print("📨 Comando recibido: START_MANUAL_RECORDING", flush=True)  
+
                     elif cmd == 'STOP_MANUAL_RECORDING':  
                         manual_recording = False  
                         listening_active = False  
                         socket_client.sendall(b'RECORDING_STOPPED')  
                         print("📨 Comando recibido: STOP_MANUAL_RECORDING", flush=True)  
+
+                    # ---- Comandos con payload JSON / texto (usar la versión CRUDA) ----
+                    elif raw_cmd.startswith('EXEC::'):
+                        try:
+                            payload = raw_cmd[len('EXEC::'):].strip()
+                            obj = json.loads(payload)
+                            cmds = obj.get('commands') or []
+                            results = []
+                            for c in cmds:
+                                action = (c.get('action') or '').strip()
+                                params = c.get('params') or {}
+                                if not action:
+                                    continue
+                                r = run_command(action, params, {"username": current_username})
+                                results.append({
+                                    "action": action,
+                                    "ok": r.get("ok", True),
+                                    "message": r.get("message") or r.get("result")
+                                })
+                            socket_client.sendall(f'RESULT:{json.dumps(results, ensure_ascii=False)}'.encode('utf-8'))
+                        except Exception as e:
+                            socket_client.sendall(f'ERROR:{e}'.encode('utf-8'))
+
+                    elif raw_cmd.startswith('CHAT::'):
+                        try:
+                            text = raw_cmd[len('CHAT::'):].strip()
+                            # Usar el alias correcto que importaste arriba
+                            reply = core_generate_response(text, current_username or 'default')
+                            socket_client.sendall(reply.encode('utf-8', errors='ignore'))
+                        except Exception as e:
+                            socket_client.sendall(f'ERROR:{e}'.encode('utf-8'))
+
                     else:  
                         socket_client.sendall(b'UNKNOWN')  
-                        print(f"📨 Comando recibido: {cmd}", flush=True)  
+                        print(f"📨 Comando recibido: {raw_cmd}", flush=True)  
+
                 except Exception as e:  
                     try: socket_client.sendall(f'ERROR:{e}'.encode('utf-8', errors='ignore'))  
                     except Exception: pass  
@@ -188,7 +229,7 @@ def handle_external_control():
                     except Exception: pass  
         except Exception as e:  
             print(f"Error iniciando control server: {e}", flush=True)  
-  
+
     threading.Thread(target=control_server, daemon=True).start()
 
  

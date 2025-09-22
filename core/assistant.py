@@ -164,6 +164,49 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
     return user_response if user_response else "Procesando tu solicitud..."
 
 
+
+def parse_commands_only(gpt_response: str) -> dict:
+    import json
+    try:
+        from core.assistant import fix_common_json_errors  # si está arriba en el archivo
+    except Exception:
+        pass  # si ya está en el mismo módulo no hace falta
+
+    try:
+        corrected = fix_common_json_errors(gpt_response)
+        data = json.loads(corrected)
+    except Exception:
+        # Devolver algo razonable aunque venga mal
+        return {"user_response": gpt_response, "commands": []}
+
+    allowed = {
+        "search_youtube","open_application","close_application","search_google","get_weather",
+        "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",
+        "check_system_services","restart_critical_services","clean_temp_files","flush_dns",
+        "shutdown","restart","suspend"
+    }
+
+    cmds = data.get("commands") or []
+    if not isinstance(cmds, list):
+        cmds = []
+
+    cleaned = []
+    for c in cmds:
+        action = (c.get("action") or "").strip()
+        if action in allowed:
+            params = c.get("params") or {}
+            cleaned.append({"action": action, "params": params})
+
+    return {
+        "user_response": data.get("user_response") or data.get("reply") or "",
+        "commands": cleaned,
+    }
+
+
+
+
+
+
 def detect_farewell_patterns(user_input: str) -> bool:
     """Detección simplificada de despedidas - SOLO 'hasta luego'"""
     return "hasta luego" in (user_input or "").lower()
