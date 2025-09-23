@@ -799,10 +799,14 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
+    # --- Respuesta final sin prefijo de saludo/nombre ---
+    final_text = ron_response if isinstance(ron_response, str) else str(ron_response)
 
+    # Guardar en memoria (si corresponde) y devolver
     if save_to_memory:
         _append_user_conv(username, original_input, final_text, source="voice")
     return _finalize_and_return(final_text)
+
 
 # ================
 # WRAPPERS PÚBLICOS
