@@ -17,7 +17,6 @@ import socket
 import unicodedata    
 from core.commands import run_command
 from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response 
-from core.memory import load_user_memory, get_display_name, maybe_address 
 
 
 # -------------------- HELPERS JSON / SANITIZE --------------------
@@ -213,41 +212,7 @@ def handle_external_control():
                             text = raw_cmd[len('CHAT::'):].strip()
                             user = (current_username or 'default')
 
-                            # 1) Generar respuesta "base"
-                            reply = core_generate_response(text, user)
-
-                            # 2) Cargar perfil para reglas de nombre (cooldown persistente)
-                            mem = load_user_memory(user) or {}
-                            profile = mem.get("profile") or {}
-                            display_name = get_display_name(user)  # puede ser None
-
-                            # 3) Limpieza anti-robótico por si el modelo insiste con "Hola, Luis..."
-                            def de_roboto(s: str, nombre: str | None) -> str:
-                                if not nombre or not isinstance(s, str):
-                                    return s
-                                import re
-                                # Quita repeticiones obvias del nombre seguidas
-                                s = re.sub(rf"(\b{re.escape(nombre)}\b[,\.]?\s*){{2,}}",
-                                           f"{nombre} ", s, flags=re.IGNORECASE)
-                                # Evita saludo redundante tipo "Hola, Luis." al inicio
-                                s = re.sub(rf"^(hola[,!\.]?\s*{re.escape(nombre)}[,!\.]?\s*)",
-                                           "hola ", s, flags=re.IGNORECASE)
-                                return s
-
-                            reply = de_roboto(reply, display_name)
-
-                            # 4) Usar el nombre solo cuando conviene (corto/confirmación/pregunta),
-                            #    y dejar que el cooldown de maybe_address decida si toca o no.
-                            def is_attention_worthy(msg: str) -> bool:
-                                if not isinstance(msg, str):
-                                    return False
-                                m = msg.strip().lower()
-                                # Heurísticas simples: respuestas cortas, confirmaciones o preguntas
-                                return (len(m) <= 120) or ("¿" in m) or ("?" in m) or m.startswith(("ok", "listo", "hecho", "perfecto"))
-
-                            if is_attention_worthy(reply):
-                                # pasa username para que persista name_last_used_at si lo usa
-                                reply = maybe_address(reply, display_name, profile, username=user)
+                            reply = core_generate_response(text, user)        
 
                             socket_client.sendall(reply.encode('utf-8', errors='ignore'))
 
@@ -819,36 +784,7 @@ def talk_to_ron(text):
 
     try:
         user = (current_username or 'default')
-        # 1) Respuesta base del modelo
         ron_response = core_generate_response(text, user)
-
-        # 2) Cargar perfil para reglas de nombre
-        mem = load_user_memory(user) or {}
-        profile = mem.get("profile") or {}
-        display_name = get_display_name(user)  # puede ser None
-
-        # 3) Filtro anti-robótico (igual que en CHAT::)
-        def de_roboto(s: str, nombre: str | None) -> str:
-            if not nombre or not isinstance(s, str):
-                return s
-            import re
-            s = re.sub(rf"(\b{re.escape(nombre)}\b[,\.]?\s*){{2,}}",
-                       f"{nombre} ", s, flags=re.IGNORECASE)
-            s = re.sub(rf"^(hola[,!\.]?\s*{re.escape(nombre)}[,!\.]?\s*)",
-                       "hola ", s, flags=re.IGNORECASE)
-            return s
-
-        ron_response = de_roboto(ron_response, display_name)
-
-        # 4) Sólo usar el nombre cuando conviene (corto/confirmación/pregunta)
-        def is_attention_worthy(msg: str) -> bool:
-            if not isinstance(msg, str):
-                return False
-            m = msg.strip().lower()
-            return (len(m) <= 120) or ("¿" in m) or ("?" in m) or m.startswith(("ok", "listo", "hecho", "perfecto"))
-
-        if is_attention_worthy(ron_response):
-            ron_response = maybe_address(ron_response, display_name, profile, username=user)
 
         print(f"🤖 Ron: {ron_response}")
         engine.say(ron_response)
