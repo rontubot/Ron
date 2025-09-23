@@ -7,7 +7,7 @@ import getpass
 import platform    
 import re    
 import uuid
-from datetime import datetime    
+from datetime import datetime, timedelta    
 # === Helpers de nombre preferido para cada usuario ===
 from datetime import datetime as _dt
 import re as _re
@@ -377,6 +377,56 @@ def save_memory(username: str, new_memory: dict):
 
     return save_user_memory(username, existing)
 
+
+
+def should_use_name(profile) -> bool:
+    if not profile:
+        return False
+    # reglas: primera vez en la sesión o si pasó mucho tiempo
+    last_used = profile.get("name_last_used_at")
+    now = datetime.utcnow()
+    if not last_used:
+        return True  # primera vez
+    # usa el nombre si pasó más de 30 min
+    return (now - datetime.fromisoformat(last_used)) > timedelta(minutes=30)
+
+def mark_name_used(profile):
+    profile["name_last_used_at"] = datetime.utcnow().isoformat()
+    return profile
+
+def _load_profile(username: str):
+    data = load_user_memory(username) or {}
+    prof = data.get("profile") or {}
+    return data, prof
+
+def _save_profile(username: str, data: dict, prof: dict):
+    data["profile"] = prof
+    save_user_memory(username, data)
+
+def mark_name_used_for(username: str, profile: dict):
+    profile["name_last_used_at"] = _dt.utcnow().isoformat()
+    data = load_user_memory(username) or {}
+    data["profile"] = profile
+    save_user_memory(username, data)
+    return profile
+
+def maybe_address(text: str, name: str | None, profile: dict | None, *, username: str | None = None) -> str:
+    if not name or not profile:
+        return text
+    if should_use_name(profile):
+        lowered = text.strip().lower()
+        starts_with_saludo = lowered.startswith(("hola", "buenas", "hey"))
+        if not starts_with_saludo:
+            text = f"{name}, {text}"
+        # ⬇️ Persistimos la marca de uso si tenemos username
+        if username:
+            mark_name_used_for(username, profile)
+        else:
+            profile["name_last_used_at"] = _dt.utcnow().isoformat()
+    return text
+
+
+
 def save_user_data(username: str, key, value):
     _require_username(username)
     mem = load_user_memory(username)
@@ -384,6 +434,7 @@ def save_user_data(username: str, key, value):
     if key != "creador":
         mem["datos"][key] = value
         save_user_memory(username, mem)
+
 
 def get_user_data(username: str, key):
     _require_username(username)
@@ -460,7 +511,7 @@ def save_to_memory(username: str, *args, **kwargs):
 # Asegura la carpeta de memorias por usuario (si aún no la tienes arriba)
 try:
     BASE_DIR = _Path(__file__).resolve().parent.parent
-    MEMORY_DIR = BASE_DIR / "memory" / "user"
+    MEMORY_DIR = BASE_DIR / "memory" / "users"
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 except Exception:
     pass
