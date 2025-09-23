@@ -263,7 +263,7 @@ def fix_common_json_errors(response: str) -> str:
     return response
 
 
-def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = None) -> str:
+def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = None, async_execute: bool = False) -> str:
     try:
         corrected = fix_common_json_errors(gpt_response)
         response_data = json.loads(corrected)
@@ -300,11 +300,16 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
         if action == "search_youtube":
             params.setdefault("play_video", True)
 
-        res = run_command(action, params, ctx or {})
-        if not res.get("ok", True):
-            logger.warning(f"Comando '{action}' falló: {res.get('error')}")
-
-
+        if async_execute:
+            import threading
+            threading.Thread(
+                target=lambda: run_command(action, params, ctx or {}),
+                daemon=True
+            ).start()
+        else:
+            res = run_command(action, params, ctx or {})
+            if not res.get("ok", True):
+                logger.warning(f"Comando '{action}' falló: {res.get('error')}")
     return user_response if user_response else "Procesando tu solicitud..."
 
 
@@ -542,7 +547,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         mem = load_user_memory(username) or {}
         prof = get_or_init_profile(mem)
 
-        if prof.get("enabled", True):
+        if prof.get("enabled", True) and os.getenv("RON_PROFILE_TURN_CLASSIFIER", "1") == "1":
             # 1) ventana deslizante
             append_to_profile_window(prof, original_input)
 
@@ -793,6 +798,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         ron_response = parse_and_execute_commands_dynamic(
             gpt_response,
             ctx={"username": username, "last_user_text": original_input},
+            async_execute=os.getenv("RON_ASYNC_COMMANDS", "0") == "1",
         )
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")

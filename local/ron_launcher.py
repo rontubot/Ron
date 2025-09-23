@@ -19,8 +19,9 @@ from core.commands import run_command
 from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response 
 
 
-# -------------------- HELPERS JSON / SANITIZE --------------------
-
+# Modo voz: no bloquees por comandos y apaga clasificador por turno
+os.environ.setdefault("RON_ASYNC_COMMANDS", "1")
+os.environ.setdefault("RON_PROFILE_TURN_CLASSIFIER", "0")
 
 
 # --- Asegurar UTF-8 primero ---
@@ -49,8 +50,8 @@ except ImportError as e:
     print(f"❌ Error de importación: {e}")
 
 # ===== Ventana de interacción tras la wake-word =====
-SILENCE_TIMEOUT_SEC = 1.2   # si no llega nada nuevo en 1.2s, se manda la orden
-MAX_BUFFER_TIME_SEC = 12.0  # seguridad: no acumular más de 12s por turno
+SILENCE_TIMEOUT_SEC = 0.6   # si no llega nada nuevo en 1.2s, se manda la orden
+MAX_BUFFER_TIME_SEC = 8.0  # seguridad: no acumular más de 12s por turno
 
 # Estado para agrupar
 conversation_buffer = []
@@ -81,7 +82,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)      
       
 engine = pyttsx3.init()      
-engine.setProperty('rate', 150)      
+engine.setProperty('rate', 185)      
 voices = engine.getProperty('voices')      
 for v in voices:      
     if 'spanish' in getattr(v, 'name', '').lower() or 'es' in getattr(v, 'id', '').lower():      
@@ -240,8 +241,8 @@ def handle_external_control():
 def setup_streaming_recognition():
     """Configura el reconocimiento de voz en streaming"""
     recognizer = sr.Recognizer()
-    recognizer.pause_threshold = 1.0  # más ágil
-    recognizer.energy_threshold = 3000
+    recognizer.pause_threshold = 0.6  # más ágil
+    recognizer.energy_threshold = 250
 
     try:
         microphone = sr.Microphone()  # usa default (WASAPI/MME)
@@ -276,7 +277,7 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
                 pass  
   
     stop_listening = recognizer.listen_in_background(  
-        microphone, callback, phrase_time_limit=10  
+        microphone, callback, phrase_time_limit=6  
     )  
     return stop_listening
       
