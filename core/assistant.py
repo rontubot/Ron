@@ -7,6 +7,7 @@ import re as _re
 from core.commands import run_command
 import hashlib
 import time
+
 from core.profile import (
     get_or_init_profile,
     append_to_profile_window,
@@ -19,6 +20,7 @@ from core.memory import (
     save_user_memory,
     get_user_data,
     save_user_data,
+    resolve_username,
     load_memory,
     get_display_name,
     set_display_name,

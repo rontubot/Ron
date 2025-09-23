@@ -18,6 +18,7 @@ from core.memory import get_github_token as memory_get_github_token
 import requests    
 import json    
 import base64   
+import traceback
   
 load_dotenv()    
     
