@@ -8,6 +8,11 @@ import platform
 import re    
 import uuid
 from datetime import datetime    
+# === Helpers de nombre preferido para cada usuario ===
+from datetime import datetime as _dt
+import re as _re
+from pathlib import Path as _Path
+import os as _os
     
 # Configuración unificada para usar el mismo repositorio para lectura y escritura    
 GITHUB_USERNAME = "rontubot"    
@@ -337,9 +342,15 @@ def _require_username(username: str):
     if not username or not isinstance(username, str) or not username.strip():
         raise ValueError("username es requerido para operaciones de memoria")
 
-def load_memory(username: str):
-    _require_username(username)
-    return load_user_memory(username)
+def load_memory(username: str | None = None):
+    """
+    Compat: si se llama sin username, devolvemos {} (ya no hay memoria global).
+    Si se pasa username, devolvemos la memoria del usuario.
+    """
+    if username:
+        _require_username(username)
+        return load_user_memory(username)
+    return {}
 
 def save_memory_direct(username: str, complete_memory: dict):
     _require_username(username)
@@ -441,3 +452,94 @@ def clean_duplicates(username: str):
 # Compat perfecto con código antiguo que llamaba save_to_memory(...)
 def save_to_memory(username: str, *args, **kwargs):
     return add_to_memory(username, *args, **kwargs)
+
+
+
+
+
+# Asegura la carpeta de memorias por usuario (si aún no la tienes arriba)
+try:
+    BASE_DIR = _Path(__file__).resolve().parent.parent
+    MEMORY_DIR = BASE_DIR / "memory" / "user"
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+def resolve_username(username: str | None) -> str:
+    """
+    Centraliza cómo resolvemos el username para filename seguro.
+    Si ya tienes otra versión en este módulo, puedes omitir esta
+    o dejar esta (son equivalentes).
+    """
+    candidate = (
+        (username or "").strip()
+        or _os.getenv("RON_USERNAME", "").strip()
+        or _os.getenv("USERNAME", "").strip()
+        or _os.getenv("USER", "").strip()
+    )
+    if not candidate:
+        try:
+            candidate = (_os.getlogin() or "").strip()
+        except Exception:
+            candidate = "default"
+    # normaliza: minúsculas y solo caracteres seguros para filename
+    candidate = candidate.lower()
+    candidate = _re.sub(r"[^a-z0-9._-]+", "_", candidate)
+    return candidate or "default"
+
+def _user_path(username: str) -> _Path:
+    """Path del archivo de memoria por usuario."""
+    uname = resolve_username(username)
+    return (MEMORY_DIR / f"{uname}.json")
+
+def get_display_name(username: str) -> str | None:
+    """
+    Lee el 'display_name' desde el perfil del usuario en su archivo de memoria.
+    Busca en profile.display_name y variantes por compatibilidad.
+    """
+    try:
+        data = load_user_memory(username) or {}
+        prof = data.get("profile", {}) or {}
+        return (
+            prof.get("display_name")
+            or (prof.get("traits", {}) or {}).get("display_name")
+            or (prof.get("preferences", {}) or {}).get("display_name")
+        )
+    except Exception:
+        return None
+
+def set_display_name(username: str, display_name: str):
+    """
+    Guarda/actualiza el 'display_name' del usuario en su archivo de memoria.
+    """
+    name = (display_name or "").strip()
+    if not name:
+        return
+    data = load_user_memory(username) or {}
+    prof = data.get("profile") or {}
+    prof["display_name"] = name
+    prof["updated_at"] = _dt.utcnow().isoformat()
+    data["profile"] = prof
+    save_user_memory(username, data)
+
+def maybe_extract_name_from_text(text: str) -> str | None:
+    """
+    Heurística simple para detectar: 'me llamo X', 'mi nombre es X', 'soy X'.
+    Devuelve un nombre capitalizado o None.
+    """
+    if not text:
+        return None
+    t = text.strip()
+    patt = _re.compile(
+        r"(?:me\s+llamo|mi\s+nombre\s+es|soy)\s+([A-Za-zÁÉÍÓÚÑÜáéíóúñü][^\d,.;:!?\n]{1,50})",
+        _re.IGNORECASE,
+    )
+    m = patt.search(t)
+    if not m:
+        return None
+    name = m.group(1).strip()
+    # limpia signos finales y espacios múltiples
+    name = _re.sub(r"[\.\!\?,;:]+$", "", name).strip()
+    # capitaliza suavemente
+    name = " ".join(p.capitalize() for p in name.split())
+    return name if name else None
