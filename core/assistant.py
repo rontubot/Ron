@@ -20,6 +20,9 @@ from core.memory import (
     get_user_data,
     save_user_data,
     load_memory,
+    get_display_name,
+    set_display_name,
+    maybe_extract_name_from_text,
 )
 from dotenv import load_dotenv
 
@@ -42,6 +45,7 @@ STRICT_JSON_SYSTEM = (
     "\"check_system_services\",\"restart_critical_services\",\"clean_temp_files\",\"flush_dns\","
     "\"shutdown\",\"restart\",\"suspend\"]. "
     "Si crees que necesitas otra acción, usa la más cercana de la lista anterior."
+    "Usa el nombre preferido del usuario si está disponible; si no, usa un saludo neutral. "
 )
 
 
@@ -116,22 +120,6 @@ def apply_batch_result(prof: dict, data: dict):
         prof["donts"] = prof["donts"][-3:]
 
 
-
-
-def resolve_username(username: str | None) -> str:
-    candidate = (
-        (username or "").strip()
-        or os.getenv("RON_USERNAME", "").strip()
-        or os.getenv("USERNAME", "").strip()
-        or os.getenv("USER", "").strip()
-    )
-    if not candidate:
-        try:
-            import os as _os
-            candidate = (_os.getlogin() or "").strip()
-        except Exception:
-            candidate = "default"
-    return candidate.lower()
 
 
 
@@ -433,7 +421,7 @@ def construir_historial_usuario_openai(username: str):
         "role": "system",
         "content": (
             "Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. "
-            "Fuiste creado por Luis. PRIORIDAD: ejecutar comandos. "
+            "PRIORIDAD: ejecutar comandos cuando corresponda. "
             'Formato de salida: JSON estricto con {"user_response": "...", "commands":[...]}.'
         ),
     })
@@ -515,6 +503,32 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             pass
         return text
 
+    # === Nombre preferido del usuario (display_name) ===
+    try:
+        mem_name = load_user_memory(username) or {}
+        display_name = get_display_name(username)
+
+        if not display_name:
+            # 1) Intentar extraer del texto actual ("me llamo X", "mi nombre es X", "soy X")
+            possible = maybe_extract_name_from_text(original_input)
+            if possible:
+                set_display_name(username, possible)
+                display_name = possible
+            else:
+                # 2) Preguntar UNA sola vez
+                asked = (mem_name.get("profile", {}) or {}).get("asked_display_name_once")
+                if not asked:
+                    mem_name.setdefault("profile", {})["asked_display_name_once"] = True
+                    save_user_memory(username, mem_name)
+                    prompt_name = (
+                        "¿Cómo quieres que te llame? (por ejemplo: Me llamo Ana)\n"
+                        "Puedo guardar esto para dirigirme a ti correctamente."
+                    )
+                    return _finalize_and_return(prompt_name)
+    except Exception:
+        # Si algo falla, seguimos sin bloquear el turno
+        pass
+
     # ==== PERFIL: ventana + clasificador + contador + batch ====
     try:
         mem = load_user_memory(username) or {}
@@ -554,9 +568,6 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
     except Exception as _e:
         logger.debug(f"Hook de perfil falló (no crítico): {_e}")
     # ==== FIN PERFIL ====
-
-    ron_nombre = get_user_data(username, "ron_nombre") if username else "Ron"
-    creador = get_user_data(username, "creador") if username else "Luis"
 
     # --- Despedida ---
     if detect_farewell_patterns(user_input):
@@ -745,7 +756,6 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
 
-
     if "he completado" in user_input or "elimina" in user_input:
         # como fallback intentamos por título
         activity = (
@@ -780,9 +790,20 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
+    # (Opcional) Prefijar saludo con nombre si lo tenemos
+    try:
+        dn = get_display_name(username)
+    except Exception:
+        dn = None
+    final_text = ron_response
+    if dn and isinstance(ron_response, str):
+        txt = ron_response.strip()
+        if not txt.lower().startswith(("hola", "buen", "qué tal", "que tal")):
+            final_text = f"Hola, {dn}. {txt}"
+
     if save_to_memory:
-        _append_user_conv(username, original_input, ron_response, source="voice")
-    return _finalize_and_return(ron_response)
+        _append_user_conv(username, original_input, final_text, source="voice")
+    return _finalize_and_return(final_text)
 
 # ================
 # WRAPPERS PÚBLICOS
