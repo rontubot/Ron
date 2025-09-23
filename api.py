@@ -41,7 +41,8 @@ security = HTTPBearer()
     
 # Modelos Pydantic    
 class UserInput(BaseModel):    
-    text: str    
+    text: str | None = None 
+    message: str | None = None
     return_json: bool | None = None
     source: str | None = None
     username: str | None = None
@@ -278,56 +279,84 @@ def read_root():
     
 @app.post("/ron")
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):
-    # Autenticación (clientes web deben traer Bearer)
-    current_user = None
-    is_web_client = False
+    # Requiere token (como ya lo tenías)
     if authorization is None:
         raise HTTPException(status_code=401, detail="Autenticación requerida")
 
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ")[1]
-        current_user = verify_jwt_token(token)  # lanza 401 si inválido
+    current_user = None
+    is_web_client = False
+    if authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1]
+        current_user = verify_jwt_token(token)   # lanza 401 si inválido
         is_web_client = True
-    elif authorization is not None:
-        # Si vino algún Authorization pero no es válido, rechazamos
+    else:
         raise HTTPException(status_code=401, detail="Autenticación requerida")
 
-    # 1) Obtener respuesta del asistente SIN guardar memoria desde el asistente
+    # Aceptar 'text' o 'message'
+    user_text = (data.text or data.message or "").strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
+
+    # Username de trabajo
+    username_for_assistant = (data.username or current_user or "default").strip() or "default"
+
+    # 1) Generar respuesta (blindado)
     try:
-        # Usa username si vino en el payload; si no, usa el autenticado; fallback "default"
-        username_for_assistant = data.username or current_user or "default"
         ron_response = generate_response_no_memory(
-            user_input=data.text,
+            user_input=user_text,
             username=username_for_assistant
         )
+        # Asegura string
+        if not isinstance(ron_response, str):
+            ron_response = str(ron_response)
     except Exception as e:
-        # Falla dura del modelo
-        raise HTTPException(status_code=500, detail=f"Error generando respuesta: {str(e)}")
-
-    # 2) Guardar UNA SOLA VEZ la conversación (solo en el endpoint)
-    try:
-        if is_web_client and current_user:
-            # Memoria por usuario autenticado
-            memory = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}
-            memory.setdefault("conversaciones", [])
-            memory["conversaciones"].append({
-                "user": data.text,
-                "ron": ron_response,
+        # Si hay algún problema (por ejemplo OPENAI_API_KEY ausente),
+        # devolvemos 200 con un mensaje seguro en vez de 500.
+        print("ERROR /ron:", e)
+        traceback.print_exc()
+        fallback_msg = (
+            "Tuve un problema técnico al generar la respuesta. "
+            "Intenta de nuevo en unos segundos."
+        )
+        # Aún así registramos la interacción con el error
+        try:
+            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}
+            mem.setdefault("conversaciones", [])
+            mem["conversaciones"].append({
+                "user": user_text,
+                "ron": f"[error] {fallback_msg}",
                 "timestamp": datetime.utcnow().isoformat(),
                 "source": data.source or "web"
             })
-            # Mantén últimas 100
-            if len(memory["conversaciones"]) > 100:
-                memory["conversaciones"] = memory["conversaciones"][-100:]
-            save_user_memory(current_user, memory)
-        else:
-            # Cliente de voz/no autenticado: usa memoria global
-            add_to_memory(data.text, ron_response)
+            mem["conversaciones"] = mem["conversaciones"][-100:]
+            save_user_memory(current_user, mem)
+        except Exception as _:
+            pass
+        return JSONResponse({"ron": fallback_msg, "error": str(e)}, status_code=200)
+
+    # 2) Guardar conversación (solo una vez acá)
+    try:
+        mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}
+        mem.setdefault("conversaciones", [])
+        mem["conversaciones"].append({
+            "user": user_text,
+            "ron": ron_response,
+            "timestamp": datetime.utcnow().isoformat(),
+            "source": data.source or "web"
+        })
+        mem["conversaciones"] = mem["conversaciones"][-100:]
+        save_user_memory(current_user, mem)
     except Exception as e:
-        # No abortamos la respuesta por fallo de persistencia; solo lo informamos
+        # No rompemos la respuesta si falla persistencia
         return {"ron": ron_response, "warning": f"No se pudo guardar la conversación: {str(e)}"}
 
-    return {"ron": ron_response}
+    # 3) Respuesta consistente para el front
+    return {
+        "user_response": ron_response,
+        "ron": ron_response,
+        "reply": ron_response,
+        "commands": []
+    }
 
     
 @app.get("/user/profile")    
