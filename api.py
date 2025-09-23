@@ -35,7 +35,7 @@ app.add_middleware(
 )    
     
 # Configuración JWT (solo una vez)    
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")    
+JWT_SECRET = os.getenv("JWT_SECRET", "1925e2a0e6c8d8c196af044c77cc52dc")    
 JWT_ALGORITHM = "HS256"    
 security = HTTPBearer()   
     
