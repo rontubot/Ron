@@ -47,7 +47,6 @@ STRICT_JSON_SYSTEM = (
     "\"check_system_services\",\"restart_critical_services\",\"clean_temp_files\",\"flush_dns\","
     "\"shutdown\",\"restart\",\"suspend\"]. "
     "Si crees que necesitas otra acción, puedes investigarla y ejecutarla con confirmación previa."
-    "Usa el nombre preferido del usuario si está disponible; si no, usa un saludo neutral. "
 )
 
 STYLE_GUIDE = """
