@@ -799,16 +799,6 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         logger.error(f"Error con OpenAI: {e}")
         ron_response = "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
-    # (Opcional) Prefijar saludo con nombre si lo tenemos
-    try:
-        dn = get_display_name(username)
-    except Exception:
-        dn = None
-    final_text = ron_response
-    if dn and isinstance(ron_response, str):
-        txt = ron_response.strip()
-        if not txt.lower().startswith(("hola", "buen", "qué tal", "que tal")):
-            final_text = f"Hola, {dn}. {txt}"
 
     if save_to_memory:
         _append_user_conv(username, original_input, final_text, source="voice")
