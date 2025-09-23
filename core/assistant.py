@@ -52,8 +52,7 @@ STRICT_JSON_SYSTEM = (
 STYLE_GUIDE = """
 Dirección al usuario:
 - No repitas su nombre salvo que sea útil.
-- Usa el nombre solo en estos casos: (1) primer saludo de la sesión, (2) tras más de 30 minutos sin interacción,
-  (3) cuando necesites confirmar algo importante, (4) si hay ambigüedad o varias personas.
+- Usa el nombre solo en estos casos: (1) cuando necesites confirmar algo importante, (2) si hay ambigüedad o varias personas.
 - En el resto de los casos, habla en segunda persona, sin usar el nombre.
 - Evita fórmulas, sé natural y directo.
 """
