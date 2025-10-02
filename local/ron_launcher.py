@@ -923,22 +923,23 @@ if __name__ == "__main__":
                     if utterance:  
                         # Primero comandos locales  
                         if handle_local_commands(utterance):  
-                            activado = False  
+                            activado = False  # Volver a escucha pasiva  
                             print("🔁 Vuelvo a escucha pasiva (comando local).")  
                             continue  
       
                         # Enviar a Ron con análisis dinámico  
                         result = talk_to_ron(utterance)  
                           
-                        # Usar la nueva lógica de activación dinámica  
+                        # CORRECCIÓN: Usar la nueva lógica de activación dinámica  
                         if result.get("stay_active", False):  
                             print("🔄 Conversación continúa...")  
-                            # Mantener activado = True, resetear buffers  
+                            # Mantener activado = True, resetear buffers para continuar conversación  
                             activation_time = time.time()  
                             last_speech_time = time.time()  
+                            # NO cambiar activado = False aquí  
                         else:  
-                            activado = False  
-                            print("💤 Volviendo a escucha pasiva")  
+                            activado = False  # Volver a escucha pasiva (esperando "Ron")  
+                            print("💤 Volviendo a escucha pasiva (esperando 'Ron')")  
                           
                         if result.get("shutdown", False):  
                             print("🔴 Ron desconectado")  
@@ -956,6 +957,12 @@ if __name__ == "__main__":
                         print(f"🎤 Procesando grabación manual: {manual_text}")  
                         if not handle_local_commands(manual_text):  
                             result = talk_to_ron(manual_text)  
+                            # Aplicar la misma lógica para grabación manual  
+                            if result.get("stay_active", False):  
+                                print("🔄 Conversación continúa...")  
+                                activado = True  # Activar conversación desde grabación manual  
+                                activation_time = time.time()  
+                                last_speech_time = time.time()  
                             if result.get("shutdown", False):  
                                 print("🔴 Ron desconectado")  
                                 break  
@@ -966,7 +973,7 @@ if __name__ == "__main__":
                     conversation_buffer.clear()  
                     if utterance:  
                         if handle_local_commands(utterance):  
-                            activado = False  
+                            activado = False  # Volver a escucha pasiva  
                         else:  
                             result = talk_to_ron(utterance)  
                             if result.get("stay_active", False):  
@@ -974,7 +981,7 @@ if __name__ == "__main__":
                                 activation_time = time.time()  
                                 last_speech_time = time.time()  
                             else:  
-                                activado = False  
+                                activado = False  # Volver a escucha pasiva  
                             if result.get("shutdown", False):  
                                 print("🔴 Ron desconectado")  
                                 break  
