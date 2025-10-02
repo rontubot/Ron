@@ -378,6 +378,249 @@ def should_stay_active(user_input, bot_response):
     return False
 
 
+def research_system_commands(task_description, username):  
+    """  
+    Investiga qué comandos del sistema son necesarios para una tarea específica  
+    """  
+    research_prompt = f"""  
+    Necesito ejecutar esta tarea en Windows: {task_description}  
+      
+    Como asistente con capacidades de investigación, determina los comandos exactos necesarios.  
+    Incluye comandos de PowerShell, CMD, o herramientas del sistema.  
+      
+    Responde SOLO en este formato JSON:  
+    {{  
+        "task_analysis": "descripción de lo que se necesita hacer",  
+        "commands": [  
+            {{"type": "powershell", "command": "comando aquí", "description": "qué hace", "safe": true}},  
+            {{"type": "cmd", "command": "comando aquí", "description": "qué hace", "safe": true}}  
+        ],  
+        "prerequisites": ["requisitos previos si los hay"],  
+        "risks": ["posibles riesgos"],  
+        "execution_order": ["orden de ejecución paso a paso"]  
+    }}  
+      
+    Ejemplos de tareas comunes:  
+    - Volumen al 50%: usar nircmd o PowerShell Set-AudioDevice  
+    - Crear archivo: usar echo > archivo.txt o New-Item  
+    - Mover archivos: usar move o Move-Item  
+    - Verificar procesos: usar tasklist o Get-Process  
+    """  
+      
+    try:  
+        response = core_generate_response(research_prompt, username)  
+        return parse_research_response(response)  
+    except Exception as e:  
+        print(f"❌ Error en investigación: {e}")  
+        return None  
+  
+def parse_research_response(response):  
+    """  
+    Extrae información estructurada de la respuesta de investigación  
+    """  
+    try:  
+        # Buscar JSON en la respuesta  
+        import json  
+        json_match = re.search(r'\\{.*\\}', response, re.DOTALL)  
+        if json_match:  
+            return json.loads(json_match.group())  
+        else:  
+            # Fallback: análisis básico de texto  
+            return {  
+                "task_analysis": "Análisis automático de la tarea",  
+                "commands": extract_commands_from_text(response),  
+                "prerequisites": [],  
+                "risks": ["Comando no verificado completamente"],  
+                "execution_order": ["Ejecutar comando principal"]  
+            }  
+    except Exception as e:  
+        print(f"❌ Error parseando investigación: {e}")  
+        return None  
+  
+def extract_commands_from_text(text):  
+    """  
+    Extrae comandos básicos del texto de respuesta  
+    """  
+    commands = []  
+      
+    # Patrones comunes de comandos  
+    powershell_pattern = r'Set-AudioDevice|Get-Process|New-Item|Move-Item'  
+    cmd_pattern = r'nircmd|tasklist|echo|move|copy|del'  
+      
+    if re.search(powershell_pattern, text, re.IGNORECASE):  
+        commands.append({  
+            "type": "powershell",  
+            "command": "# Comando extraído del análisis",  
+            "description": "Comando identificado automáticamente",  
+            "safe": False  
+        })  
+      
+    if re.search(cmd_pattern, text, re.IGNORECASE):  
+        commands.append({  
+            "type": "cmd",   
+            "command": "# Comando extraído del análisis",  
+            "description": "Comando identificado automáticamente",  
+            "safe": False  
+        })  
+      
+    return commands
+
+
+def create_execution_plan(research_results):  
+    """  
+    Crea un plan de ejecución estructurado basado en la investigación  
+    """  
+    if not research_results or not research_results.get("commands"):  
+        return None  
+      
+    plan = {  
+        "task_summary": research_results.get("task_analysis", "Tarea no especificada"),  
+        "total_steps": len(research_results["commands"]),  
+        "execution_steps": [],  
+        "safety_checks": research_results.get("risks", []),  
+        "prerequisites": research_results.get("prerequisites", [])  
+    }  
+      
+    for i, cmd in enumerate(research_results["commands"]):  
+        step = {  
+            "step_number": i + 1,  
+            "command_type": cmd.get("type", "unknown"),  
+            "command": cmd.get("command", ""),  
+            "description": cmd.get("description", "Sin descripción"),  
+            "safe": cmd.get("safe", False),  
+            "estimated_duration": "1-3 segundos"  
+        }  
+        plan["execution_steps"].append(step)  
+      
+    return plan  
+  
+def validate_command_safety(command, command_type):  
+    """  
+    Valida si un comando es seguro para ejecutar  
+    """  
+    # Lista de comandos peligrosos  
+    dangerous_patterns = [  
+        r'format\\s+[c-z]:', r'del\\s+/s', r'rmdir\\s+/s',   
+        r'shutdown', r'restart', r'reboot',  
+        r'reg\\s+delete', r'sc\\s+delete'  
+    ]  
+      
+    for pattern in dangerous_patterns:  
+        if re.search(pattern, command, re.IGNORECASE):  
+            return False, f"Comando potencialmente peligroso detectado: {pattern}"  
+      
+    # Comandos seguros conocidos  
+    safe_patterns = [  
+        r'nircmd\\s+setsysvolume', r'Set-AudioDevice',  
+        r'echo\\s+.*>\\s*[^\\\\/:*?"<>|]+\\.txt',  
+        r'New-Item.*-ItemType\\s+File',  
+        r'tasklist', r'Get-Process'  
+    ]  
+      
+    for pattern in safe_patterns:  
+        if re.search(pattern, command, re.IGNORECASE):  
+            return True, "Comando verificado como seguro"  
+      
+    return False, "Comando no verificado - requiere confirmación"
+
+
+def execute_autonomous_plan(execution_plan, username):  
+    """  
+    Ejecuta el plan de comandos de forma autónoma con feedback  
+    """  
+    if not execution_plan:  
+        return {"success": False, "message": "No hay plan de ejecución"}  
+      
+    results = {  
+        "success": True,  
+        "executed_commands": [],  
+        "failed_commands": [],  
+        "summary": "",  
+        "total_steps": execution_plan["total_steps"]  
+    }  
+      
+    print(f"🔧 Iniciando ejecución autónoma: {execution_plan['task_summary']}")  
+      
+    for step in execution_plan["execution_steps"]:  
+        step_result = execute_single_command(step)  
+          
+        if step_result["success"]:  
+            results["executed_commands"].append({  
+                "step": step["step_number"],  
+                "description": step["description"],  
+                "output": step_result["output"]  
+            })  
+            print(f"✅ Paso {step['step_number']}: {step['description']}")  
+        else:  
+            results["failed_commands"].append({  
+                "step": step["step_number"],  
+                "description": step["description"],  
+                "error": step_result["error"]  
+            })  
+            print(f"❌ Paso {step['step_number']} falló: {step_result['error']}")  
+            results["success"] = False  
+      
+    # Generar resumen  
+    if results["success"]:  
+        results["summary"] = f"Tarea completada exitosamente. Ejecuté {len(results['executed_commands'])} comandos."  
+    else:  
+        results["summary"] = f"Tarea parcialmente completada. {len(results['executed_commands'])} exitosos, {len(results['failed_commands'])} fallaron."  
+      
+    return results  
+  
+def execute_single_command(step):  
+    """  
+    Ejecuta un comando individual con validación de seguridad  
+    """  
+    command = step["command"]  
+    command_type = step["command_type"]  
+      
+    # Validar seguridad  
+    is_safe, safety_message = validate_command_safety(command, command_type)  
+    if not is_safe:  
+        return {  
+            "success": False,  
+            "error": f"Comando bloqueado por seguridad: {safety_message}"  
+        }  
+      
+    try:  
+        if command_type == "powershell":  
+            result = subprocess.run(  
+                ["powershell", "-Command", command],  
+                capture_output=True,  
+                text=True,  
+                timeout=10  
+            )  
+        elif command_type == "cmd":  
+            result = subprocess.run(  
+                command,  
+                shell=True,  
+                capture_output=True,  
+                text=True,  
+                timeout=10  
+            )  
+        else:  
+            return {"success": False, "error": f"Tipo de comando no soportado: {command_type}"}  
+          
+        if result.returncode == 0:  
+            return {  
+                "success": True,  
+                "output": result.stdout.strip() or "Comando ejecutado exitosamente"  
+            }  
+        else:  
+            return {  
+                "success": False,  
+                "error": f"Código de error {result.returncode}: {result.stderr.strip()}"  
+            }  
+              
+    except subprocess.TimeoutExpired:  
+        return {"success": False, "error": "Comando excedió tiempo límite"}  
+    except Exception as e:  
+        return {"success": False, "error": f"Error ejecutando comando: {str(e)}"}
+        
+
+
+
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)      
 def open_application(app_name):      
     """Función para abrir aplicaciones localmente"""      
@@ -814,38 +1057,52 @@ def handle_local_commands(text):
     return False    
     
 def talk_to_ron(text):  
-    """Versión modificada que maneja activación dinámica"""  
+    """Versión modificada que incluye ejecución autónoma de comandos"""  
     global speaking, listening_active, activado  
       
     speaking = True  
     listening_active = False  
       
     try:  
-        response = core_generate_response(text, current_username)  
+        # NUEVO: Verificar si requiere investigación autónoma  
+        if requires_autonomous_execution(text):  
+            print("🔍 Detectada solicitud que requiere investigación autónoma...")  
+            autonomous_result = autonomous_command_research_and_execution(text, current_username)  
+              
+            if autonomous_result["success"]:  
+                response = f"He investigado cómo realizar tu solicitud. {autonomous_result['summary']}"  
+                  
+                # Agregar detalles de comandos ejecutados  
+                for cmd_result in autonomous_result['executed_commands']:  
+                    response += f"\\n✅ {cmd_result['description']}: {cmd_result['output']}"  
+            else:  
+                response = f"Investigué tu solicitud pero encontré dificultades: {autonomous_result['summary']}"  
+        else:  
+            # Flujo normal de conversación  
+            response = core_generate_response(text, current_username)  
           
         if response:  
             print(f"🤖 Ron: {response}")  
             engine.say(response)  
             engine.runAndWait()  
             time.sleep(0.5)  
-            
+              
+            # Guardar en memoria incluyendo comandos ejecutados si los hay  
             if current_username:  
-                add_to_memory(current_username, text, response) 
+                add_to_memory(current_username, text, response)  
               
             # Determinar si debe mantenerse activo  
             stay_active = should_stay_active(text, response)  
               
-            if stay_active:  
-                print("🔄 Manteniendo conversación activa...")  
-                # Retornar información sobre si debe mantenerse activo  
-                return {"shutdown": False, "stay_active": True, "response": response}  
-            else:  
-                print("💤 Finalizando conversación...")  
-                return {"shutdown": False, "stay_active": False, "response": response}  
+            return {  
+                "shutdown": False,   
+                "stay_active": stay_active,   
+                "response": response  
+            }  
           
     except Exception as e:  
         print(f"❌ Error: {e}")  
-        engine.say("Ocurrió un error.")  
+        engine.say("Ocurrió un error al procesar tu solicitud.")  
         engine.runAndWait()  
         return {"shutdown": False, "stay_active": False, "response": "Error"}  
           
@@ -853,7 +1110,40 @@ def talk_to_ron(text):
         speaking = False  
         listening_active = True  
       
-    return {"shutdown": False, "stay_active": False, "response": ""}
+    return {"shutdown": False, "stay_active": False, "response": ""}  
+  
+def requires_autonomous_execution(text):  
+    """  
+    Determina si una solicitud requiere investigación y ejecución autónoma  
+    """  
+    autonomous_keywords = [  
+        "volumen", "crear archivo", "mover archivo", "abrir carpeta",  
+        "cambiar configuración", "ajustar", "configurar", "instalar",  
+        "desinstalar", "limpiar", "optimizar", "reparar", "verificar estado"  
+    ]  
+      
+    return any(keyword in text.lower() for keyword in autonomous_keywords)  
+  
+def autonomous_command_research_and_execution(user_request, username):  
+    """  
+    Sistema completo de investigación, planificación y ejecución autónoma  
+    """  
+    print(f"🔍 Investigando: {user_request}")  
+      
+    # 1. Investigación  
+    research_results = research_system_commands(user_request, username)  
+    if not research_results:  
+        return {"success": False, "summary": "No pude investigar cómo realizar esta tarea"}  
+      
+    # 2. Planificación  
+    execution_plan = create_execution_plan(research_results)  
+    if not execution_plan:  
+        return {"success": False, "summary": "No pude crear un plan de ejecución"}  
+      
+    # 3. Ejecución  
+    execution_results = execute_autonomous_plan(execution_plan, username)  
+      
+    return execution_results
     
 try:
     sys.stdout = _orig_stdout
