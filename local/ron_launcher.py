@@ -341,6 +341,43 @@ def save_device_memory(mem):
 
 
 
+def should_stay_active(user_input, bot_response):  
+    """Determina si Ron debe mantenerse activo basándose en el contexto"""  
+      
+    # Frases que indican fin de conversación  
+    end_phrases = ["hasta luego", "adiós", "nos vemos", "chao", "bye",   
+                   "eso es todo", "gracias, eso es todo", "ya terminé"]  
+      
+    # Frases del bot que indican continuación  
+    continue_phrases = ["¿algo más?", "¿necesitas algo más?", "¿qué más?",   
+                       "continúa", "dime más", "¿y después?", "¿qué sigue?"]  
+      
+    # Preguntas abiertas del bot  
+    question_indicators = ["¿", "?", "explícame", "cuéntame", "dime"]  
+      
+    # El usuario indica fin explícito  
+    if any(phrase in user_input.lower() for phrase in end_phrases):  
+        return False  
+      
+    # El bot hace preguntas o solicita más información  
+    if any(phrase in bot_response.lower() for phrase in continue_phrases):  
+        return True  
+          
+    if any(indicator in bot_response.lower() for indicator in question_indicators):  
+        return True  
+      
+    # Conversaciones sobre tareas complejas  
+    complex_topics = ["proyecto", "plan", "paso a paso", "tutorial",   
+                     "explicación", "proceso", "configurar", "instalar"]  
+      
+    if any(topic in user_input.lower() or topic in bot_response.lower()   
+           for topic in complex_topics):  
+        return True  
+      
+    # Por defecto, no mantenerse activo para respuestas simples  
+    return False
+
+
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)      
 def open_application(app_name):      
     """Función para abrir aplicaciones localmente"""      
@@ -776,36 +813,44 @@ def handle_local_commands(text):
       
     return False    
     
-def talk_to_ron(text):
-    """Envía texto al servidor usando memoria unificada (voz)"""
-    global speaking, listening_active, current_username
-
-    speaking = True
-    listening_active = False
-
-    try:
-        user = (current_username or 'default')
-        ron_response = core_generate_response(text, user)
-
-        print(f"🤖 Ron: {ron_response}")
-        engine.say(ron_response)
-        engine.runAndWait()
-        time.sleep(0.5)
-
-        if "hasta luego" in text.lower():
-            return True
-
-    except Exception as e:
-        print(f"❌ {e}")
-        engine.say("Ocurrió un error al intentar responderte.")
-        engine.runAndWait()
-        time.sleep(0.5)
-    finally:
-        speaking = False
-        listening_active = True
-
-    return False
-
+def talk_to_ron(text):  
+    """Versión modificada que maneja activación dinámica"""  
+    global speaking, listening_active, activado  
+      
+    speaking = True  
+    listening_active = False  
+      
+    try:  
+        response = core_generate_response(text, current_username)  
+          
+        if response:  
+            print(f"🤖 Ron: {response}")  
+            engine.say(response)  
+            engine.runAndWait()  
+            time.sleep(0.5)  
+              
+            # Determinar si debe mantenerse activo  
+            stay_active = should_stay_active(text, response)  
+              
+            if stay_active:  
+                print("🔄 Manteniendo conversación activa...")  
+                # Retornar información sobre si debe mantenerse activo  
+                return {"shutdown": False, "stay_active": True, "response": response}  
+            else:  
+                print("💤 Finalizando conversación...")  
+                return {"shutdown": False, "stay_active": False, "response": response}  
+          
+    except Exception as e:  
+        print(f"❌ Error: {e}")  
+        engine.say("Ocurrió un error.")  
+        engine.runAndWait()  
+        return {"shutdown": False, "stay_active": False, "response": "Error"}  
+          
+    finally:  
+        speaking = False  
+        listening_active = True  
+      
+    return {"shutdown": False, "stay_active": False, "response": ""}
     
 try:
     sys.stdout = _orig_stdout
@@ -832,109 +877,116 @@ if __name__ == "__main__":
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)        
             
     activado = False
-    try:
-        while True:
-            try:
-                if not listening_active:
-                    time.sleep(0.05)
-                    continue
-
-                # ⬇️ esperamos trozos; ahora vienen como (texto, ts)
-                txt_ts = audio_queue.get(timeout=0.1)
-                if not isinstance(txt_ts, tuple) or len(txt_ts) != 2:
-                    # retrocompatibilidad por si quedó algo viejo en la cola
-                    txt, ts = str(txt_ts), time.time()
-                else:
-                    txt, ts = txt_ts
-
-                # DEBUG: comenta esta línea si te ensucia el log
-                print(f"🗣 Detectado: {txt}")
-
-                # 1) Si no está activado, buscar wake-word exacta (palabra aislada)
-                if not activado:
-                    if detect_ron_activation(txt):
-                        activado = True
-                        activation_time = ts
-                        conversation_buffer.clear()
-                        last_speech_time = ts
-                        print("✅ Ron activado")
-                        safe_activation_response()
-                        # No seguimos con este chunk: el usuario dirá su orden luego
-                        continue
-                    else:
-                        # sin wake-word → seguimos escuchando
-                        continue
-
-                # 2) Ya activado: acumular texto y actualizar reloj
-                conversation_buffer.append(txt)
-                last_speech_time = ts
-
-                # 3) Cada iteración, chequear silencio o tiempo máximo
-                now = time.time()
-                time_since_last = now - last_speech_time
-                time_since_activation = now - activation_time
-
-                # ¿se acabó la frase? (silencio)
-                if time_since_last >= SILENCE_TIMEOUT_SEC or time_since_activation >= MAX_BUFFER_TIME_SEC:
-                    utterance = " ".join(conversation_buffer).strip()
-                    conversation_buffer.clear()
-
-                    if utterance:
-                        # Primero comandos locales
-                        if handle_local_commands(utterance):
-                            # Comando manejado localmente; volvemos a modo pasivo
-                            activado = False
-                            print("🔁 Vuelvo a escucha pasiva (comando local).")
-                            continue
-
-                        # Si no fue comando local → enviar a Ron (API/memoria)
-                        should_shutdown = talk_to_ron(utterance)
-                        activado = False
-                        if should_shutdown:
-                            print("🔴 Ron desconectado")
-                    else:
-                        # Sin contenido => reset a escucha pasiva
-                        activado = False
-
-            except queue.Empty:
-                # Además de la cola vacía, si seguimos activados, chequea silencio
-                
-
-                # Verificar si se terminó una grabación manual  
+    try:  
+        while True:  
+            try:  
+                if not listening_active:  
+                    time.sleep(0.05)  
+                    continue  
+      
+                # Esperamos trozos de audio  
+                txt_ts = audio_queue.get(timeout=0.1)  
+                if not isinstance(txt_ts, tuple) or len(txt_ts) != 2:  
+                    txt, ts = str(txt_ts), time.time()  
+                else:  
+                    txt, ts = txt_ts  
+      
+                print(f"🗣 Detectado: {txt}")  
+      
+                # 1) Si no está activado, buscar wake-word  
+                if not activado:  
+                    if detect_ron_activation(txt):  
+                        activado = True  
+                        activation_time = ts  
+                        conversation_buffer.clear()  
+                        last_speech_time = ts  
+                        print("✅ Ron activado")  
+                        safe_activation_response()  
+                        continue  
+                    else:  
+                        continue  
+      
+                # 2) Ya activado: acumular texto  
+                conversation_buffer.append(txt)  
+                last_speech_time = ts  
+      
+                # 3) Verificar timeouts  
+                now = time.time()  
+                time_since_last = now - last_speech_time  
+                time_since_activation = now - activation_time  
+      
+                # ¿Se acabó la frase?  
+                if time_since_last >= SILENCE_TIMEOUT_SEC or time_since_activation >= MAX_BUFFER_TIME_SEC:  
+                    utterance = " ".join(conversation_buffer).strip()  
+                    conversation_buffer.clear()  
+      
+                    if utterance:  
+                        # Primero comandos locales  
+                        if handle_local_commands(utterance):  
+                            activado = False  
+                            print("🔁 Vuelvo a escucha pasiva (comando local).")  
+                            continue  
+      
+                        # Enviar a Ron con análisis dinámico  
+                        result = talk_to_ron(utterance)  
+                          
+                        # Usar la nueva lógica de activación dinámica  
+                        if result.get("stay_active", False):  
+                            print("🔄 Conversación continúa...")  
+                            # Mantener activado = True, resetear buffers  
+                            activation_time = time.time()  
+                            last_speech_time = time.time()  
+                        else:  
+                            activado = False  
+                            print("💤 Volviendo a escucha pasiva")  
+                          
+                        if result.get("shutdown", False):  
+                            print("🔴 Ron desconectado")  
+                            break  
+                    else:  
+                        activado = False  
+      
+            except queue.Empty:  
+                # Verificar grabación manual  
                 if not manual_recording and manual_recording_buffer:  
                     manual_text = " ".join(manual_recording_buffer).strip()  
                     manual_recording_buffer.clear()  
       
                     if manual_text:  
                         print(f"🎤 Procesando grabación manual: {manual_text}")  
-                        # Procesar como comando local o enviar a Ron  
                         if not handle_local_commands(manual_text):  
-                            should_shutdown = talk_to_ron(manual_text)  
-                            if should_shutdown:  
+                            result = talk_to_ron(manual_text)  
+                            if result.get("shutdown", False):  
                                 print("🔴 Ron desconectado")  
-                                break
-
-
-                if activado and (time.time() - last_speech_time) >= SILENCE_TIMEOUT_SEC and conversation_buffer:
-                    utterance = " ".join(conversation_buffer).strip()
-                    conversation_buffer.clear()
-                    if utterance:
-                        if handle_local_commands(utterance):
-                            activado = False
-                        else:
-                            should_shutdown = talk_to_ron(utterance)
-                            activado = False
-                            if should_shutdown:
-                                print("🔴 Ron desconectado")
-                continue        
-                        
-    except KeyboardInterrupt:        
-        print("🔴 Cerrando Ron...")        
-    
-    finally:
-        control_enabled = False
-        try:
-            stop_listening(wait_for_stop=False)
-        except Exception:
-            pass
+                                break  
+      
+                # Verificar timeout en conversación activa  
+                if activado and (time.time() - last_speech_time) >= SILENCE_TIMEOUT_SEC and conversation_buffer:  
+                    utterance = " ".join(conversation_buffer).strip()  
+                    conversation_buffer.clear()  
+                    if utterance:  
+                        if handle_local_commands(utterance):  
+                            activado = False  
+                        else:  
+                            result = talk_to_ron(utterance)  
+                            if result.get("stay_active", False):  
+                                print("🔄 Conversación continúa...")  
+                                activation_time = time.time()  
+                                last_speech_time = time.time()  
+                            else:  
+                                activado = False  
+                            if result.get("shutdown", False):  
+                                print("🔴 Ron desconectado")  
+                                break  
+                continue  
+      
+    except KeyboardInterrupt:  
+        print("🔴 Cerrando Ron...")  
+      
+    finally:  
+        control_enabled = False  
+        try:  
+            stop_listening(wait_for_stop=False)  
+        except Exception:  
+            pass  
         print("🔴 Ron 24/7 detenido.", flush=True)
