@@ -547,7 +547,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         mem = load_user_memory(username) or {}
         prof = get_or_init_profile(mem)
 
-        if prof.get("enabled", True) and os.getenv("RON_PROFILE_TURN_CLASSIFIER", "1") == "1":
+        if prof.get("enabled", True) and os.getenv("RON_PROFILE_TURN_CLASSIFIER", "1") == "1": 
             # 1) ventana deslizante
             append_to_profile_window(prof, original_input)
 

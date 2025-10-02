@@ -50,8 +50,8 @@ except ImportError as e:
     print(f"❌ Error de importación: {e}")
 
 # ===== Ventana de interacción tras la wake-word =====
-SILENCE_TIMEOUT_SEC = 0.6   # si no llega nada nuevo en 1.2s, se manda la orden
-MAX_BUFFER_TIME_SEC = 8.0  # seguridad: no acumular más de 12s por turno
+SILENCE_TIMEOUT_SEC = 1.2   # si no llega nada nuevo en 1.2s, se manda la orden
+MAX_BUFFER_TIME_SEC = 30.0  # seguridad: no acumular más de 30s por turno
 
 # Estado para agrupar
 conversation_buffer = []
