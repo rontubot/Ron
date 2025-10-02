@@ -342,36 +342,30 @@ def save_device_memory(mem):
 
 
 def should_stay_active(user_input, bot_response):  
-    """Determina si Ron debe mantenerse activo basándose en el contexto"""  
+    """Determina si Ron debe mantenerse activo basándose en el contexto mejorado"""  
+      
+    # Si el bot falló en ejecutar algo, mantener activo para retry  
+    if any(indicator in bot_response for indicator in ["❌", "No pude", "Error", "no logré"]):  
+        return True  
+      
+    # Si el bot pregunta algo o solicita más información, mantener activo  
+    if any(indicator in bot_response for indicator in ["?", "¿", "dime", "cuéntame", "explícame"]):  
+        return True  
+      
+    # Respuestas cortas del usuario indican continuación  
+    short_responses = ["mmm", "ok", "sí", "no", "pero", "y", "entonces", "continúa", "sigue"]  
+    if any(word in user_input.lower() for word in short_responses):  
+        return True  
       
     # Frases que indican fin de conversación  
     end_phrases = ["hasta luego", "adiós", "nos vemos", "chao", "bye",   
-                   "eso es todo", "gracias, eso es todo", "ya terminé"]  
+                   "eso es todo", "gracias, eso es todo", "ya terminé", "perfecto", "listo"]  
       
-    # Frases del bot que indican continuación  
-    continue_phrases = ["¿algo más?", "¿necesitas algo más?", "¿qué más?",   
-                       "continúa", "dime más", "¿y después?", "¿qué sigue?"]  
-      
-    # Preguntas abiertas del bot  
-    question_indicators = ["¿", "?", "explícame", "cuéntame", "dime"]  
-      
-    # El usuario indica fin explícito  
     if any(phrase in user_input.lower() for phrase in end_phrases):  
         return False  
       
-    # El bot hace preguntas o solicita más información  
-    if any(phrase in bot_response.lower() for phrase in continue_phrases):  
-        return True  
-          
-    if any(indicator in bot_response.lower() for indicator in question_indicators):  
-        return True  
-      
-    # Conversaciones sobre tareas complejas  
-    complex_topics = ["proyecto", "plan", "paso a paso", "tutorial",   
-                     "explicación", "proceso", "configurar", "instalar"]  
-      
-    if any(topic in user_input.lower() or topic in bot_response.lower()   
-           for topic in complex_topics):  
+    # Si el bot ejecutó comandos exitosamente, preguntar si necesita algo más  
+    if "✅ Completé" in bot_response:  
         return True  
       
     # Por defecto, no mantenerse activo para respuestas simples  
@@ -385,26 +379,25 @@ def research_system_commands(task_description, username):
     research_prompt = f"""  
     Necesito ejecutar esta tarea en Windows: {task_description}  
       
-    Como asistente con capacidades de investigación, determina los comandos exactos necesarios.  
-    Incluye comandos de PowerShell, CMD, o herramientas del sistema.  
+    Como experto en comandos de Windows, proporciona EXACTAMENTE los comandos necesarios.  
       
-    Responde SOLO en este formato JSON:  
+    Responde SOLO en este formato JSON válido:  
     {{  
-        "task_analysis": "descripción de lo que se necesita hacer",  
+        "task_analysis": "descripción breve de la tarea",  
         "commands": [  
-            {{"type": "powershell", "command": "comando aquí", "description": "qué hace", "safe": true}},  
-            {{"type": "cmd", "command": "comando aquí", "description": "qué hace", "safe": true}}  
-        ],  
-        "prerequisites": ["requisitos previos si los hay"],  
-        "risks": ["posibles riesgos"],  
-        "execution_order": ["orden de ejecución paso a paso"]  
+            {{"type": "cmd", "command": "nircmd setsysvolume 32767", "description": "ajustar volumen al 50%", "safe": true}},  
+            {{"type": "powershell", "command": "Set-Volume -DriveLetter C -NewLabel 'MiDisco'", "description": "cambiar etiqueta de disco", "safe": true}}  
+        ]  
     }}  
       
-    Ejemplos de tareas comunes:  
-    - Volumen al 50%: usar nircmd o PowerShell Set-AudioDevice  
-    - Crear archivo: usar echo > archivo.txt o New-Item  
-    - Mover archivos: usar move o Move-Item  
-    - Verificar procesos: usar tasklist o Get-Process  
+    Comandos comunes:  
+    - Volumen: nircmd setsysvolume [0-65535] (0=mudo, 32767=50%, 65535=100%)  
+    - Crear archivo: echo "contenido" > archivo.txt  
+    - Mover archivo: move "origen" "destino"  
+    - Crear carpeta: mkdir "nombre_carpeta"  
+    - Listar archivos: dir  
+      
+    IMPORTANTE: Solo comandos seguros, marca safe=true solo si es completamente seguro.  
     """  
       
     try:  
@@ -412,7 +405,7 @@ def research_system_commands(task_description, username):
         return parse_research_response(response)  
     except Exception as e:  
         print(f"❌ Error en investigación: {e}")  
-        return None  
+        return None
   
 def parse_research_response(response):  
     """  
@@ -467,32 +460,35 @@ def extract_commands_from_text(text):
 
 
 def create_execution_plan(research_results):  
-    """  
-    Crea un plan de ejecución estructurado basado en la investigación  
-    """  
+    """Crea un plan de ejecución estructurado basado en la investigación"""  
     if not research_results or not research_results.get("commands"):  
+        print("❌ No hay comandos válidos para crear plan")  
         return None  
       
-    plan = {  
-        "task_summary": research_results.get("task_analysis", "Tarea no especificada"),  
-        "total_steps": len(research_results["commands"]),  
-        "execution_steps": [],  
-        "safety_checks": research_results.get("risks", []),  
-        "prerequisites": research_results.get("prerequisites", [])  
+    execution_plan = {  
+        "task": research_results.get("task_analysis", "Tarea no especificada"),  
+        "steps": [],  
+        "estimated_time": 5,  
+        "requires_confirmation": False  
     }  
       
     for i, cmd in enumerate(research_results["commands"]):  
-        step = {  
-            "step_number": i + 1,  
-            "command_type": cmd.get("type", "unknown"),  
-            "command": cmd.get("command", ""),  
-            "description": cmd.get("description", "Sin descripción"),  
-            "safe": cmd.get("safe", False),  
-            "estimated_duration": "1-3 segundos"  
-        }  
-        plan["execution_steps"].append(step)  
+        if cmd.get("safe", False):  # Solo comandos marcados como seguros  
+            step = {  
+                "order": i + 1,  
+                "command": cmd["command"],  
+                "type": cmd["type"],  
+                "description": cmd["description"],  
+                "timeout": 30  
+            }  
+            execution_plan["steps"].append(step)  
       
-    return plan  
+    if not execution_plan["steps"]:  
+        print("❌ No hay pasos seguros para ejecutar")  
+        return None  
+          
+    print(f"✅ Plan creado con {len(execution_plan['steps'])} pasos")  
+    return execution_plan
   
 def validate_command_safety(command, command_type):  
     """  
@@ -568,57 +564,67 @@ def execute_autonomous_plan(execution_plan, username):
       
     return results  
   
-def execute_single_command(step):  
+def execute_single_command(command_info, username):  
     """  
-    Ejecuta un comando individual con validación de seguridad  
+    Ejecuta un comando individual del sistema operativo  
     """  
-    command = step["command"]  
-    command_type = step["command_type"]  
+    command = command_info["command"]  
+    cmd_type = command_info.get("type", "cmd")  
+    timeout = command_info.get("timeout", 30)  
       
-    # Validar seguridad  
-    is_safe, safety_message = validate_command_safety(command, command_type)  
-    if not is_safe:  
-        return {  
-            "success": False,  
-            "error": f"Comando bloqueado por seguridad: {safety_message}"  
-        }  
+    print(f"🔧 Ejecutando: {command}")  
       
     try:  
-        if command_type == "powershell":  
-            result = subprocess.run(  
-                ["powershell", "-Command", command],  
-                capture_output=True,  
-                text=True,  
-                timeout=10  
-            )  
-        elif command_type == "cmd":  
-            result = subprocess.run(  
-                command,  
-                shell=True,  
-                capture_output=True,  
-                text=True,  
-                timeout=10  
-            )  
+        if cmd_type == "powershell":  
+            # Ejecutar comando PowerShell  
+            full_command = ["powershell", "-Command", command]  
+        elif cmd_type == "cmd":  
+            # Ejecutar comando CMD  
+            full_command = ["cmd", "/c", command]  
         else:  
-            return {"success": False, "error": f"Tipo de comando no soportado: {command_type}"}  
+            # Comando directo  
+            full_command = command.split()  
+          
+        # Ejecutar con timeout  
+        result = subprocess.run(  
+            full_command,  
+            capture_output=True,  
+            text=True,  
+            timeout=timeout,  
+            shell=False  
+        )  
           
         if result.returncode == 0:  
+            output = result.stdout.strip() if result.stdout else "Comando ejecutado exitosamente"  
+            print(f"✅ Éxito: {output}")  
             return {  
                 "success": True,  
-                "output": result.stdout.strip() or "Comando ejecutado exitosamente"  
+                "output": output,  
+                "command": command  
             }  
         else:  
+            error = result.stderr.strip() if result.stderr else f"Error código {result.returncode}"  
+            print(f"❌ Error: {error}")  
             return {  
                 "success": False,  
-                "error": f"Código de error {result.returncode}: {result.stderr.strip()}"  
+                "error": error,  
+                "command": command  
             }  
               
     except subprocess.TimeoutExpired:  
-        return {"success": False, "error": "Comando excedió tiempo límite"}  
+        print(f"⏰ Timeout ejecutando comando: {command}")  
+        return {  
+            "success": False,  
+            "error": "Comando tardó demasiado en ejecutarse",  
+            "command": command  
+        }  
     except Exception as e:  
-        return {"success": False, "error": f"Error ejecutando comando: {str(e)}"}
-        
-
+        print(f"❌ Excepción ejecutando comando: {e}")  
+        return {  
+            "success": False,  
+            "error": str(e),  
+            "command": command  
+        }
 
 
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)      
@@ -1057,26 +1063,30 @@ def handle_local_commands(text):
     return False    
     
 def talk_to_ron(text):  
-    """Versión modificada que incluye ejecución autónoma de comandos"""  
+    """Versión modificada que incluye ejecución autónoma mejorada"""  
     global speaking, listening_active, activado  
       
     speaking = True  
     listening_active = False  
       
     try:  
-        # NUEVO: Verificar si requiere investigación autónoma  
+        # Verificar si requiere investigación autónoma  
         if requires_autonomous_execution(text):  
             print("🔍 Detectada solicitud que requiere investigación autónoma...")  
             autonomous_result = autonomous_command_research_and_execution(text, current_username)  
               
-            if autonomous_result["success"]:  
-                response = f"He investigado cómo realizar tu solicitud. {autonomous_result['summary']}"  
+            if autonomous_result.get("success", False):  
+                executed_commands = autonomous_result.get("executed_commands", [])  
+                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."  
                   
-                # Agregar detalles de comandos ejecutados  
-                for cmd_result in autonomous_result['executed_commands']:  
-                    response += f"\\n✅ {cmd_result['description']}: {cmd_result['output']}"  
+                # Mostrar resultados de comandos ejecutados  
+                for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar  
+                    if cmd_result.get("success"):  
+                        response += f"\\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"  
+                    else:  
+                        response += f"\\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"  
             else:  
-                response = f"Investigué tu solicitud pero encontré dificultades: {autonomous_result['summary']}"  
+                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"  
         else:  
             # Flujo normal de conversación  
             response = core_generate_response(text, current_username)  
@@ -1087,7 +1097,7 @@ def talk_to_ron(text):
             engine.runAndWait()  
             time.sleep(0.5)  
               
-            # Guardar en memoria incluyendo comandos ejecutados si los hay  
+            # Guardar en memoria  
             if current_username:  
                 add_to_memory(current_username, text, response)  
               
@@ -1095,16 +1105,18 @@ def talk_to_ron(text):
             stay_active = should_stay_active(text, response)  
               
             return {  
-                "shutdown": False,   
-                "stay_active": stay_active,   
+                "shutdown": False,  
+                "stay_active": stay_active,  
                 "response": response  
             }  
           
     except Exception as e:  
-        print(f"❌ Error: {e}")  
-        engine.say("Ocurrió un error al procesar tu solicitud.")  
+        print(f"❌ Error en talk_to_ron: {e}")  
+        error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"  
+        engine.say(error_response)  
         engine.runAndWait()  
-        return {"shutdown": False, "stay_active": False, "response": "Error"}  
+        return {"shutdown": False, "stay_active": False, "response": error_response}  
+          
           
     finally:  
         speaking = False  
