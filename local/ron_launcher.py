@@ -17,7 +17,7 @@ import socket
 import unicodedata    
 from core.commands import run_command
 from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response 
-
+from core.memory import add_to_memory
 
 # Modo voz: no bloquees por comandos y apaga clasificador por turno
 os.environ.setdefault("RON_ASYNC_COMMANDS", "1")
@@ -828,6 +828,9 @@ def talk_to_ron(text):
             engine.say(response)  
             engine.runAndWait()  
             time.sleep(0.5)  
+            
+            if current_username:  
+                add_to_memory(current_username, text, response) 
               
             # Determinar si debe mantenerse activo  
             stay_active = should_stay_active(text, response)  
