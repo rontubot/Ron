@@ -19,6 +19,14 @@ from core.commands import run_command
 from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response 
 from core.memory import add_to_memory
 
+
+# Reducir logs DEBUG  
+logging.getLogger('urllib3').setLevel(logging.WARNING)  
+logging.getLogger('httpcore').setLevel(logging.WARNING)  
+logging.getLogger('httpx').setLevel(logging.WARNING)  
+logging.getLogger('openai').setLevel(logging.WARNING)
+
+
 # Modo voz: no bloquees por comandos y apaga clasificador por turno
 os.environ.setdefault("RON_ASYNC_COMMANDS", "1")
 os.environ.setdefault("RON_PROFILE_TURN_CLASSIFIER", "0")
@@ -374,7 +382,7 @@ def should_stay_active(user_input, bot_response):
 
 def research_system_commands(task_description, username):  
     """  
-    Investiga comandos específicos de Windows para ejecutar tareas  
+    Investiga comandos específicos de Windows para ejecutar tareas de forma completamente autónoma  
     """  
     research_prompt = f"""  
     TAREA: {task_description}  
@@ -383,38 +391,40 @@ def research_system_commands(task_description, username):
     PUEDES EJECUTAR CUALQUIER COMANDO que investigues y determines como seguro.  
       
     CAPACIDADES DISPONIBLES:  
-    - PowerShell: Set-Volume, Get-Process, New-Item, Move-Item, Remove-Item, etc.  
-    - CMD: nircmd, taskkill, mkdir, copy, move, del, reg add/delete, etc.  
-    - Herramientas del sistema: schtasks, wmic, netsh, ipconfig, etc.  
+    - PowerShell: Set-Volume, Get-Process, New-Item, Move-Item, Remove-Item, Set-ItemProperty, etc.  
+    - CMD: nircmd, taskkill, mkdir, copy, move, del, reg add/delete, netsh, schtasks, etc.  
+    - Herramientas del sistema: wmic, sc, bcdedit, diskpart, etc.  
     - APIs de Windows: rundll32, powercfg, control, etc.  
       
     EJEMPLOS DE LO QUE PUEDES HACER:  
-    - Volumen: nircmd setsysvolume [0-65535] (32767=50%, 52428=80%)  
-    - Crear archivos: echo "contenido" > "ruta\\\\archivo.txt"  
+    - Controlar volumen: nircmd setsysvolume [0-65535]  
+    - Cambiar fondo: reg add "HKCU\\Control Panel\\Desktop" /v Wallpaper /t REG_SZ /d "ruta" /f  
+    - Crear archivos: echo "contenido" > archivo.txt  
     - Mover archivos: move "origen" "destino"  
-    - Procesos: taskkill /f /im "proceso.exe"  
-    - Registro: reg add "HKEY_..." /v "valor" /d "data"  
-    - Servicios: sc start/stop "servicio"  
-    - Red: netsh interface set interface "WiFi" admin=disable  
+    - Configurar red: netsh wlan set profileparameter name="WiFi" cost=fixed  
+    - Programar tareas: schtasks /create /tn "MiTarea" /tr "comando" /sc daily  
+    - Controlar servicios: sc start/stop "servicio"  
+    - Gestionar procesos: taskkill /f /im "proceso.exe"  
       
     INSTRUCCIONES:  
-    1. SIEMPRE investiga el comando exacto para Windows  
-    2. Proporciona comandos EJECUTABLES y ESPECÍFICOS  
-    3. Marca como safe=true SOLO si es completamente seguro  
-    4. NO inventes comandos, usa comandos reales de Windows  
+    1. INVESTIGA los comandos exactos necesarios para: {task_description}  
+    2. ESTRUCTURA una secuencia lógica de comandos  
+    3. MARCA como safe=true SOLO comandos que sean seguros de ejecutar  
+    4. PROPORCIONA comandos REALES y EJECUTABLES, no explicaciones  
       
-    Responde EXACTAMENTE en este formato JSON:  
+    Responde ÚNICAMENTE en formato JSON válido:  
     {{  
-        "task_analysis": "descripción técnica de la tarea",  
+        "task_analysis": "descripción técnica de lo que se va a hacer",  
         "commands": [  
-            {{"type": "cmd", "command": "nircmd setsysvolume 52428", "description": "establecer volumen al 80%", "safe": true}},  
-            {{"type": "powershell", "command": "Get-Volume | Set-Volume -NewFileSystemLabel 'MiDisco'", "description": "cambiar etiqueta", "safe": true}}  
+            {{"type": "cmd", "command": "comando_exacto_aquí", "description": "qué hace", "safe": true}},  
+            {{"type": "powershell", "command": "comando_powershell", "description": "qué hace", "safe": true}}  
         ],  
-        "execution_order": ["paso 1", "paso 2"],  
-        "estimated_success": 95  
+        "prerequisites": ["requisitos si los hay"],  
+        "estimated_time": 5,  
+        "risk_level": "low"  
     }}  
       
-    IMPORTANTE: Investiga y proporciona comandos REALES que FUNCIONAN en Windows 10/11.  
+    IMPORTANTE: Investiga y proporciona comandos REALES que funcionen en Windows.  
     """  
       
     try:  
@@ -424,62 +434,224 @@ def research_system_commands(task_description, username):
         print(f"❌ Error en investigación: {e}")  
         return None
   
-def parse_research_response(response):  
+def parse_research_response(response):
+    """
+    Parser robusto que puede extraer comandos de cualquier tipo de respuesta
+    """
+    if not response:
+        return None
+
+    try:
+        # Aceptar dict directamente
+        if isinstance(response, dict):
+            return response
+
+        # Normalizar a str
+        if isinstance(response, (bytes, bytearray)):
+            response = response.decode("utf-8", "replace")
+
+        text = response.strip()
+
+        # Intentar parsing directo del JSON
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                return json.loads(text)
+            except Exception:
+                pass  # seguimos con las regex
+
+        # Buscar JSON embebido en la respuesta (regex corregidas)
+        json_patterns = [
+            r'\{[^{}]*"commands"[^{}]*\[[^\]]*\][^{}]*\}',
+            r'\{.*?"task_analysis".*?\}',
+            r'\{.*?"commands".*?\}',
+        ]
+
+        for pattern in json_patterns:
+            m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    continue
+
+        # Parser de emergencia: extraer comandos de texto libre
+        commands = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            lowered = line.lower()
+
+            # Detectar comandos comunes
+            if any(cmd in lowered for cmd in [
+                'nircmd', 'reg add', 'taskkill', 'move ', 'copy ', 'mkdir',
+                'echo ', 'powershell', 'wmic', 'sc ', 'netsh'
+            ]):
+                # Extraer el comando
+                if ':' in line:
+                    cmd_part = line.split(':', 1)[1].strip()
+                else:
+                    cmd_part = line
+
+                # Determinar tipo
+                cmd_type = "powershell" if (
+                    'powershell' in lowered or
+                    any(ps in lowered for ps in [' set-', ' get-', ' new-'])
+                ) else "cmd"
+
+                commands.append({
+                    "type": cmd_type,
+                    "command": cmd_part.strip("`\"\\'"),
+                    "description": f"comando extraído: {cmd_part[:50]}...",
+                    "safe": True
+                })
+
+        if commands:
+            return {
+                "task_analysis": f"Comandos extraídos para: {text[:100]}...",
+                "commands": commands,
+                "prerequisites": [],
+                "estimated_time": 10,
+                "risk_level": "medium"
+            }
+
+        return None
+
+    except Exception as e:
+        print(f"❌ Error parseando respuesta: {e}")
+        return None
+
+        
+
+def autonomous_command_execution(user_request, username):  
     """  
-    Extrae información estructurada de la respuesta de investigación con mejor robustez  
+    Sistema completamente autónomo que puede ejecutar CUALQUIER comando de Windows  
+    """  
+    print(f"🔍 Detectada solicitud que requiere investigación autónoma...")  
+      
+    # 1. Buscar en base de aprendizaje primero  
+    learned_commands = search_learned_commands(user_request)  
+    if learned_commands:  
+        print("📚 Usando comandos de base de aprendizaje")  
+        execution_plan = {  
+            "task": user_request,  
+            "steps": [{"command": cmd["command"], "type": cmd["type"], "description": cmd["description"]}   
+                     for cmd in learned_commands],  
+            "source": "learned"  
+        }  
+    else:  
+        print("📚 Base de aprendizaje no tiene esta tarea, investigando...")  
+          
+        # 2. Investigación autónoma  
+        research_results = research_system_commands(user_request, username)  
+        if not research_results:  
+            return {"success": False, "summary": "No pude investigar cómo realizar esta tarea"}  
+          
+        # 3. Crear plan de ejecución  
+        execution_plan = create_execution_plan(research_results)  
+        if not execution_plan:  
+            return {"success": False, "summary": "No pude crear un plan de ejecución"}  
+      
+    # 4. Ejecutar plan  
+    print(f"🚀 Ejecutando plan: {execution_plan.get('task', 'tarea')}")  
+    execution_results = execute_autonomous_plan(execution_plan, username)  
+      
+    # 5. Si fue exitoso, guardar en base de aprendizaje  
+    if execution_results.get("success") and execution_plan.get("source") != "learned":  
+        save_successful_command(user_request, execution_plan["steps"], username)  
+      
+    return execution_results
+
+def save_successful_command(task_description, commands, username):  
+    """  
+    Guarda comandos exitosos en base de datos de aprendizaje  
     """  
     try:  
+        learned_commands_file = "learned_commands.json"  
           
-        # Limpiar la respuesta  
-        response = response.strip()  
+        # Cargar comandos existentes  
+        try:  
+            with open(learned_commands_file, 'r', encoding='utf-8') as f:  
+                learned_data = json.load(f)  
+        except:  
+            learned_data = {"commands": [], "contributors": {}}  
           
-        # Buscar JSON usando múltiples patrones  
-        json_patterns = [  
-            r'\\{[^{}]*"commands"[^{}]*\\[[^\\]]*\\][^{}]*\\}',  # Patrón básico  
-            r'\\{.*?"commands".*?\\[.*?\\].*?\\}',  # Patrón más flexible  
-            r'\\{(?:[^{}]|{[^{}]*})*\\}'  # Patrón más amplio  
-        ]  
+        # Agregar nuevo comando exitoso  
+        new_entry = {  
+            "task": task_description.lower(),  
+            "commands": commands,  
+            "success_count": 1,  
+            "contributor": username,  
+            "timestamp": time.time(),  
+            "keywords": task_description.lower().split()  
+        }  
           
-        for pattern in json_patterns:  
-            json_match = re.search(pattern, response, re.DOTALL)  
-            if json_match:  
-                json_str = json_match.group(0)  
-                try:  
-                    parsed = json.loads(json_str)  
-                    if "commands" in parsed and parsed["commands"]:  
-                        print(f"✅ JSON extraído exitosamente: {len(parsed['commands'])} comandos")  
-                        return parsed  
-                except json.JSONDecodeError:  
-                    continue  
+        # Buscar si ya existe  
+        existing = None  
+        for i, cmd in enumerate(learned_data["commands"]):  
+            if cmd["task"] == new_entry["task"]:  
+                existing = i  
+                break  
           
-        # Fallback: crear estructura para comandos comunes  
-        if "volumen" in response.lower():  
-            # Extraer porcentaje si está presente  
-            volume_match = re.search(r'(\\d+)%', response)  
-            if volume_match:  
-                percentage = int(volume_match.group(1))  
-                volume_value = int((percentage / 100) * 65535)  
-                return {  
-                    "task_analysis": f"Ajustar volumen del sistema al {percentage}%",  
-                    "commands": [  
-                        {  
-                            "type": "cmd",  
-                            "command": f"nircmd setsysvolume {volume_value}",  
-                            "description": f"establecer volumen al {percentage}%",  
-                            "safe": True  
-                        }  
-                    ],  
-                    "execution_order": ["Ejecutar comando de volumen"],  
-                    "estimated_success": 90  
-                }  
+        if existing is not None:  
+            learned_data["commands"][existing]["success_count"] += 1  
+            learned_data["commands"][existing]["timestamp"] = time.time()  
+        else:  
+            learned_data["commands"].append(new_entry)  
           
-        print("❌ No se pudo extraer JSON válido de la respuesta")  
+        # Actualizar estadísticas de contribuidores  
+        if username not in learned_data["contributors"]:  
+            learned_data["contributors"][username] = 0  
+        learned_data["contributors"][username] += 1  
+          
+        # Guardar  
+        with open(learned_commands_file, 'w', encoding='utf-8') as f:  
+            json.dump(learned_data, f, ensure_ascii=False, indent=2)  
+              
+        print(f"📚 Comando guardado en base de aprendizaje por {username}")  
+          
+    except Exception as e:  
+        print(f"❌ Error guardando comando: {e}")  
+  
+def search_learned_commands(task_description):  
+    """  
+    Busca comandos aprendidos previamente para tareas similares  
+    """  
+    try:  
+        learned_commands_file = "learned_commands.json"  
+          
+        with open(learned_commands_file, 'r', encoding='utf-8') as f:  
+            learned_data = json.load(f)  
+          
+        task_lower = task_description.lower()  
+        task_words = set(task_lower.split())  
+          
+        # Buscar coincidencias exactas primero  
+        for cmd in learned_data["commands"]:  
+            if cmd["task"] == task_lower:  
+                print(f"📚 Comando encontrado en base de aprendizaje (exacto)")  
+                return cmd["commands"]  
+          
+        # Buscar coincidencias por palabras clave  
+        best_match = None  
+        best_score = 0  
+          
+        for cmd in learned_data["commands"]:  
+            cmd_words = set(cmd["keywords"])  
+            intersection = task_words.intersection(cmd_words)  
+            score = len(intersection) / len(task_words.union(cmd_words))  
+              
+            if score > 0.5 and score > best_score:  
+                best_match = cmd  
+                best_score = score  
+          
+        if best_match:  
+            print(f"📚 Comando similar encontrado en base de aprendizaje (score: {best_score:.2f})")  
+            return best_match["commands"]  
+              
         return None  
           
     except Exception as e:  
-        print(f"❌ Error parseando respuesta: {e}")  
+        print(f"❌ Error buscando comandos aprendidos: {e}")  
         return None
-
 
   
 def extract_commands_from_text(text):  
