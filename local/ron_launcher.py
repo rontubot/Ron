@@ -372,8 +372,6 @@ def should_stay_active(user_input, bot_response):
     return False
 
 
-        return None
-
 def research_system_commands(task_description, username):  
     """  
     Investiga comandos específicos de Windows para ejecutar tareas  
@@ -1285,7 +1283,7 @@ def talk_to_ron(text):
         listening_active = True  
       
     return {"shutdown": False, "stay_active": False, "response": ""}
-    
+
   
 def requires_autonomous_execution(text):  
     """  
