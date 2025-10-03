@@ -16,7 +16,7 @@ import io
 import socket
 import unicodedata    
 from core.commands import run_command
-from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response 
+from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response, detect_farewell_patterns
 from core.memory import add_to_memory
 
 
