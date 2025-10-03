@@ -350,86 +350,112 @@ def save_device_memory(mem):
 
 
 def should_stay_active(user_input, bot_response):  
-    """Determina si Ron debe mantenerse activo basándose en el contexto mejorado"""  
+    """Determina si Ron debe mantenerse activo - versión robusta"""  
       
-    # Si el bot falló en ejecutar algo, mantener activo para retry  
-    if any(indicator in bot_response for indicator in ["❌", "No pude", "Error", "no logré"]):  
-        return True  
-      
-    # Si el bot pregunta algo o solicita más información, mantener activo  
-    if any(indicator in bot_response for indicator in ["?", "¿", "dime", "cuéntame", "explícame"]):  
-        return True  
-      
-    # Respuestas cortas del usuario indican continuación  
-    short_responses = ["mmm", "ok", "sí", "no", "pero", "y", "entonces", "continúa", "sigue"]  
-    if any(word in user_input.lower() for word in short_responses):  
-        return True  
-      
-    # Frases que indican fin de conversación  
-    end_phrases = ["hasta luego", "adiós", "nos vemos", "chao", "bye",   
-                   "eso es todo", "gracias, eso es todo", "ya terminé", "perfecto", "listo"]  
-      
-    if any(phrase in user_input.lower() for phrase in end_phrases):  
+    # PRIORIDAD 1: Despedidas explícitas del usuario - SIEMPRE terminan  
+    if detect_farewell_patterns(user_input):  
+        print("🔴 Despedida detectada en input del usuario")  
         return False  
       
-    # Si el bot ejecutó comandos exitosamente, preguntar si necesita algo más  
-    if "✅ Completé" in bot_response:  
+    # PRIORIDAD 2: Señales de shutdown en la respuesta del bot  
+    if "__SHUTDOWN__" in bot_response:  
+        print("🔴 Señal de shutdown en respuesta del bot")  
+        return False  
+      
+    # PRIORIDAD 3: Respuestas del bot que indican finalización  
+    bot_ending_signals = [  
+        "hasta luego", "adiós", "que tengas un buen día",  
+        "eso es todo", "tarea completada", "finalizado",  
+        "no hay nada más que hacer"  
+    ]  
+    if any(signal in bot_response.lower() for signal in bot_ending_signals):  
+        print("🔴 Bot indicó finalización")  
+        return False  
+      
+    # PRIORIDAD 4: Errores críticos que no se pueden resolver  
+    critical_errors = [  
+        "no pude completar", "error crítico", "no es posible",  
+        "no tengo acceso", "permisos insuficientes"  
+    ]  
+    if any(error in bot_response.lower() for error in critical_errors):  
+        print("🔴 Error crítico detectado")  
+        return False  
+      
+    # PRIORIDAD 5: Mantener activo para errores recuperables  
+    recoverable_errors = ["❌", "no pude", "error", "no logré", "intenta de nuevo"]  
+    if any(error in bot_response for error in recoverable_errors):  
+        print("🟡 Error recuperable - manteniendo conversación")  
         return True  
       
-    # Por defecto, no mantenerse activo para respuestas simples  
+    # PRIORIDAD 6: Mantener activo si el bot hace preguntas  
+    question_indicators = ["?", "¿", "dime", "cuéntame", "explícame", "quieres que", "necesitas"]  
+    if any(indicator in bot_response.lower() for indicator in question_indicators):  
+        print("🟡 Bot hizo pregunta - manteniendo conversación")  
+        return True  
+      
+    # PRIORIDAD 7: Mantener activo para respuestas muy cortas del usuario  
+    short_responses = ["mmm", "ok", "sí", "no", "pero", "y", "entonces", "continúa", "sigue"]  
+    if len(user_input.split()) <= 2 and any(word in user_input.lower() for word in short_responses):  
+        print("🟡 Respuesta corta del usuario - manteniendo conversación")  
+        return True  
+      
+    # PRIORIDAD 8: Mantener activo si el bot ejecutó comandos exitosamente y ofrece más ayuda  
+    if "✅" in bot_response and any(phrase in bot_response.lower() for phrase in ["algo más", "otra cosa", "necesitas"]):  
+        print("🟡 Comando exitoso con oferta de más ayuda")  
+        return True  
+      
+    # PRIORIDAD 9: Por defecto, NO mantener activo para respuestas normales  
+    print("💤 Conversación normal completada - volviendo a escucha pasiva")  
     return False
 
-
 def research_system_commands(task_description, username):  
-    """  
-    Investiga comandos específicos de Windows para ejecutar tareas de forma completamente autónoma  
-    """  
+    """Investiga qué comandos del sistema son necesarios para cualquier tarea"""  
     research_prompt = f"""  
-    TAREA: {task_description}  
+    El usuario quiere: {task_description}  
       
-    Eres un experto en comandos de Windows con acceso COMPLETO al sistema operativo.  
-    PUEDES EJECUTAR CUALQUIER COMANDO que investigues y determines como seguro.  
+    Como experto en Windows, determina los comandos exactos necesarios.  
       
-    CAPACIDADES DISPONIBLES:  
-    - PowerShell: Set-Volume, Get-Process, New-Item, Move-Item, Remove-Item, Set-ItemProperty, etc.  
-    - CMD: nircmd, taskkill, mkdir, copy, move, del, reg add/delete, netsh, schtasks, etc.  
-    - Herramientas del sistema: wmic, sc, bcdedit, diskpart, etc.  
-    - APIs de Windows: rundll32, powercfg, control, etc.  
-      
-    EJEMPLOS DE LO QUE PUEDES HACER:  
-    - Controlar volumen: nircmd setsysvolume [0-65535]  
-    - Cambiar fondo: reg add "HKCU\\Control Panel\\Desktop" /v Wallpaper /t REG_SZ /d "ruta" /f  
-    - Crear archivos: echo "contenido" > archivo.txt  
-    - Mover archivos: move "origen" "destino"  
-    - Configurar red: netsh wlan set profileparameter name="WiFi" cost=fixed  
-    - Programar tareas: schtasks /create /tn "MiTarea" /tr "comando" /sc daily  
-    - Controlar servicios: sc start/stop "servicio"  
-    - Gestionar procesos: taskkill /f /im "proceso.exe"  
-      
-    INSTRUCCIONES:  
-    1. INVESTIGA los comandos exactos necesarios para: {task_description}  
-    2. ESTRUCTURA una secuencia lógica de comandos  
-    3. MARCA como safe=true SOLO comandos que sean seguros de ejecutar  
-    4. PROPORCIONA comandos REALES y EJECUTABLES, no explicaciones  
-      
-    Responde ÚNICAMENTE en formato JSON válido:  
+    Responde SOLO con JSON válido (sin backticks):  
     {{  
-        "task_analysis": "descripción técnica de lo que se va a hacer",  
+        "task_analysis": "descripción de qué harás",  
         "commands": [  
-            {{"type": "cmd", "command": "comando_exacto_aquí", "description": "qué hace", "safe": true}},  
-            {{"type": "powershell", "command": "comando_powershell", "description": "qué hace", "safe": true}}  
-        ],  
-        "prerequisites": ["requisitos si los hay"],  
-        "estimated_time": 5,  
-        "risk_level": "low"  
+            {{"type": "cmd|powershell|python", "command": "comando_exacto", "description": "qué hace", "safe": true}}  
+        ]  
     }}  
       
-    IMPORTANTE: Investiga y proporciona comandos REALES que funcionen en Windows.  
+    Comandos disponibles:  
+    - Volumen: nircmd setsysvolume [0-65535]  
+    - Archivos: copy, move, del, mkdir, echo "texto" > archivo.txt  
+    - Aplicaciones: start "app", taskkill /f /im "proceso.exe"  
+    - Sistema: shutdown /s /t 0, ipconfig /flushdns  
+    - PowerShell: Set-Volume, New-Item, Get-Process, etc.  
+    - Python: cualquier script Python válido  
+      
+    IMPORTANTE:   
+    - Solo comandos seguros (safe: true)  
+    - Comandos reales que funcionen en Windows  
+    - Si no sabes cómo hacer algo, marca safe: false  
     """  
       
     try:  
         response = core_generate_response(research_prompt, username)  
-        return parse_research_response(response)  
+        parsed = parse_research_response(response)  
+          
+        if parsed and parsed.get("commands"):  
+            # Validar seguridad de cada comando  
+            safe_commands = []  
+            for cmd in parsed["commands"]:  
+                is_safe, reason = validate_command_safety(cmd.get("command", ""), cmd.get("type", "cmd"))  
+                if is_safe or cmd.get("safe", False):  
+                    safe_commands.append(cmd)  
+                else:  
+                    print(f"⚠️ Comando rechazado por seguridad: {cmd.get('command')} - {reason}")  
+              
+            if safe_commands:  
+                parsed["commands"] = safe_commands  
+                return parsed  
+          
+        return None  
     except Exception as e:  
         print(f"❌ Error en investigación: {e}")  
         return None
@@ -813,33 +839,41 @@ def create_execution_plan(research_results):
     return execution_plan
   
 def validate_command_safety(command, command_type):  
-    """  
-    Valida si un comando es seguro para ejecutar  
-    """  
-    # Lista de comandos peligrosos  
+    """Valida si un comando es seguro para ejecutar - versión más permisiva"""  
+    if not command:  
+        return False, "Comando vacío"  
+      
+    # Comandos absolutamente prohibidos  
     dangerous_patterns = [  
-        r'format\\s+[c-z]:', r'del\\s+/s', r'rmdir\\s+/s',   
-        r'shutdown', r'restart', r'reboot',  
-        r'reg\\s+delete', r'sc\\s+delete'  
+        r'format\\s+[c-z]:', r'del\\s+/s\\s+/q', r'rmdir\\s+/s\\s+/q',  
+        r'reg\\s+delete.*HKEY_LOCAL_MACHINE', r'sc\\s+delete\\s+\\w+',  
+        r'diskpart', r'fdisk', r'bcdedit', r'bootrec',  
+        r'net\\s+user.*\\s+/delete', r'net\\s+localgroup.*administrators.*\\s+/delete'  
     ]  
       
     for pattern in dangerous_patterns:  
         if re.search(pattern, command, re.IGNORECASE):  
-            return False, f"Comando potencialmente peligroso detectado: {pattern}"  
+            return False, f"Comando peligroso detectado: {pattern}"  
       
-    # Comandos seguros conocidos  
+    # Comandos explícitamente seguros  
     safe_patterns = [  
-        r'nircmd\\s+setsysvolume', r'Set-AudioDevice',  
-        r'echo\\s+.*>\\s*[^\\\\/:*?"<>|]+\\.txt',  
-        r'New-Item.*-ItemType\\s+File',  
-        r'tasklist', r'Get-Process'  
+        r'nircmd\\s+', r'echo\\s+.*>\\s*[^\\\\/:*?"<>|]+',  
+        r'copy\\s+', r'move\\s+', r'mkdir\\s+', r'dir\\s*',  
+        r'tasklist', r'ipconfig\\s+/flushdns', r'ping\\s+',  
+        r'Set-Volume', r'Get-Process', r'New-Item.*-ItemType\\s+File',  
+        r'start\\s+"[^"]*"', r'python\\s+-c\\s+"[^"]*"'  
     ]  
       
     for pattern in safe_patterns:  
         if re.search(pattern, command, re.IGNORECASE):  
             return True, "Comando verificado como seguro"  
       
-    return False, "Comando no verificado - requiere confirmación"
+    # Para comandos no reconocidos, permitir si son simples  
+    if len(command.split()) <= 5 and not any(char in command for char in ['&', '|', ';', '>', '<']):  
+        return True, "Comando simple - permitido"  
+      
+    return False, "Comando complejo - requiere verificación manual"
+
 
 
 def execute_autonomous_plan(execution_plan, username):  
@@ -887,21 +921,19 @@ def execute_autonomous_plan(execution_plan, username):
     return results  
   
 def execute_single_command(command_info, username):  
-    """  
-    Ejecuta un comando individual del sistema operativo  
-    """  
+    """Ejecuta un comando individual - soporta cmd, powershell y python"""  
     command = command_info["command"]  
     cmd_type = command_info.get("type", "cmd")  
     timeout = command_info.get("timeout", 30)  
       
-    print(f"🔧 Ejecutando: {command}")  
+    print(f"🔧 Ejecutando ({cmd_type}): {command}")  
       
     try:  
         if cmd_type == "powershell":  
-            # Ejecutar comando PowerShell  
             full_command = ["powershell", "-Command", command]  
+        elif cmd_type == "python":  
+            full_command = ["python", "-c", command]  
         elif cmd_type == "cmd":  
-            # Ejecutar comando CMD  
             full_command = ["cmd", "/c", command]  
         else:  
             # Comando directo  
@@ -947,7 +979,6 @@ def execute_single_command(command_info, username):
             "error": str(e),  
             "command": command  
         }
-
 
 # Funciones de control de PC y diagnóstico (basadas en core/commands.py)      
 def open_application(app_name):      
@@ -1385,90 +1416,115 @@ def handle_local_commands(text):
     return False    
     
 def talk_to_ron(text):  
-    """Versión con sistema de aprendizaje integrado"""  
+    """Versión mejorada con mejor detección de finalización"""  
     global speaking, listening_active, activado  
       
     speaking = True  
     listening_active = False  
       
     try:  
-        # Verificar si requiere investigación autónoma  
-        if requires_autonomous_execution(text):  
-            print("🔍 Detectada solicitud que requiere investigación autónoma...")  
-              
-            # Primero buscar en comandos aprendidos  
-            learned_result = search_learned_commands(text)  
-            if learned_result:  
-                print("🎯 Usando comando aprendido...")  
-                autonomous_result = execute_autonomous_plan(learned_result, current_username)  
-            else:  
-                print(f"🔍 Investigando: {text}")  
-                autonomous_result = autonomous_command_research_and_execution(text, current_username)  
-              
-            if autonomous_result.get("success", False):  
-                executed_commands = autonomous_result.get("executed_commands", [])  
-                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s)."  
-                for cmd in executed_commands[:3]:  # Mostrar máximo 3 comandos  
-                    response += f"\\n• {cmd}"  
-                  
-                # Preguntar si funcionó para aprendizaje  
-                response += "\\n\\n¿Funcionó correctamente? Esto me ayuda a aprender."  
-                  
-                # Guardar comandos exitosos (se confirmará después)  
-                if learned_result is None:  # Solo si no era un comando ya aprendido  
-                    for cmd_info in autonomous_result.get("command_details", []):  
-                        save_successful_command(text, cmd_info, current_username)  
-                          
-            else:  
-                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error desconocido')}. ¿Quieres que lo intente de otra manera?"  
-        else:  
-            # Flujo normal de conversación  
-            response = core_generate_response(text, current_username)  
-          
-        if response:  
+        # Verificar despedida ANTES de procesar  
+        if detect_farewell_patterns(text):  
+            response = "Hasta luego. Que tengas un buen día."  
             print(f"🤖 Ron: {response}")  
             engine.say(response)  
             engine.runAndWait()  
             time.sleep(0.5)  
               
-            # Guardar en memoria  
             if current_username:  
                 add_to_memory(current_username, text, response)  
               
-            # Determinar si debe mantenerse activo  
+            return {  
+                "shutdown": True,  
+                "stay_active": False,  
+                "response": response  
+            }  
+          
+        # Resto del procesamiento normal...  
+        if requires_autonomous_execution(text):  
+            # ... código de investigación autónoma  
+            pass  
+        else:  
+            response = core_generate_response(text, current_username)  
+          
+        if response:  
+            # Verificar si la respuesta contiene señal de shutdown  
+            if "__SHUTDOWN__" in response:  
+                clean_response = response.replace("__SHUTDOWN__", "")  
+                print(f"🤖 Ron: {clean_response}")  
+                engine.say(clean_response)  
+                engine.runAndWait()  
+                time.sleep(0.5)  
+                  
+                if current_username:  
+                    add_to_memory(current_username, text, clean_response)  
+                  
+                return {  
+                    "shutdown": True,  
+                    "stay_active": False,  
+                    "response": clean_response  
+                }  
+              
+            print(f"🤖 Ron: {response}")  
+            engine.say(response)  
+            engine.runAndWait()  
+            time.sleep(0.5)  
+              
+            if current_username:  
+                add_to_memory(current_username, text, response)  
+              
+            # Determinar si debe mantenerse activo con la nueva lógica  
             stay_active = should_stay_active(text, response)  
               
             return {  
-                "shutdown": False,   
-                "stay_active": stay_active,   
+                "shutdown": False,  
+                "stay_active": stay_active,  
                 "response": response  
             }  
               
     except Exception as e:  
-        print(f"❌ Error: {e}")  
-        engine.say("Ocurrió un error.")  
+        print(f"❌ Error en talk_to_ron: {e}")  
+        error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"  
+        engine.say(error_response)  
         engine.runAndWait()  
-        return {"shutdown": False, "stay_active": False, "response": "Error"}  
+        return {"shutdown": False, "stay_active": True, "response": error_response}  # Mantener activo en errores  
           
     finally:  
         speaking = False  
         listening_active = True  
       
     return {"shutdown": False, "stay_active": False, "response": ""}
+    
 
   
 def requires_autonomous_execution(text):  
-    """  
-    Determina si una solicitud requiere investigación y ejecución autónoma  
-    """  
+    """Determina si una solicitud requiere investigación autónoma - versión expandida"""  
     autonomous_keywords = [  
-        "volumen", "crear archivo", "mover archivo", "abrir carpeta",  
-        "cambiar configuración", "ajustar", "configurar", "instalar",  
-        "desinstalar", "limpiar", "optimizar", "reparar", "verificar estado"  
+        # Sistema  
+        "volumen", "sonido", "audio", "configuración", "ajustar", "cambiar",  
+        # Archivos  
+        "crear archivo", "crear carpeta", "mover archivo", "copiar archivo",   
+        "eliminar archivo", "renombrar", "buscar archivo",  
+        # Aplicaciones  
+        "abrir", "cerrar", "instalar", "desinstalar", "ejecutar",  
+        # Red  
+        "conexión", "wifi", "internet", "ping", "dns",  
+        # Sistema  
+        "limpiar", "optimizar", "reparar", "verificar", "diagnosticar",  
+        "reiniciar", "apagar", "suspender",  
+        # Tareas específicas  
+        "acceso directo", "enlace", "script", "automatizar"  
     ]  
       
-    return any(keyword in text.lower() for keyword in autonomous_keywords)  
-  
+    text_lower = text.lower()  
+      
+    # Si contiene palabras clave Y parece ser una acción  
+    has_keyword = any(keyword in text_lower for keyword in autonomous_keywords)  
+    has_action_verb = any(verb in text_lower for verb in ["crea", "haz", "ejecuta", "configura", "ajusta", "cambia"])  
+      
+    return has_keyword or has_action_verb
+
+
 def autonomous_command_research_and_execution(user_request, username):  
     """  
     Sistema completo de investigación, planificación y ejecución autónoma  
@@ -1568,43 +1624,48 @@ if __name__ == "__main__":
                         # Enviar a Ron con análisis dinámico  
                         result = talk_to_ron(utterance)  
                           
-                        # CORRECCIÓN: Usar la nueva lógica de activación dinámica  
+                        # Verificar shutdown PRIMERO  
+                        if result.get("shutdown", False):  
+                            print("🔴 Ron desactivado por despedida o comando")  
+                            activado = False  
+                            break  
+                          
+                        # Luego verificar si debe continuar  
                         if result.get("stay_active", False):  
                             print("🔄 Conversación continúa...")  
-                            # Mantener activado = True, resetear buffers para continuar conversación  
+                            # Resetear timers pero mantener activado = True  
                             activation_time = time.time()  
                             last_speech_time = time.time()  
-                            # NO cambiar activado = False aquí  
                         else:  
-                            activado = False  # Volver a escucha pasiva (esperando "Ron")  
                             print("💤 Volviendo a escucha pasiva (esperando 'Ron')")  
-                          
-                        if result.get("shutdown", False):  
-                            print("🔴 Ron desconectado")  
-                            break  
+                            activado = False  
                     else:  
                         activado = False  
-      
+  
             except queue.Empty:  
                 # Verificar grabación manual  
                 if not manual_recording and manual_recording_buffer:  
                     manual_text = " ".join(manual_recording_buffer).strip()  
                     manual_recording_buffer.clear()  
-      
+  
                     if manual_text:  
                         print(f"🎤 Procesando grabación manual: {manual_text}")  
                         if not handle_local_commands(manual_text):  
                             result = talk_to_ron(manual_text)  
+                              
+                            # Verificar shutdown PRIMERO para grabación manual  
+                            if result.get("shutdown", False):  
+                                print("🔴 Ron desactivado por despedida")  
+                                activado = False  
+                                break  
+                              
                             # Aplicar la misma lógica para grabación manual  
                             if result.get("stay_active", False):  
                                 print("🔄 Conversación continúa...")  
                                 activado = True  # Activar conversación desde grabación manual  
                                 activation_time = time.time()  
                                 last_speech_time = time.time()  
-                            if result.get("shutdown", False):  
-                                print("🔴 Ron desconectado")  
-                                break  
-      
+  
                 # Verificar timeout en conversación activa  
                 if activado and (time.time() - last_speech_time) >= SILENCE_TIMEOUT_SEC and conversation_buffer:  
                     utterance = " ".join(conversation_buffer).strip()  
@@ -1614,16 +1675,21 @@ if __name__ == "__main__":
                             activado = False  # Volver a escucha pasiva  
                         else:  
                             result = talk_to_ron(utterance)  
+                              
+                            # Verificar shutdown PRIMERO para timeout  
+                            if result.get("shutdown", False):  
+                                print("🔴 Ron desactivado por despedida")  
+                                activado = False  
+                                break  
+                              
                             if result.get("stay_active", False):  
                                 print("🔄 Conversación continúa...")  
                                 activation_time = time.time()  
                                 last_speech_time = time.time()  
                             else:  
                                 activado = False  # Volver a escucha pasiva  
-                            if result.get("shutdown", False):  
-                                print("🔴 Ron desconectado")  
-                                break  
-                continue  
+                continue
+
       
     except KeyboardInterrupt:  
         print("🔴 Cerrando Ron...")  

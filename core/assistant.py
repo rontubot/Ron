@@ -355,10 +355,42 @@ def parse_commands_only(gpt_response: str) -> dict:
 
 
 
-
-def detect_farewell_patterns(user_input: str) -> bool:
-    """Detección simplificada de despedidas - SOLO 'hasta luego'"""
-    return "hasta luego" in (user_input or "").lower()
+def detect_farewell_patterns(user_input: str) -> bool:  
+    """Detección robusta de despedidas"""  
+    if not user_input:  
+        return False  
+      
+    farewell_patterns = [  
+        # Despedidas directas  
+        "hasta luego", "adiós", "nos vemos", "chao", "bye", "goodbye", "see you",  
+        "hasta pronto", "hasta mañana", "me voy", "ya me voy",  
+          
+        # Comandos de desactivación  
+        "desactívate", "desactivate", "apágate", "ciérrate", "termina",  
+        "sal", "salir", "exit", "quit",  
+          
+        # Finalizaciones de tarea  
+        "eso es todo", "ya terminé", "ya está", "perfecto", "listo",  
+        "gracias, eso es todo", "no necesito nada más", "ya no necesito nada",  
+          
+        # Confirmaciones de finalización  
+        "está bien así", "así está bien", "perfecto así", "ya está listo"  
+    ]  
+      
+    user_lower = user_input.lower().strip()  
+      
+    # Detectar patrones exactos  
+    for pattern in farewell_patterns:  
+        if pattern in user_lower:  
+            return True  
+      
+    # Detectar frases cortas que indican finalización  
+    short_endings = ["ok", "vale", "bien", "perfecto", "listo", "gracias"]  
+    words = user_lower.split()  
+    if len(words) <= 2 and any(word in short_endings for word in words):  
+        return True  
+      
+    return False
 
 
 def construir_historial_openai():
