@@ -1435,7 +1435,7 @@ def talk_to_ron(text):
                 add_to_memory(current_username, text, response)  
               
             return {  
-                "shutdown": True,  
+                "shutdown": False,  
                 "stay_active": False,  
                 "response": response  
             }  
@@ -1494,7 +1494,7 @@ def talk_to_ron(text):
         listening_active = True  
       
     return {"shutdown": False, "stay_active": False, "response": ""}
-    
+
 
   
 def requires_autonomous_execution(text):  
