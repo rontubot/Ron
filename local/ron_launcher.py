@@ -1416,11 +1416,12 @@ def handle_local_commands(text):
     return False    
     
 def talk_to_ron(text):  
-    """Versión mejorada con mejor detección de finalización"""  
+    """Versión mejorada con mejor detección de finalización y manejo de errores"""  
     global speaking, listening_active, activado  
       
     speaking = True  
     listening_active = False  
+    response = None  # Inicializar response para evitar errores  
       
     try:  
         # Verificar despedida ANTES de procesar  
@@ -1435,56 +1436,75 @@ def talk_to_ron(text):
                 add_to_memory(current_username, text, response)  
               
             return {  
-                "shutdown": False,  
-                "stay_active": False,  
+                "shutdown": False,  # NO terminar programa, solo conversación  
+                "stay_active": False,  # Volver a escucha pasiva  
                 "response": response  
             }  
           
-        # Resto del procesamiento normal...  
+        # Verificar si requiere investigación autónoma  
         if requires_autonomous_execution(text):  
-            # ... código de investigación autónoma  
-            pass  
+            print("🔍 Detectada solicitud que requiere investigación autónoma...")  
+            autonomous_result = autonomous_command_research_and_execution(text, current_username)  
+              
+            if autonomous_result.get("success", False):  
+                executed_commands = autonomous_result.get("executed_commands", [])  
+                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."  
+                  
+                # Mostrar resultados de comandos ejecutados  
+                for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar  
+                    if cmd_result.get("success"):  
+                        response += f"\\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"  
+                    else:  
+                        response += f"\\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"  
+            else:  
+                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"  
         else:  
+            # Flujo normal de conversación  
             response = core_generate_response(text, current_username)  
           
-        if response:  
-            # Verificar si la respuesta contiene señal de shutdown  
-            if "__SHUTDOWN__" in response:  
-                clean_response = response.replace("__SHUTDOWN__", "")  
-                print(f"🤖 Ron: {clean_response}")  
-                engine.say(clean_response)  
-                engine.runAndWait()  
-                time.sleep(0.5)  
-                  
-                if current_username:  
-                    add_to_memory(current_username, text, clean_response)  
-                  
-                return {  
-                    "shutdown": True,  
-                    "stay_active": False,  
-                    "response": clean_response  
-                }  
-              
-            print(f"🤖 Ron: {response}")  
-            engine.say(response)  
+        # Asegurar que response tenga un valor  
+        if not response:  
+            response = "❌ No pude procesar tu solicitud. ¿Puedes intentar de nuevo?"  
+          
+        # Verificar si la respuesta contiene señal de shutdown  
+        if "__SHUTDOWN__" in response:  
+            clean_response = response.replace("__SHUTDOWN__", "")  
+            print(f"🤖 Ron: {clean_response}")  
+            engine.say(clean_response)  
             engine.runAndWait()  
             time.sleep(0.5)  
               
             if current_username:  
-                add_to_memory(current_username, text, response)  
-              
-            # Determinar si debe mantenerse activo con la nueva lógica  
-            stay_active = should_stay_active(text, response)  
+                add_to_memory(current_username, text, clean_response)  
               
             return {  
-                "shutdown": False,  
-                "stay_active": stay_active,  
-                "response": response  
+                "shutdown": False,  # NO terminar programa  
+                "stay_active": False,  # Volver a escucha pasiva  
+                "response": clean_response  
             }  
-              
+          
+        print(f"🤖 Ron: {response}")  
+        engine.say(response)  
+        engine.runAndWait()  
+        time.sleep(0.5)  
+          
+        # Guardar en memoria  
+        if current_username:  
+            add_to_memory(current_username, text, response)  
+          
+        # Determinar si debe mantenerse activo con la nueva lógica  
+        stay_active = should_stay_active(text, response)  
+          
+        return {  
+            "shutdown": False,  
+            "stay_active": stay_active,  
+            "response": response  
+        }  
+          
     except Exception as e:  
         print(f"❌ Error en talk_to_ron: {e}")  
         error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"  
+        print(f"🤖 Ron: {error_response}")  
         engine.say(error_response)  
         engine.runAndWait()  
         return {"shutdown": False, "stay_active": True, "response": error_response}  # Mantener activo en errores  
