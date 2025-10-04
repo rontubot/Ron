@@ -1416,7 +1416,7 @@ def handle_local_commands(text):
     return False    
     
 def talk_to_ron(text):  
-    """Versión mejorada con mejor detección de finalización y manejo de errores"""  
+    """Versión mejorada que prioriza comandos básicos sobre investigación autónoma"""  
     global speaking, listening_active, activado  
       
     speaking = True  
@@ -1441,8 +1441,11 @@ def talk_to_ron(text):
                 "response": response  
             }  
           
-        # Verificar si requiere investigación autónoma  
-        if requires_autonomous_execution(text):  
+        # PRIORIDAD 1: Intentar procesamiento normal (incluye comandos básicos)  
+        response = core_generate_response(text, current_username)  
+          
+        # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma  
+        if not response and requires_autonomous_execution(text):  
             print("🔍 Detectada solicitud que requiere investigación autónoma...")  
             autonomous_result = autonomous_command_research_and_execution(text, current_username)  
               
@@ -1450,7 +1453,6 @@ def talk_to_ron(text):
                 executed_commands = autonomous_result.get("executed_commands", [])  
                 response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."  
                   
-                # Mostrar resultados de comandos ejecutados  
                 for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar  
                     if cmd_result.get("success"):  
                         response += f"\\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"  
@@ -1458,9 +1460,6 @@ def talk_to_ron(text):
                         response += f"\\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"  
             else:  
                 response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"  
-        else:  
-            # Flujo normal de conversación  
-            response = core_generate_response(text, current_username)  
           
         # Asegurar que response tenga un valor  
         if not response:  
@@ -1514,7 +1513,6 @@ def talk_to_ron(text):
         listening_active = True  
       
     return {"shutdown": False, "stay_active": False, "response": ""}
-
 
   
 def requires_autonomous_execution(text):  
