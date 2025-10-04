@@ -250,7 +250,160 @@ def suspend():
     except Exception as e:  
         logger.error(f"Error al suspender: {str(e)}")  
         return f"Error al suspender: {e}"  
+ 
+
+def set_volume(level):  
+    """Ajusta el volumen del sistema"""  
+    try:  
+        logger.info(f"Ajustando volumen al {level}%")  
+          
+        # Convertir porcentaje a valor nircmd (0-65535)  
+        if isinstance(level, str):  
+            level = int(level.replace('%', ''))  
+          
+        volume_value = int((level / 100) * 65535)  
+          
+        # Usar nircmd para ajustar volumen  
+        result = subprocess.run(f'nircmd setsysvolume {volume_value}', shell=True, capture_output=True, text=True)  
+          
+        if result.returncode == 0:  
+            return f"Volumen ajustado al {level}%"  
+        else:  
+            return f"Error ajustando volumen: {result.stderr}"  
+              
+    except Exception as e:  
+        logger.error(f"Error ajustando volumen: {str(e)}")  
+        return f"Error ajustando volumen: {e}"  
   
+def create_file(file_path, content=""):  
+    """Crea un archivo con contenido opcional"""  
+    try:  
+        logger.info(f"Creando archivo: {file_path}")  
+          
+        # Crear directorio padre si no existe  
+        import os  
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)  
+          
+        with open(file_path, 'w', encoding='utf-8') as f:  
+            f.write(content)  
+          
+        return f"Archivo creado: {file_path}"  
+          
+    except Exception as e:  
+        logger.error(f"Error creando archivo: {str(e)}")  
+        return f"Error creando archivo: {e}"  
+  
+def create_folder(folder_path):  
+    """Crea una carpeta"""  
+    try:  
+        logger.info(f"Creando carpeta: {folder_path}")  
+          
+        import os  
+        os.makedirs(folder_path, exist_ok=True)  
+          
+        return f"Carpeta creada: {folder_path}"  
+          
+    except Exception as e:  
+        logger.error(f"Error creando carpeta: {str(e)}")  
+        return f"Error creando carpeta: {e}"  
+  
+def move_file(source, destination):  
+    """Mueve un archivo de origen a destino"""  
+    try:  
+        logger.info(f"Moviendo archivo de {source} a {destination}")  
+          
+        import shutil  
+        import os  
+          
+        # Crear directorio destino si no existe  
+        os.makedirs(os.path.dirname(destination), exist_ok=True)  
+          
+        shutil.move(source, destination)  
+          
+        return f"Archivo movido de {source} a {destination}"  
+          
+    except Exception as e:  
+        logger.error(f"Error moviendo archivo: {str(e)}")  
+        return f"Error moviendo archivo: {e}"  
+  
+def copy_file(source, destination):  
+    """Copia un archivo de origen a destino"""  
+    try:  
+        logger.info(f"Copiando archivo de {source} a {destination}")  
+          
+        import shutil  
+        import os  
+          
+        # Crear directorio destino si no existe  
+        os.makedirs(os.path.dirname(destination), exist_ok=True)  
+          
+        shutil.copy2(source, destination)  
+          
+        return f"Archivo copiado de {source} a {destination}"  
+          
+    except Exception as e:  
+        logger.error(f"Error copiando archivo: {str(e)}")  
+        return f"Error copiando archivo: {e}"  
+  
+def create_shortcut(target_path, shortcut_path, description=""):  
+    """Crea un acceso directo"""  
+    try:  
+        logger.info(f"Creando acceso directo: {shortcut_path} -> {target_path}")  
+          
+        # Usar PowerShell para crear acceso directo  
+        ps_command = f'''  
+        $WshShell = New-Object -comObject WScript.Shell  
+        $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")  
+        $Shortcut.TargetPath = "{target_path}"  
+        $Shortcut.Description = "{description}"  
+        $Shortcut.Save()  
+        '''  
+          
+        result = subprocess.run(['powershell', '-Command', ps_command], capture_output=True, text=True)  
+          
+        if result.returncode == 0:  
+            return f"Acceso directo creado: {shortcut_path}"  
+        else:  
+            return f"Error creando acceso directo: {result.stderr}"  
+              
+    except Exception as e:  
+        logger.error(f"Error creando acceso directo: {str(e)}")  
+        return f"Error creando acceso directo: {e}"  
+  
+def delete_file(file_path):  
+    """Elimina un archivo"""  
+    try:  
+        logger.info(f"Eliminando archivo: {file_path}")  
+          
+        import os  
+        os.remove(file_path)  
+          
+        return f"Archivo eliminado: {file_path}"  
+          
+    except Exception as e:  
+        logger.error(f"Error eliminando archivo: {str(e)}")  
+        return f"Error eliminando archivo: {e}"  
+  
+def list_files(directory_path):  
+    """Lista archivos en un directorio"""  
+    try:  
+        logger.info(f"Listando archivos en: {directory_path}")  
+          
+        import os  
+        files = os.listdir(directory_path)  
+          
+        if files:  
+            file_list = "\\n".join(files[:20])  # Limitar a 20 archivos  
+            return f"Archivos en {directory_path}:\\n{file_list}"  
+        else:  
+            return f"No hay archivos en {directory_path}"  
+              
+    except Exception as e:  
+        logger.error(f"Error listando archivos: {str(e)}")  
+        return f"Error listando archivos: {e}"
+
+        
+
 # ===== NUEVAS FUNCIONES DE DIAGNÓSTICO Y REPARACIÓN =====  
   
 def diagnose_system_performance():  
@@ -536,44 +689,52 @@ def cmd_remove_reminder(params, ctx):
 
 
 
-COMMANDS = {
-    # ——— Recordatorios
-    "add_reminder": cmd_add_reminder,
-    "get_reminders": cmd_get_reminders,
-    "update_reminder": cmd_update_reminder,
-    "remove_reminder": cmd_remove_reminder,
-
-    # Sinónimos (opcional)
-    "agregar_recordatorio": cmd_add_reminder,
-    "listar_recordatorios": cmd_get_reminders,
-    "actualizar_recordatorio": cmd_update_reminder,
-    "eliminar_recordatorio": cmd_remove_reminder,
-
-    # ——— Apps / web
-    "open_application": open_application,
-    "close_application": close_application,
-    "try_web_fallback": try_web_fallback,
-    "search_google": search_google,
-    "search_youtube": search_youtube,
-
-    # ——— Sistema
-    "shutdown": shutdown,
-    "restart": restart,
-    "suspend": suspend,
-    "diagnose_system_performance": diagnose_system_performance,
-    "check_system_services": check_system_services,
-    "restart_critical_services": restart_critical_services,
-    "clean_temp_files": clean_temp_files,
-    "flush_dns": flush_dns,
-    "network_reset": network_reset,
-    "check_disk_space": check_disk_space,
-    "system_file_check": system_file_check,
-
-    # ——— Utilidad
-    "get_weather": get_weather,
+COMMANDS = {  
+    # ——— Recordatorios  
+    "add_reminder": cmd_add_reminder,  
+    "get_reminders": cmd_get_reminders,  
+    "update_reminder": cmd_update_reminder,  
+    "remove_reminder": cmd_remove_reminder,  
+  
+    # Sinónimos (opcional)  
+    "agregar_recordatorio": cmd_add_reminder,  
+    "listar_recordatorios": cmd_get_reminders,  
+    "actualizar_recordatorio": cmd_update_reminder,  
+    "eliminar_recordatorio": cmd_remove_reminder,  
+  
+    # ——— Apps / web  
+    "open_application": open_application,  
+    "close_application": close_application,  
+    "try_web_fallback": try_web_fallback,  
+    "search_google": search_google,  
+    "search_youtube": search_youtube,  
+  
+    # ——— Sistema  
+    "shutdown": shutdown,  
+    "restart": restart,  
+    "suspend": suspend,  
+    "diagnose_system_performance": diagnose_system_performance,  
+    "check_system_services": check_system_services,  
+    "restart_critical_services": restart_critical_services,  
+    "clean_temp_files": clean_temp_files,  
+    "flush_dns": flush_dns,  
+    "network_reset": network_reset,  
+    "check_disk_space": check_disk_space,  
+    "system_file_check": system_file_check,  
+  
+    # ——— Comandos Básicos Nuevos  
+    "set_volume": set_volume,  
+    "create_file": create_file,  
+    "create_folder": create_folder,  
+    "move_file": move_file,  
+    "copy_file": copy_file,  
+    "create_shortcut": create_shortcut,  
+    "delete_file": delete_file,  
+    "list_files": list_files,  
+  
+    # ——— Utilidad  
+    "get_weather": get_weather,  
 }
-
-
 
 
 def run_command(cmd_name: str, params: dict | None = None, ctx: dict | None = None) -> dict:

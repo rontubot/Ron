@@ -35,19 +35,27 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-STRICT_JSON_SYSTEM = (
-    "Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra. "
-    'Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}. '
-    "El campo user_response admite Markdown básico y \\n. "
-    "Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'. "
-    "Nunca digas que no puedes hacer algo si existe un comando que lo haga. "
-    "SOLO puedes usar estas acciones en 'commands': "
-    "[\"search_youtube\",\"open_application\",\"close_application\",\"search_google\",\"get_weather\","
-    "\"add_reminder\",\"get_reminders\",\"remove_reminder\",\"diagnose_system_performance\","
-    "\"check_system_services\",\"restart_critical_services\",\"clean_temp_files\",\"flush_dns\","
-    "\"shutdown\",\"restart\",\"suspend\"]. "
-    "Si crees que necesitas otra acción, puedes investigarla y ejecutarla con confirmación previa."
-)
+STRICT_JSON_SYSTEM = r"""
+Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra.
+Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.
+El campo user_response admite Markdown básico y \\n.
+Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.
+Nunca digas que no puedes hacer algo si existe un comando que lo haga.
+SOLO puedes usar estas acciones en 'commands':
+["search_youtube","open_application","close_application","search_google","get_weather",
+ "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",
+ "check_system_services","restart_critical_services","clean_temp_files","flush_dns",
+ "shutdown","restart","suspend","set_volume","create_file","create_folder",
+ "move_file","copy_file","create_shortcut","delete_file","list_files"].
+IMPORTANTE: Para close_application SIEMPRE incluye 'app_name' en params.
+Para set_volume usa 'level' (número 0-100).
+Para create_file usa 'file_path' y opcionalmente 'content'.
+Para create_folder usa 'folder_path'.
+Para move_file/copy_file usa 'source' y 'destination'.
+Para create_shortcut usa 'target_path', 'shortcut_path' y opcionalmente 'description'.
+"""
+
+
 
 STYLE_GUIDE = """
 Dirección al usuario:
@@ -433,7 +441,36 @@ def construir_historial_openai():
         Asistente:
         {"user_response":"Listo, te recordaré llamar a mamá a las 8pm.",
          "commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_time":"20:00"}}]}
+
+        Usuario: "coloca el volumen al 70%"  
+        Asistente:  
+        {"user_response":"Ajustando el volumen al 70%.",  
+         "commands":[{"action":"set_volume","params":{"level":70}}]}  
+  
+        Usuario: "crea un archivo llamado notas.txt"  
+        Asistente:  
+        {"user_response":"Creando el archivo notas.txt.",  
+         "commands":[{"action":"create_file","params":{"file_path":"notas.txt","content":""}}]}  
+  
+        Usuario: "crea una carpeta llamada documentos"  
+        Asistente:  
+        {"user_response":"Creando la carpeta documentos.",  
+         "commands":[{"action":"create_folder","params":{"folder_path":"documentos"}}]}  
+  
+        Usuario: "crea un acceso directo de mis documentos en el escritorio"  
+        Asistente:  
+        {"user_response":"Creando acceso directo a Mis Documentos en el escritorio.",  
+         "commands":[{"action":"create_shortcut","params":{"target_path":"%USERPROFILE%\\\\Documents","shortcut_path":"%USERPROFILE%\\\\Desktop\\\\Mis Documentos.lnk","description":"Acceso directo a Mis Documentos"}}]}  
+  
+        Usuario: "mueve el archivo datos.txt a la carpeta backup"  
+        Asistente:  
+        {"user_response":"Moviendo datos.txt a la carpeta backup.",  
+         "commands":[{"action":"move_file","params":{"source":"datos.txt","destination":"backup\\\\datos.txt"}}]}
+         
         """
+
+
+
         }
     ]
 

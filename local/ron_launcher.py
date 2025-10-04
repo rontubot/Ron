@@ -1518,31 +1518,18 @@ def talk_to_ron(text):
 
   
 def requires_autonomous_execution(text):  
-    """Determina si una solicitud requiere investigación autónoma - versión expandida"""  
-    autonomous_keywords = [  
-        # Sistema  
-        "volumen", "sonido", "audio", "configuración", "ajustar", "cambiar",  
-        # Archivos  
-        "crear archivo", "crear carpeta", "mover archivo", "copiar archivo",   
-        "eliminar archivo", "renombrar", "buscar archivo",  
-        # Aplicaciones  
-        "abrir", "cerrar", "instalar", "desinstalar", "ejecutar",  
-        # Red  
-        "conexión", "wifi", "internet", "ping", "dns",  
-        # Sistema  
-        "limpiar", "optimizar", "reparar", "verificar", "diagnosticar",  
-        "reiniciar", "apagar", "suspender",  
-        # Tareas específicas  
-        "acceso directo", "enlace", "script", "automatizar"  
+    """  
+    Determina si una solicitud requiere comandos que no están en el sistema básico  
+    """  
+    # Solo usar investigación autónoma para comandos muy específicos o complejos  
+    complex_keywords = [  
+        "instalar programa", "desinstalar programa", "configurar red",  
+        "cambiar configuración avanzada", "reparar registro", "modificar servicios",  
+        "script personalizado", "automatización compleja"  
     ]  
       
     text_lower = text.lower()  
-      
-    # Si contiene palabras clave Y parece ser una acción  
-    has_keyword = any(keyword in text_lower for keyword in autonomous_keywords)  
-    has_action_verb = any(verb in text_lower for verb in ["crea", "haz", "ejecuta", "configura", "ajusta", "cambia"])  
-      
-    return has_keyword or has_action_verb
+    return any(keyword in text_lower for keyword in complex_keywords)
 
 
 def autonomous_command_research_and_execution(user_request, username):  
