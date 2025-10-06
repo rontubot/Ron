@@ -313,7 +313,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
           
         # Llamar a OpenAI  
         respuesta = client.chat.completions.create(  
-            model="gpt-4o-mini",  
+            model="gpt-5-chat-latest",  
             messages=mensajes,  
             response_format={"type": "json_object"},  
             max_tokens=900,  
