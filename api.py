@@ -13,7 +13,7 @@ from core.memory import (
     load_memory, add_to_memory, save_memory, get_github_token,  
     load_user_memory, save_user_memory, load_users_from_github, save_users_to_github  
 )   
-from core.assistant import generate_response_no_memory    
+from core.assistant import generate_response_no_memory, parse_commands_only   
 from core.memory import get_github_token as memory_get_github_token    
 import requests    
 import json    
@@ -278,85 +278,99 @@ def logout(current_user: str = Depends(get_current_user)):
 def read_root():    
     return {"message": "Ron API está corriendo con autenticación"}    
     
-@app.post("/ron")
-def chat_with_ron(data: UserInput, authorization: str = Header(None)):
-    # Requiere token (como ya lo tenías)
-    if authorization is None:
-        raise HTTPException(status_code=401, detail="Autenticación requerida")
 
-    current_user = None
-    is_web_client = False
-    if authorization.startswith("Bearer "):
-        token = authorization.split(" ", 1)[1]
-        current_user = verify_jwt_token(token)   # lanza 401 si inválido
-        is_web_client = True
-    else:
-        raise HTTPException(status_code=401, detail="Autenticación requerida")
-
-    # Aceptar 'text' o 'message'
-    user_text = (data.text or data.message or "").strip()
-    if not user_text:
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
-
-    # Username de trabajo
-    username_for_assistant = (data.username or current_user or "default").strip() or "default"
-
-    # 1) Generar respuesta (blindado)
-    try:
-        ron_response = generate_response_no_memory(
-            user_input=user_text,
-            username=username_for_assistant
-        )
-        # Asegura string
-        if not isinstance(ron_response, str):
-            ron_response = str(ron_response)
-    except Exception as e:
-        # Si hay algún problema (por ejemplo OPENAI_API_KEY ausente),
-        # devolvemos 200 con un mensaje seguro en vez de 500.
-        print("ERROR /ron:", e)
-        traceback.print_exc()
-        fallback_msg = (
-            "Tuve un problema técnico al generar la respuesta. "
-            "Intenta de nuevo en unos segundos."
-        )
-        # Aún así registramos la interacción con el error
-        try:
-            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}
-            mem.setdefault("conversaciones", [])
-            mem["conversaciones"].append({
-                "user": user_text,
-                "ron": f"[error] {fallback_msg}",
-                "timestamp": datetime.utcnow().isoformat(),
-                "source": data.source or "web"
-            })
-            mem["conversaciones"] = mem["conversaciones"][-100:]
-            save_user_memory(current_user, mem)
-        except Exception as _:
-            pass
-        return JSONResponse({"ron": fallback_msg, "error": str(e)}, status_code=200)
-
-    # 2) Guardar conversación (solo una vez acá)
-    try:
-        mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}
-        mem.setdefault("conversaciones", [])
-        mem["conversaciones"].append({
-            "user": user_text,
-            "ron": ron_response,
-            "timestamp": datetime.utcnow().isoformat(),
-            "source": data.source or "web"
-        })
-        mem["conversaciones"] = mem["conversaciones"][-100:]
-        save_user_memory(current_user, mem)
-    except Exception as e:
-        # No rompemos la respuesta si falla persistencia
-        return {"ron": ron_response, "warning": f"No se pudo guardar la conversación: {str(e)}"}
-
-    # 3) Respuesta consistente para el front
-    return {
-        "user_response": ron_response,
-        "ron": ron_response,
-        "reply": ron_response,
-        "commands": []
+@app.post("/ron")  
+def chat_with_ron(data: UserInput, authorization: str = Header(None)):  
+    # Requiere token  
+    if authorization is None:  
+        raise HTTPException(status_code=401, detail="Autenticación requerida")  
+  
+    current_user = None  
+    if authorization.startswith("Bearer "):  
+        token = authorization.split(" ", 1)[1]  
+        current_user = verify_jwt_token(token)  
+    else:  
+        raise HTTPException(status_code=401, detail="Autenticación requerida")  
+  
+    # Aceptar 'text' o 'message'  
+    user_text = (data.text or data.message or "").strip()  
+    if not user_text:  
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
+  
+    # Username de trabajo  
+    username_for_assistant = (data.username or current_user or "default").strip() or "default"  
+  
+    # 1) Generar respuesta RAW del LLM (sin ejecutar comandos)  
+    try:  
+        from openai import OpenAI  
+        from core.assistant import construir_historial_usuario_openai  
+          
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
+          
+        # Construir historial con el usuario  
+        mensajes = construir_historial_usuario_openai(username_for_assistant)  
+        mensajes.append({"role": "user", "content": user_text})  
+          
+        # Llamar a OpenAI  
+        respuesta = client.chat.completions.create(  
+            model="gpt-4o-mini",  
+            messages=mensajes,  
+            response_format={"type": "json_object"},  
+            max_tokens=900,  
+            temperature=0.7,  
+        )  
+          
+        gpt_response = respuesta.choices[0].message.content.strip()  
+          
+        # CLAVE: Usar parse_commands_only en lugar de parse_and_execute_commands_dynamic  
+        parsed = parse_commands_only(gpt_response)  
+          
+        user_response = parsed.get("user_response", "")  
+        commands = parsed.get("commands", [])  
+          
+    except Exception as e:  
+        print("ERROR /ron:", e)  
+        traceback.print_exc()  
+        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."  
+          
+        # Registrar error en memoria  
+        try:  
+            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
+            mem.setdefault("conversaciones", [])  
+            mem["conversaciones"].append({  
+                "user": user_text,  
+                "ron": f"[error] {fallback_msg}",  
+                "timestamp": datetime.utcnow().isoformat(),  
+                "source": data.source or "web"  
+            })  
+            mem["conversaciones"] = mem["conversaciones"][-100:]  
+            save_user_memory(current_user, mem)  
+        except Exception as _:  
+            pass  
+          
+        return {"ron": fallback_msg, "error": str(e), "commands": []}  
+  
+    # 2) Guardar conversación  
+    try:  
+        mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
+        mem.setdefault("conversaciones", [])  
+        mem["conversaciones"].append({  
+            "user": user_text,  
+            "ron": user_response,  
+            "timestamp": datetime.utcnow().isoformat(),  
+            "source": data.source or "web"  
+        })  
+        mem["conversaciones"] = mem["conversaciones"][-100:]  
+        save_user_memory(current_user, mem)  
+    except Exception as e:  
+        return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}  
+  
+    # 3) Devolver respuesta CON comandos sin ejecutar  
+    return {  
+        "user_response": user_response,  
+        "ron": user_response,  
+        "reply": user_response,  
+        "commands": commands  # <- CLAVE: Devolver comandos para que Electron los ejecute localmente  
     }
 
     
