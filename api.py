@@ -300,14 +300,14 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     # Username de trabajo  
     username_for_assistant = (data.username or current_user or "default").strip() or "default"  
   
-    # 1) Generar respuesta RAW del LLM (sin ejecutar comandos)  
+    # 1) Generar respuesta RAW del LLM CON HISTORIAL  
     try:  
         from openai import OpenAI  
-        from core.assistant import construir_historial_usuario_openai  
+        from core.assistant import construir_historial_usuario_openai, parse_commands_only  
           
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
           
-        # Construir historial con el usuario  
+        # CLAVE: Construir historial CON las conversaciones previas del usuario  
         mensajes = construir_historial_usuario_openai(username_for_assistant)  
         mensajes.append({"role": "user", "content": user_text})  
           
@@ -370,8 +370,10 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         "user_response": user_response,  
         "ron": user_response,  
         "reply": user_response,  
-        "commands": commands  # <- CLAVE: Devolver comandos para que Electron los ejecute localmente  
+        "commands": commands  
     }
+
+
 
     
 @app.get("/user/profile")    
