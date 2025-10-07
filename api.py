@@ -313,21 +313,40 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     
     # Username de trabajo    
     username_for_assistant = (data.username or current_user or "default").strip() or "default"    
-    
+      
     try:    
-        # USAR generate_response_with_user_memory para mantener contexto  
-        full_response = generate_response_with_user_memory(user_text, username_for_assistant)    
+
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))    
             
-        # CLAVE: Extraer comandos SIN ejecutarlos usando parse_commands_only  
-        parsed = parse_commands_only(full_response)    
-        user_response = parsed.get("user_response", full_response)  
-        commands = parsed.get("commands", [])  
+        # Construir historial CON conversaciones previas    
+        mensajes = construir_historial_usuario_openai(username_for_assistant)    
+        mensajes.append({"role": "user", "content": user_text})    
+            
+        # Llamar a OpenAI    
+        respuesta = client.chat.completions.create(    
+            model="gpt-5-chat-latest",    
+            messages=mensajes,    
+            response_format={"type": "json_object"},    
+            max_tokens=900,    
+            temperature=0.7,    
+        )    
+            
+        gpt_response = respuesta.choices[0].message.content.strip()    
+            
+        # CLAVE: parse_commands_only NO ejecuta, solo extrae    
+        parsed = parse_commands_only(gpt_response)    
+            
+        user_response = parsed.get("user_response", "")    
+        commands = parsed.get("commands", [])    
           
+        # Guardar en memoria usando la función interna  
+        _append_user_conv(username_for_assistant, user_text, gpt_response, source="web")  
+            
     except Exception as e:    
         print("ERROR /ron:", e)    
         traceback.print_exc()    
-        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."  
-        return {"ron": fallback_msg, "error": str(e), "commands": []}  
+        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."    
+        return {"ron": fallback_msg, "error": str(e), "commands": []}    
     
     # Devolver respuesta CON comandos sin ejecutar    
     return {    
@@ -337,7 +356,8 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         "commands": commands  # <- Electron los ejecutará localmente  
     }
 
-    
+
+
 @app.get("/user/profile")    
 def get_user_profile(current_user: str = Depends(get_current_user)):    
     # Cargar usuarios desde GitHub    
