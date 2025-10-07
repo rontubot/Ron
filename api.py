@@ -13,7 +13,7 @@ from core.memory import (
     load_memory, add_to_memory, save_memory, get_github_token,  
     load_user_memory, save_user_memory, load_users_from_github, save_users_to_github  
 )   
-from core.assistant import generate_response_no_memory, parse_commands_only, construir_historial_usuario_openai  
+from core.assistant import generate_response_no_memory, generate_response_with_user_memory, parse_commands_only, construir_historial_usuario_openai  
 from core.memory import get_github_token as memory_get_github_token    
 import requests    
 import json    
