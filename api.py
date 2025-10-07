@@ -13,7 +13,7 @@ from core.memory import (
     load_memory, add_to_memory, save_memory, get_github_token,  
     load_user_memory, save_user_memory, load_users_from_github, save_users_to_github  
 )   
-from core.assistant import generate_response_no_memory, parse_commands_only   
+from core.assistant import generate_response_no_memory, parse_commands_only, construir_historial_usuario_openai  
 from core.memory import get_github_token as memory_get_github_token    
 import requests    
 import json    
@@ -278,99 +278,53 @@ def read_root():
     return {"message": "Ron API está corriendo con autenticación"}    
     
 
-@app.post("/ron")  
-def chat_with_ron(data: UserInput, authorization: str = Header(None)):  
-    # Requiere token  
-    if authorization is None:  
-        raise HTTPException(status_code=401, detail="Autenticación requerida")  
-  
-    current_user = None  
-    if authorization.startswith("Bearer "):  
-        token = authorization.split(" ", 1)[1]  
-        current_user = verify_jwt_token(token)  
-    else:  
-        raise HTTPException(status_code=401, detail="Autenticación requerida")  
-  
-    # Aceptar 'text' o 'message'  
-    user_text = (data.text or data.message or "").strip()  
-    if not user_text:  
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
-  
-    # Username de trabajo  
-    username_for_assistant = (data.username or current_user or "default").strip() or "default"  
-  
-    # 1) Generar respuesta RAW del LLM CON HISTORIAL  
-    try:  
-
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
+@app.post("/ron")    
+def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
+    # Requiere token    
+    if authorization is None:    
+        raise HTTPException(status_code=401, detail="Autenticación requerida")    
+    
+    current_user = None    
+    if authorization.startswith("Bearer "):    
+        token = authorization.split(" ", 1)[1]    
+        current_user = verify_jwt_token(token)    
+    else:    
+        raise HTTPException(status_code=401, detail="Autenticación requerida")    
+    
+    # Aceptar 'text' o 'message'    
+    user_text = (data.text or data.message or "").strip()    
+    if not user_text:    
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
+    
+    # Username de trabajo    
+    username_for_assistant = (data.username or current_user or "default").strip() or "default"    
+      
+    # USAR EL MISMO SISTEMA QUE RON 24/7  
+    try:    
+        from core.assistant import generate_response_with_user_memory, parse_commands_only  
           
-        # CLAVE: Construir historial CON las conversaciones previas del usuario  
-        mensajes = construir_historial_usuario_openai(username_for_assistant)  
-        mensajes.append({"role": "user", "content": user_text})  
+        # Esta función hace TODO: carga historial, genera respuesta Y guarda en memoria  
+        full_response = generate_response_with_user_memory(user_text, username_for_assistant)  
           
-        # Llamar a OpenAI  
-        respuesta = client.chat.completions.create(  
-            model="gpt-5-chat-latest",  
-            messages=mensajes,  
-            response_format={"type": "json_object"},  
-            max_tokens=900,  
-            temperature=0.7,  
-        )  
+        # Extraer comandos sin ejecutarlos  
+        parsed = parse_commands_only(full_response)  
           
-        gpt_response = respuesta.choices[0].message.content.strip()  
-          
-        # CLAVE: Usar parse_commands_only en lugar de parse_and_execute_commands_dynamic  
-        parsed = parse_commands_only(gpt_response)  
-          
-        user_response = parsed.get("user_response", "")  
+        user_response = parsed.get("user_response", full_response)  
         commands = parsed.get("commands", [])  
           
-    except Exception as e:  
-        print("ERROR /ron:", e)  
-        traceback.print_exc()  
+    except Exception as e:    
+        print("ERROR /ron:", e)    
+        traceback.print_exc()    
         fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."  
-          
-        # Registrar error en memoria  
-        try:  
-            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
-            mem.setdefault("conversaciones", [])  
-              
-            # CLAVE: Guardar tanto el user_response como el JSON completo  
-            mem["conversaciones"].append({  
-                "user": user_text,  
-                "ron": gpt_response,  # <- Guardar el JSON completo, no solo user_response  
-                "timestamp": datetime.utcnow().isoformat(),  
-                "source": data.source or "web"  
-            })  
-            mem["conversaciones"] = mem["conversaciones"][-100:]  
-            save_user_memory(current_user, mem)  
-        except Exception as e:  
-            return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}
-  
-    # 2) Guardar conversación  
-    try:  
-        mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
-        mem.setdefault("conversaciones", [])  
-        mem["conversaciones"].append({  
-            "user": user_text,  
-            "ron": user_response,  
-            "timestamp": datetime.utcnow().isoformat(),  
-            "source": data.source or "web"  
-        })  
-        mem["conversaciones"] = mem["conversaciones"][-100:]  
-        save_user_memory(current_user, mem)  
-    except Exception as e:  
-        return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}  
-  
-    # 3) Devolver respuesta CON comandos sin ejecutar  
-    return {  
-        "user_response": user_response,  
-        "ron": user_response,  
-        "reply": user_response,  
-        "commands": commands  
+        return {"ron": fallback_msg, "error": str(e), "commands": []}  
+    
+    # Devolver respuesta CON comandos sin ejecutar    
+    return {    
+        "user_response": user_response,    
+        "ron": user_response,    
+        "reply": user_response,    
+        "commands": commands    
     }
-
-
 
     
 @app.get("/user/profile")    
