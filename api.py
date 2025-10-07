@@ -82,14 +82,15 @@ def create_jwt_token(username: str) -> str:
     }      
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)      
       
-def verify_jwt_token(token: str) -> str:      
-    try:      
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])      
-        return payload["sub"]      
-    except jwt.ExpiredSignatureError:      
-        raise HTTPException(status_code=401, detail="Token expirado")      
-    except jwt.InvalidTokenError:      
-        raise HTTPException(status_code=401, detail="Token inválido")      
+def verify_jwt_token(token: str) -> str:        
+    try:        
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])        
+        # Soportar tanto "sub" (nuevo) como "username" (antiguo) para compatibilidad  
+        return payload.get("sub") or payload.get("username")  
+    except jwt.ExpiredSignatureError:        
+        raise HTTPException(status_code=401, detail="Token expirado")        
+    except jwt.InvalidTokenError:        
+        raise HTTPException(status_code=401, detail="Token inválido")   
       
 def get_current_user(authorization: str = Header(None)) -> str:      
     if not authorization or not authorization.startswith("Bearer "):      
@@ -289,93 +290,95 @@ def read_root():
     return {"message": "Ron API está corriendo con autenticación"}      
       
   
-@app.post("/ron")    
-def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
-    # Requiere token    
-    if authorization is None:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
+@app.post("/ron")      
+def chat_with_ron(data: UserInput, authorization: str = Header(None)):      
+    # Requiere token      
+    if authorization is None:      
+        raise HTTPException(status_code=401, detail="Autenticación requerida")      
+      
+    current_user = None      
+    if authorization.startswith("Bearer "):      
+        token = authorization.split(" ", 1)[1]      
+        current_user = verify_jwt_token(token)      
+    else:      
+        raise HTTPException(status_code=401, detail="Autenticación requerida")      
+      
+    # Aceptar 'text' o 'message'      
+    user_text = (data.text or data.message or "").strip()      
+    if not user_text:      
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")      
+      
+    # CAMBIO CRÍTICO: Usar SIEMPRE current_user para consistencia  
+    username_for_assistant = current_user  # No usar data.username ni "default"  
+      
+    # 1) Generar respuesta RAW del LLM CON HISTORIAL      
+    try:      
+        from openai import OpenAI      
+        from core.assistant import construir_historial_usuario_openai, parse_commands_only      
+              
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))      
+              
+        # Construir historial CON las conversaciones previas del usuario autenticado  
+        mensajes = construir_historial_usuario_openai(username_for_assistant)      
+        mensajes.append({"role": "user", "content": user_text})      
+              
+        # Llamar a OpenAI      
+        respuesta = client.chat.completions.create(      
+            model="gpt-5-chat-latest",      
+            messages=mensajes,      
+            response_format={"type": "json_object"},      
+            max_tokens=900,      
+            temperature=0.7,      
+        )      
+              
+        gpt_response = respuesta.choices[0].message.content.strip()      
+              
+        # Usar parse_commands_only para NO ejecutar en Railway  
+        parsed = parse_commands_only(gpt_response)      
+              
+        user_response = parsed.get("user_response", "")      
+        commands = parsed.get("commands", [])      
+              
+    except Exception as e:      
+        print("ERROR /ron:", e)      
+        traceback.print_exc()      
+        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."      
+              
+        # Registrar error en memoria usando current_user  
+        try:      
+            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}      
+            mem.setdefault("conversaciones", [])      
+            mem["conversaciones"].append({      
+                "user": user_text,      
+                "ron": f"[error] {fallback_msg}",      
+                "timestamp": datetime.utcnow().isoformat(),      
+                "source": data.source or "web"      
+            })      
+            mem["conversaciones"] = mem["conversaciones"][-100:]      
+            save_user_memory(current_user, mem)      
+        except Exception as _:      
+            pass      
+              
+        return {"ron": fallback_msg, "error": str(e), "commands": []}      
+      
+    # 2) Guardar conversación usando current_user (mismo que se usó para cargar historial)  
+    try:      
+        from core.memory import add_to_memory    
+        # CRÍTICO: Usar current_user, NO username_for_assistant  
+        add_to_memory(current_user, user_text, user_response)    
+    except Exception as e:      
+        return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}      
+      
+    # 3) Devolver respuesta CON comandos sin ejecutar      
+    return {      
+        "user_response": user_response,      
+        "ron": user_response,      
+        "reply": user_response,      
+        "commands": commands      
+    }
+
+
     
-    current_user = None    
-    if authorization.startswith("Bearer "):    
-        token = authorization.split(" ", 1)[1]    
-        current_user = verify_jwt_token(token)    
-    else:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    
-    # Aceptar 'text' o 'message'    
-    user_text = (data.text or data.message or "").strip()    
-    if not user_text:    
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
-    
-    # Username de trabajo    
-    username_for_assistant = (data.username or current_user or "default").strip() or "default"    
-    
-    # 1) Generar respuesta RAW del LLM CON HISTORIAL    
-    try:    
-        from openai import OpenAI    
-        from core.assistant import construir_historial_usuario_openai, parse_commands_only    
-            
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))    
-            
-        # CLAVE: Construir historial CON las conversaciones previas del usuario    
-        mensajes = construir_historial_usuario_openai(username_for_assistant)    
-        mensajes.append({"role": "user", "content": user_text})    
-            
-        # Llamar a OpenAI    
-        respuesta = client.chat.completions.create(    
-            model="gpt-5-chat-latest",    
-            messages=mensajes,    
-            response_format={"type": "json_object"},    
-            max_tokens=900,    
-            temperature=0.7,    
-        )    
-            
-        gpt_response = respuesta.choices[0].message.content.strip()    
-            
-        # CLAVE: Usar parse_commands_only en lugar de parse_and_execute_commands_dynamic    
-        parsed = parse_commands_only(gpt_response)    
-            
-        user_response = parsed.get("user_response", "")    
-        commands = parsed.get("commands", [])    
-            
-    except Exception as e:    
-        print("ERROR /ron:", e)    
-        traceback.print_exc()    
-        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."    
-            
-        # Registrar error en memoria    
-        try:    
-            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}    
-            mem.setdefault("conversaciones", [])    
-            mem["conversaciones"].append({    
-                "user": user_text,    
-                "ron": f"[error] {fallback_msg}",    
-                "timestamp": datetime.utcnow().isoformat(),    
-                "source": data.source or "web"    
-            })    
-            mem["conversaciones"] = mem["conversaciones"][-100:]    
-            save_user_memory(current_user, mem)    
-        except Exception as _:    
-            pass    
-            
-        return {"ron": fallback_msg, "error": str(e), "commands": []}    
-    
-    # 2) Guardar conversación con add_to_memory (función pública)  
-    try:    
-        from core.memory import add_to_memory  
-        # add_to_memory guarda en el formato correcto que construir_historial_usuario_openai espera  
-        add_to_memory(username_for_assistant, user_text, user_response)  
-    except Exception as e:    
-        return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}    
-    
-    # 3) Devolver respuesta CON comandos sin ejecutar    
-    return {    
-        "user_response": user_response,    
-        "ron": user_response,    
-        "reply": user_response,    
-        "commands": commands    
-    }  
-  
   
 @app.get("/user/profile")      
 def get_user_profile(current_user: str = Depends(get_current_user)):      
