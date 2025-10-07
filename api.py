@@ -300,32 +300,79 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     # Username de trabajo  
     username_for_assistant = (data.username or current_user or "default").strip() or "default"  
   
-    # USAR EL MISMO SISTEMA QUE RON 24/7  
+    # 1) Generar respuesta RAW del LLM CON HISTORIAL  
     try:  
-        from core.assistant import generate_response_with_user_memory, parse_commands_only  
+        from openai import OpenAI  
+        from core.assistant import construir_historial_usuario_openai, parse_commands_only  
           
-        # Esta función hace TODO: carga historial, genera respuesta Y guarda en memoria  
-        full_response = generate_response_with_user_memory(user_text, username_for_assistant)  
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
           
-        # Extraer comandos sin ejecutarlos  
-        parsed = parse_commands_only(full_response)  
+        # CLAVE: Construir historial CON las conversaciones previas del usuario  
+        mensajes = construir_historial_usuario_openai(username_for_assistant)  
+        mensajes.append({"role": "user", "content": user_text})  
           
-        user_response = parsed.get("user_response", full_response)  
+        # Llamar a OpenAI  
+        respuesta = client.chat.completions.create(  
+            model="gpt-5-chat-latest",  
+            messages=mensajes,  
+            response_format={"type": "json_object"},  
+            max_tokens=900,  
+            temperature=0.7,  
+        )  
+          
+        gpt_response = respuesta.choices[0].message.content.strip()  
+          
+        # CLAVE: Usar parse_commands_only en lugar de parse_and_execute_commands_dynamic  
+        parsed = parse_commands_only(gpt_response)  
+          
+        user_response = parsed.get("user_response", "")  
         commands = parsed.get("commands", [])  
           
     except Exception as e:  
         print("ERROR /ron:", e)  
         traceback.print_exc()  
         fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."  
-        return {"ron": fallback_msg, "error": str(e), "commands": []}  
+          
+        # Registrar error en memoria  
+        try:  
+            mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
+            mem.setdefault("conversaciones", [])  
+              
+            # CLAVE: Guardar tanto el user_response como el JSON completo  
+            mem["conversaciones"].append({  
+                "user": user_text,  
+                "ron": gpt_response,  # <- Guardar el JSON completo, no solo user_response  
+                "timestamp": datetime.utcnow().isoformat(),  
+                "source": data.source or "web"  
+            })  
+            mem["conversaciones"] = mem["conversaciones"][-100:]  
+            save_user_memory(current_user, mem)  
+        except Exception as e:  
+            return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}
   
-    # Devolver respuesta CON comandos sin ejecutar  
+    # 2) Guardar conversación  
+    try:  
+        mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
+        mem.setdefault("conversaciones", [])  
+        mem["conversaciones"].append({  
+            "user": user_text,  
+            "ron": user_response,  
+            "timestamp": datetime.utcnow().isoformat(),  
+            "source": data.source or "web"  
+        })  
+        mem["conversaciones"] = mem["conversaciones"][-100:]  
+        save_user_memory(current_user, mem)  
+    except Exception as e:  
+        return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}  
+  
+    # 3) Devolver respuesta CON comandos sin ejecutar  
     return {  
         "user_response": user_response,  
         "ron": user_response,  
         "reply": user_response,  
         "commands": commands  
     }
+
 
 
     
