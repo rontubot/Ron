@@ -384,7 +384,8 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         "commands": commands    
     }
 
-    
+
+
   
 @app.get("/user/profile")      
 def get_user_profile(current_user: str = Depends(get_current_user)):      
