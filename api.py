@@ -295,67 +295,38 @@ def read_root():
 
 @app.post("/ron")    
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
-    # Requiere token    
-    if authorization is None:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    
-    current_user = None    
-    if authorization.startswith("Bearer "):    
-        token = authorization.split(" ", 1)[1]    
-        current_user = verify_jwt_token(token)    
-    else:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    
-    # Aceptar 'text' o 'message'    
+    # ... código de autenticación ...  
+      
     user_text = (data.text or data.message or "").strip()    
     if not user_text:    
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
     
-    # Username de trabajo    
     username_for_assistant = (data.username or current_user or "default").strip() or "default"    
-      
+    
     try:    
-
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))    
+        # Esta función YA guarda en memoria automáticamente  
+        full_response = generate_response_with_user_memory(user_text, username_for_assistant)    
             
-        # Construir historial CON conversaciones previas    
-        mensajes = construir_historial_usuario_openai(username_for_assistant)    
-        mensajes.append({"role": "user", "content": user_text})    
-            
-        # Llamar a OpenAI    
-        respuesta = client.chat.completions.create(    
-            model="gpt-5-chat-latest",    
-            messages=mensajes,    
-            response_format={"type": "json_object"},    
-            max_tokens=900,    
-            temperature=0.7,    
-        )    
-            
-        gpt_response = respuesta.choices[0].message.content.strip()    
-            
-        # CLAVE: parse_commands_only NO ejecuta, solo extrae    
-        parsed = parse_commands_only(gpt_response)    
+        # Extraer comandos sin ejecutarlos    
+        parsed = parse_commands_only(full_response)    
             
         user_response = parsed.get("user_response", "")    
         commands = parsed.get("commands", [])    
-          
-        # Guardar en memoria usando la función interna  
-        _append_user_conv(username_for_assistant, user_text, gpt_response, source="web")  
             
     except Exception as e:    
         print("ERROR /ron:", e)    
         traceback.print_exc()    
-        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."    
+        fallback_msg = "Tuve un problema técnico al generar la respuesta."    
         return {"ron": fallback_msg, "error": str(e), "commands": []}    
     
-    # Devolver respuesta CON comandos sin ejecutar    
+    # NO necesitas guardar manualmente - generate_response_with_user_memory() ya lo hizo  
+      
     return {    
         "user_response": user_response,    
         "ron": user_response,    
         "reply": user_response,    
-        "commands": commands  # <- Electron los ejecutará localmente  
+        "commands": commands    
     }
-
 
 
 @app.get("/user/profile")    
