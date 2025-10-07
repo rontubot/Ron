@@ -302,9 +302,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
   
     # 1) Generar respuesta RAW del LLM CON HISTORIAL  
     try:  
-        from openai import OpenAI  
-        from core.assistant import construir_historial_usuario_openai, parse_commands_only  
-          
+
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
           
         # CLAVE: Construir historial CON las conversaciones previas del usuario  
