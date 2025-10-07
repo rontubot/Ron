@@ -19,6 +19,21 @@ import requests
 import json    
 import base64   
 import traceback
+
+import logging  
+  
+# Desactivar logs DEBUG de librerías externas  
+logging.getLogger("urllib3").setLevel(logging.WARNING)  
+logging.getLogger("httpcore").setLevel(logging.WARNING)  
+logging.getLogger("openai").setLevel(logging.WARNING)  
+logging.getLogger("httpx").setLevel(logging.WARNING)  
+  
+# Mantener solo logs importantes de tu aplicación  
+logging.getLogger("core.assistant").setLevel(logging.INFO)  
+logging.getLogger("core.commands").setLevel(logging.INFO)  
+logging.getLogger("core.memory").setLevel(logging.INFO)
+
+
   
 load_dotenv()    
  
@@ -298,17 +313,13 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     
     # Username de trabajo    
     username_for_assistant = (data.username or current_user or "default").strip() or "default"    
-      
-    # USAR EL MISMO SISTEMA QUE RON 24/7  
+    
     try:    
-        from core.assistant import generate_response_with_user_memory, parse_commands_only  
-          
-        # Esta función hace TODO: carga historial, genera respuesta Y guarda en memoria  
-        full_response = generate_response_with_user_memory(user_text, username_for_assistant)  
-          
-        # Extraer comandos sin ejecutarlos  
-        parsed = parse_commands_only(full_response)  
-          
+        # USAR generate_response_with_user_memory para mantener contexto  
+        full_response = generate_response_with_user_memory(user_text, username_for_assistant)    
+            
+        # CLAVE: Extraer comandos SIN ejecutarlos usando parse_commands_only  
+        parsed = parse_commands_only(full_response)    
         user_response = parsed.get("user_response", full_response)  
         commands = parsed.get("commands", [])  
           
@@ -323,7 +334,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         "user_response": user_response,    
         "ron": user_response,    
         "reply": user_response,    
-        "commands": commands    
+        "commands": commands  # <- Electron los ejecutará localmente  
     }
 
     
