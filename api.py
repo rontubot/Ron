@@ -13,7 +13,7 @@ from core.memory import (
     load_memory, add_to_memory, save_memory, get_github_token,  
     load_user_memory, save_user_memory, load_users_from_github, save_users_to_github  
 )   
-from core.assistant import generate_response_no_memory, generate_response_with_user_memory, parse_commands_only, construir_historial_usuario_openai  
+from core.assistant import generate_response_no_memory, generate_response_with_user_memory, parse_commands_only, construir_historial_usuario_openai, _append_user_conv  
 from core.memory import get_github_token as memory_get_github_token    
 import requests    
 import json    
@@ -295,8 +295,17 @@ def read_root():
 
 @app.post("/ron")    
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
-    # ... código de autenticación ...  
-      
+    # Autenticación  
+    if authorization is None:    
+        raise HTTPException(status_code=401, detail="Autenticación requerida")    
+    
+    current_user = None    
+    if authorization.startswith("Bearer "):    
+        token = authorization.split(" ", 1)[1]    
+        current_user = verify_jwt_token(token)    
+    else:    
+        raise HTTPException(status_code=401, detail="Autenticación requerida")    
+    
     user_text = (data.text or data.message or "").strip()    
     if not user_text:    
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
@@ -304,30 +313,44 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     username_for_assistant = (data.username or current_user or "default").strip() or "default"    
     
     try:    
-        # Esta función YA guarda en memoria automáticamente  
-        full_response = generate_response_with_user_memory(user_text, username_for_assistant)    
-            
-        # Extraer comandos sin ejecutarlos    
-        parsed = parse_commands_only(full_response)    
-            
-        user_response = parsed.get("user_response", "")    
-        commands = parsed.get("commands", [])    
-            
+        # 1) Construir historial manualmente  
+        from core.assistant import construir_historial_usuario_openai  
+        mensajes = construir_historial_usuario_openai(username_for_assistant)  
+        mensajes.append({"role": "user", "content": user_text})  
+          
+        # 2) Llamar a OpenAI  
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  
+        respuesta = client.chat.completions.create(  
+            model="gpt-5-chat-latest",  
+            messages=mensajes,  
+            response_format={"type": "json_object"},  
+            max_tokens=900,  
+            temperature=0.7,  
+        )  
+          
+        gpt_response = respuesta.choices[0].message.content.strip()  
+          
+        # 3) Extraer comandos SIN ejecutarlos  
+        parsed = parse_commands_only(gpt_response)  
+        user_response = parsed.get("user_response", "")  
+        commands = parsed.get("commands", [])  
+          
+        # 4) Guardar conversación manualmente  
+        from core.assistant import _append_user_conv  
+        _append_user_conv(username_for_assistant, user_text, gpt_response, source="web")  
+          
     except Exception as e:    
         print("ERROR /ron:", e)    
         traceback.print_exc()    
         fallback_msg = "Tuve un problema técnico al generar la respuesta."    
         return {"ron": fallback_msg, "error": str(e), "commands": []}    
     
-    # NO necesitas guardar manualmente - generate_response_with_user_memory() ya lo hizo  
-      
     return {    
         "user_response": user_response,    
         "ron": user_response,    
         "reply": user_response,    
         "commands": commands    
     }
-
 
 @app.get("/user/profile")    
 def get_user_profile(current_user: str = Depends(get_current_user)):    
