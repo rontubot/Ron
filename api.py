@@ -337,18 +337,18 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         try:  
             mem = load_user_memory(current_user) or {"conversaciones": [], "datos": {}}  
             mem.setdefault("conversaciones", [])  
+              
+            # CLAVE: Guardar tanto el user_response como el JSON completo  
             mem["conversaciones"].append({  
                 "user": user_text,  
-                "ron": f"[error] {fallback_msg}",  
+                "ron": gpt_response,  # <- Guardar el JSON completo, no solo user_response  
                 "timestamp": datetime.utcnow().isoformat(),  
                 "source": data.source or "web"  
             })  
             mem["conversaciones"] = mem["conversaciones"][-100:]  
             save_user_memory(current_user, mem)  
-        except Exception as _:  
-            pass  
-          
-        return {"ron": fallback_msg, "error": str(e), "commands": []}  
+        except Exception as e:  
+            return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}
   
     # 2) Guardar conversación  
     try:  
