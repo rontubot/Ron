@@ -19,9 +19,13 @@ import requests
 import json      
 import base64     
 import traceback  
-  
+import re   
 import logging    
-    
+
+  
+# NUEVO: Limpiar markdown y emojis  
+ 
+
 # Desactivar logs DEBUG de librerías externas    
 logging.getLogger("urllib3").setLevel(logging.WARNING)    
 logging.getLogger("httpcore").setLevel(logging.WARNING)    
@@ -51,6 +55,29 @@ JWT_SECRET = os.getenv("JWT_SECRET", "1925e2a0e6c8d8c196af044c77cc52dc")
 JWT_ALGORITHM = "HS256"      
 security = HTTPBearer()     
       
+
+
+def clean_text_for_tts(text: str) -> str:  
+    """Elimina caracteres especiales, emoticonos y markdown para TTS"""  
+    
+    # Eliminar emojis y símbolos especiales  
+    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑]+', '', text)  
+      
+    # Eliminar markdown (**, __, `, etc.)  
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **negrita**  
+    text = re.sub(r'__([^_]+)__', r'\1', text)      # __negrita__  
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *cursiva*  
+    text = re.sub(r'_([^_]+)_', r'\1', text)        # _cursiva_  
+    text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`  
+      
+    # Eliminar otros caracteres especiales comunes  
+    text = re.sub(r'[✅❌🔍🔴🟢💤🔄🎤📨🤖]', '', text)  
+      
+    return text.strip()
+
+
+
+
 # Modelos Pydantic      
 class UserInput(BaseModel):      
     text: str | None = None   
@@ -315,23 +342,75 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
             
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))    
             
-        # Construir historial CON las conversaciones previas del usuario    
-        mensajes = construir_historial_usuario_openai(current_user)  
+        # Construir historial CON las conversaciones previas del usuario      
+        mensajes = construir_historial_usuario_openai(current_user)    
           
-        # AGREGAR INSTRUCCIÓN EXPLÍCITA PARA COMANDOS  
+        # AGREGAR PROMPT COMPLETO CON EJEMPLOS FEW-SHOT  
         mensajes.append({  
             "role": "system",  
-            "content": (  
-                "IMPORTANTE: Si el usuario pide buscar en YouTube, reproducir música, "  
-                "abrir aplicaciones, o cualquier acción ejecutable, DEBES incluir el comando "  
-                "correspondiente en el array 'commands'. NO solo describas la acción, EJECÚTALA. "  
-                "Ejemplo: si dice 'busca en youtube a fkj', tu respuesta debe ser: "  
-                '{"user_response":"Buscando en YouTube a **FKJ**...","commands":[{"action":"search_youtube","params":{"query":"fkj","play_video":true}}]}'  
-            )  
-        })  
+            "content": """  
+        Eres Ron, un asistente creado por Luis que EJECUTA acciones. Formato de salida SIEMPRE:  
+        {"user_response":"...","commands":[{"action":"...","params":{...}}]}  
           
-        mensajes.append({"role": "user", "content": user_text})    
-            
+        REGLAS OBLIGATORIAS: 
+        - NO uses markdown (**negrita**, *cursiva*, `código`), emojis (😀🔥✅), ni símbolos especiales en 'user_response'. Solo texto plano. 
+        - Si el usuario pide reproducir música, abrir algo, buscar en YouTube/Google, crear o listar recordatorios, diagnosticar el sistema, etc., SIEMPRE incluye un comando correspondiente en 'commands'.  
+        - No digas "no puedo", usa el comando. Ej.: para música usa search_youtube con {"query": "...", "play_video": true}.  
+        - Si el usuario se refiere a "el segundo artista", "el primero", etc., interpreta según el contexto previo y construye la query. Ej.: si antes recomendaste "Amyl and the Sniffers" como #2, y el usuario dice "reproduce el segundo", usa {"query": "Amyl and the Sniffers canción popular", "play_video": true}.  
+        - Siempre que ejecutes un comando, el 'user_response' debe confirmar lo que harás de forma breve.  
+        - NO uses stickers ni simbolos especiales, esto lo está leyendo el bot de voz, asi que evita por completo esos caracteres para que no los diga el narrador.  
+          
+        EJEMPLOS (FEW-SHOT):  
+
+        Usuario: "reproduce el segundo artista que dijiste"  
+        Asistente:  
+        {"user_response":"Poniendo **The Linda Lindas** en YouTube.",  
+         "commands":[{"action":"search_youtube","params":{"query":"The Linda Lindas canción popular","play_video":true}}]}  
+          
+        Usuario: "pon algo de Bad Bunny"  
+        Asistente:  
+        {"user_response":"Reproduciendo **Bad Bunny** en YouTube.",  
+         "commands":[{"action":"search_youtube","params":{"query":"Bad Bunny video oficial","play_video":true}}]}  
+          
+        Usuario: "abre chrome"  
+        Asistente:  
+        {"user_response":"Abriendo Google Chrome.",  
+         "commands":[{"action":"open_application","params":{"app_name":"chrome"}}]}  
+          
+        Usuario: "recuérdame llamar a mamá a las 8pm"  
+        Asistente:  
+        {"user_response":"Listo, te recordaré llamar a mamá a las 8pm.",  
+         "commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_time":"20:00"}}]}  
+          
+        Usuario: "coloca el volumen al 70%"    
+        Asistente:    
+        {"user_response":"Ajustando el volumen al 70%.",    
+         "commands":[{"action":"set_volume","params":{"level":70}}]}    
+          
+        Usuario: "crea un archivo llamado notas.txt"    
+        Asistente:    
+        {"user_response":"Creando el archivo notas.txt.",    
+         "commands":[{"action":"create_file","params":{"file_path":"notas.txt","content":""}}]}    
+          
+        Usuario: "crea una carpeta llamada documentos"    
+        Asistente:    
+        {"user_response":"Creando la carpeta documentos.",    
+         "commands":[{"action":"create_folder","params":{"folder_path":"documentos"}}]}    
+          
+        Usuario: "crea un acceso directo de mis documentos en el escritorio"    
+        Asistente:    
+        {"user_response":"Creando acceso directo a Mis Documentos en el escritorio.",    
+         "commands":[{"action":"create_shortcut","params":{"target_path":"%USERPROFILE%\\\\Documents","shortcut_path":"%USERPROFILE%\\\\Desktop\\\\Mis Documentos.lnk","description":"Acceso directo a Mis Documentos"}}]}    
+          
+        Usuario: "mueve el archivo datos.txt a la carpeta backup"    
+        Asistente:    
+        {"user_response":"Moviendo datos.txt a la carpeta backup.",    
+         "commands":[{"action":"move_file","params":{"source":"datos.txt","destination":"backup\\\\datos.txt"}}]}  
+        """  
+        })  
+                
+        mensajes.append({"role": "user", "content": user_text}) 
+                    
         # Llamar a OpenAI    
         respuesta = client.chat.completions.create(    
             model="gpt-5-chat-latest",    
@@ -348,8 +427,13 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
             
         # Usar parse_commands_only para extraer comandos SIN ejecutarlos    
         parsed = parse_commands_only(gpt_response)    
-            
-        user_response = parsed.get("user_response", "")    
+        
+        # Limpiar markdown y emojis      
+        user_response = parsed.get("user_response", "")  
+        user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)  # **negrita**  
+        user_response = re.sub(r'\*([^*]+)\*', r'\1', user_response)      # *cursiva*  
+        user_response = re.sub(r'`([^`]+)`', r'\1', user_response)        # `código`  
+        user_response = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]+', '', user_response)  # emojis   
         commands = parsed.get("commands", [])  
           
         # Log para debugging  
@@ -383,6 +467,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         "reply": user_response,    
         "commands": commands    
     }
+
 
 
 

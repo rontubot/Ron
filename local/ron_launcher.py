@@ -1428,6 +1428,7 @@ def talk_to_ron(text):
         if detect_farewell_patterns(text):  
             response = "Hasta luego. Que tengas un buen día."  
             print(f"🤖 Ron: {response}")  
+            cleaned_response = clean_text_for_tts(response)
             engine.say(response)  
             engine.runAndWait()  
             time.sleep(0.5)  
@@ -1482,7 +1483,8 @@ def talk_to_ron(text):
                 "response": clean_response  
             }  
           
-        print(f"🤖 Ron: {response}")  
+        print(f"🤖 Ron: {response}") 
+        cleaned_response = clean_text_for_tts(response) 
         engine.say(response)  
         engine.runAndWait()  
         time.sleep(0.5)  
