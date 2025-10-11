@@ -249,7 +249,7 @@ def handle_external_control():
 def setup_streaming_recognition():
     """Configura el reconocimiento de voz en streaming"""
     recognizer = sr.Recognizer()
-    recognizer.pause_threshold = 0.6  # más ágil
+    recognizer.pause_threshold = 1.0  # más ágil
     recognizer.energy_threshold = 250
 
     try:
