@@ -419,8 +419,17 @@ def construir_historial_openai():
         - Si el usuario se refiere a “el segundo artista”, “el primero”, etc., interpreta según el contexto previo y construye la query. Ej.: si antes recomendaste “Amyl and the Sniffers” como #2, y el usuario dice “reproduce el segundo”, usa {"query": "Amyl and the Sniffers canción popular", "play_video": true}.
         - Siempre que ejecutes un comando, el 'user_response' debe confirmar lo que harás de forma breve.
         - NO uses stickers ni simbolos especiales, esto lo está leyendo el bot de voz, asi que evita por completo esos caracteres para que no los diga el narrador.
+        - Para comandos informativos (get_reminders, list_files, etc.), deja 'user_response' VACÍO ("") y el comando generará la respuesta completa.
+        - Solo usa 'user_response' para confirmaciones de acciones (abrir apps, crear archivos, etc.).
+        - NO uses markdown (**negrita**, *cursiva*, `código`), emojis (😀🔥✅), ni símbolos especiales en 'user_response'. Solo texto plano sin formato.  
+        - NUNCA uses \n en 'user_response'. Usa puntos y comas para separar ideas.
 
         EJEMPLOS (FEW-SHOT):
+
+        Usuario: "dame mis recordatorios"  
+        Asistente:  
+        {"user_response":"",  
+         "commands":[{"action":"get_reminders","params":{}}]}
 
         Usuario: "sorpréndeme con algo de música punk nuevo"
         Asistente:

@@ -1549,7 +1549,7 @@ def talk_to_ron(text):
             response = "Hasta luego. Que tengas un buen día."  
             print(f"🤖 Ron: {response}")  
             cleaned_response = clean_text_for_tts(response)
-            engine.say(response)  
+            engine.say(cleaned_response)  
             engine.runAndWait()  
             time.sleep(0.5)  
               
@@ -1605,7 +1605,7 @@ def talk_to_ron(text):
           
         print(f"🤖 Ron: {response}") 
         cleaned_response = clean_text_for_tts(response) 
-        engine.say(response)  
+        engine.say(cleaned_response)  
         engine.runAndWait()  
         time.sleep(0.5)  
           
