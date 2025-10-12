@@ -257,23 +257,28 @@ def set_volume(level):
     try:  
         logger.info(f"Ajustando volumen al {level}%")  
           
-        # Convertir porcentaje a valor nircmd (0-65535)  
+        # Convertir porcentaje a valor 0-100  
         if isinstance(level, str):  
             level = int(level.replace('%', ''))  
           
-        volume_value = int((level / 100) * 65535)  
+        # Usar PowerShell en lugar de nircmd  
+        ps_command = f'(New-Object -ComObject WScript.Shell).SendKeys([char]175)' if level > 50 else f'(New-Object -ComObject WScript.Shell).SendKeys([char]174)'  
           
-        # Usar nircmd para ajustar volumen  
-        result = subprocess.run(f'nircmd setsysvolume {volume_value}', shell=True, capture_output=True, text=True)  
+        # Mejor: usar pycaw (requiere pip install pycaw comtypes)  
+        from ctypes import cast, POINTER  
+        from comtypes import CLSCTX_ALL  
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume  
           
-        if result.returncode == 0:  
-            return f"Volumen ajustado al {level}%"  
-        else:  
-            return f"Error ajustando volumen: {result.stderr}"  
-              
+        devices = AudioUtilities.GetSpeakers()  
+        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)  
+        volume = cast(interface, POINTER(IAudioEndpointVolume))  
+        volume.SetMasterVolumeLevelScalar(level / 100, None)  
+          
+        return f"Volumen ajustado al {level}%"  
+          
     except Exception as e:  
         logger.error(f"Error ajustando volumen: {str(e)}")  
-        return f"Error ajustando volumen: {e}"  
+        return f"Error ajustando volumen: {e}"
   
 def create_file(file_path, content=""):  
     """Crea un archivo con contenido opcional"""  
