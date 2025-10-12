@@ -1,11 +1,12 @@
-fastapi==0.104.1  
-uvicorn==0.24.0  
-openai>=1.40.0  
-python-dotenv==1.0.0  
-requests==2.31.0  
-pydantic==2.5.0 
-PyJWT==2.8.0  
-bcrypt==4.0.1  
+fastapi==0.115.0
+uvicorn==0.32.0
+openai>=1.40.0
+python-dotenv==1.0.0
+requests>=2.31.0
+pydantic>=2.10.0
+PyJWT==2.8.0
+bcrypt==4.0.1
 python-multipart==0.0.6
-pycaw>=0.0.9  
+# Audio en Windows
+pycaw>=20240210
 comtypes>=1.2.0
