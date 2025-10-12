@@ -7,4 +7,5 @@ pydantic==2.5.0
 PyJWT==2.8.0  
 bcrypt==4.0.1  
 python-multipart==0.0.6
-
+pycaw>=0.0.9  
+comtypes>=1.2.0
