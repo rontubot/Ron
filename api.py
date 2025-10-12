@@ -95,6 +95,21 @@ class UserRegister(BaseModel):
     password: str      
     email: str      
   
+
+
+def requires_autonomous_execution(text: str) -> bool:  
+    """Determina si una solicitud requiere comandos que no están en el sistema básico"""  
+    complex_keywords = [  
+        "instalar programa", "desinstalar programa", "configurar red",  
+        "cambiar configuración avanzada", "reparar registro", "modificar servicios",  
+        "script personalizado", "automatización compleja", "limpia archivos",  
+        "reinicia servicio", "configura firewall", "optimiza sistema"  
+    ]  
+      
+    text_lower = text.lower()  
+    return any(keyword in text_lower for keyword in complex_keywords)
+        
+
 # Funciones de autenticación  
 def hash_password(password: str) -> str:      
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')      
@@ -353,7 +368,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         {"user_response":"...","commands":[{"action":"...","params":{...}}]}  
           
         REGLAS OBLIGATORIAS: 
-        - NO uses markdown (**negrita**, *cursiva*, `código`), emojis (😀🔥✅), ni símbolos especiales en 'user_response'. Solo texto plano. 
+        - NO uses markdown, emojis, ni símbolos especiales en 'user_response'. Solo texto plano. 
         - Si el usuario pide reproducir música, abrir algo, buscar en YouTube/Google, crear o listar recordatorios, diagnosticar el sistema, etc., SIEMPRE incluye un comando correspondiente en 'commands'.  
         - No digas "no puedo", usa el comando. Ej.: para música usa search_youtube con {"query": "...", "play_video": true}.  
         - Si el usuario se refiere a "el segundo artista", "el primero", etc., interpreta según el contexto previo y construye la query. Ej.: si antes recomendaste "Amyl and the Sniffers" como #2, y el usuario dice "reproduce el segundo", usa {"query": "Amyl and the Sniffers canción popular", "play_video": true}.  
@@ -361,6 +376,11 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         - NO uses stickers ni simbolos especiales, esto lo está leyendo el bot de voz, asi que evita por completo esos caracteres para que no los diga el narrador.  
           
         EJEMPLOS (FEW-SHOT):  
+
+        Usuario: "abre chrome"    
+        Asistente:    
+        {"user_response":"Abriendo Google Chrome.",    
+         "commands":[{"action":"open_application","params":{"app_name":"chrome"}}]}
 
         Usuario: "reproduce el segundo artista que dijiste"  
         Asistente:  
@@ -435,6 +455,61 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         user_response = re.sub(r'`([^`]+)`', r'\1', user_response)        # `código`  
         user_response = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]+', '', user_response)  # emojis   
         commands = parsed.get("commands", [])  
+
+        # NUEVO: Detectar si hay comandos de Windows directos  
+        windows_commands = []  
+        basic_commands = []  
+          
+        for cmd in commands:  
+            if cmd.get("type") in ["cmd", "powershell", "python"]:  
+                windows_commands.append(cmd)  
+            elif cmd.get("action"):  
+                basic_commands.append(cmd)  
+          
+        # Si hay comandos de Windows, crear un plan de ejecución  
+        if windows_commands:  
+            from core.autonomous import create_execution_plan  
+              
+            # Convertir comandos de Windows a formato de plan  
+            execution_plan = {  
+                "task": user_text,  
+                "steps": [  
+                    {  
+                        "order": i + 1,  
+                        "command": cmd["command"],  
+                        "type": cmd["type"],  
+                        "description": f"Ejecutar: {cmd['command'][:50]}...",  
+                        "timeout": 30  
+                    }  
+                    for i, cmd in enumerate(windows_commands) if cmd.get("safe", False)  
+                ],  
+                "estimated_time": len(windows_commands) * 5,  
+                "requires_confirmation": False  
+            }  
+              
+            # Agregar plan como comando especial  
+            commands = basic_commands + [{  
+                "action": "execute_autonomous_plan",  
+                "params": {"plan": execution_plan}  
+            }]  
+        else:  
+            commands = basic_commands  
+          
+        # Si NO hay comandos y la tarea requiere investigación autónoma  
+        if not commands and requires_autonomous_execution(user_text):  
+            from core.autonomous import research_system_commands, create_execution_plan  
+              
+            print(f"[DEBUG] Investigando comando autónomo para: {user_text}")  
+            research_results = research_system_commands(user_text, current_user)  
+              
+            if research_results:  
+                execution_plan = create_execution_plan(research_results)  
+                if execution_plan:  
+                    commands = [{  
+                        "action": "execute_autonomous_plan",  
+                        "params": {"plan": execution_plan}  
+                    }]  
+                    print(f"[DEBUG] Plan autónomo creado con {len(execution_plan['steps'])} pasos")
           
         # Log para debugging  
         print(f"[DEBUG] Parsed commands: {commands}")  

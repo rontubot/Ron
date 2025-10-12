@@ -194,26 +194,119 @@ def handle_external_control():
                         socket_client.sendall(b'RECORDING_STOPPED')  
                         print("📨 Comando recibido: STOP_MANUAL_RECORDING", flush=True)  
 
-                    # ---- Comandos con payload JSON / texto (usar la versión CRUDA) ----
-                    elif raw_cmd.startswith('EXEC::'):
-                        try:
-                            payload = raw_cmd[len('EXEC::'):].strip()
-                            obj = json.loads(payload)
-                            cmds = obj.get('commands') or []
-                            results = []
-                            for c in cmds:
-                                action = (c.get('action') or '').strip()
-                                params = c.get('params') or {}
-                                if not action:
-                                    continue
-                                r = run_command(action, params, {"username": current_username})
-                                results.append({
-                                    "action": action,
-                                    "ok": r.get("ok", True),
-                                    "message": r.get("message") or r.get("result")
-                                })
-                            socket_client.sendall(f'RESULT:{json.dumps(results, ensure_ascii=False)}'.encode('utf-8'))
-                        except Exception as e:
+                    # ---- Comandos con payload JSON / texto (usar la versión CRUDA) ---- 
+                    elif raw_cmd.startswith('EXEC::'):  
+                        try:  
+                            payload = raw_cmd[len('EXEC::'):].strip()  
+                            obj = json.loads(payload)  
+                            cmds = obj.get('commands') or []  
+                            results = []  
+                              
+                            for c in cmds:  
+                                action = (c.get('action') or '').strip()  
+                                params = c.get('params') or {}  
+                                  
+                                # NUEVO: Manejar comandos de Windows directos  
+                                if action == 'execute_windows_command':  
+                                    cmd_type = params.get('type', 'cmd')  
+                                    command = params.get('command', '')  
+                                    description = params.get('description', 'Comando de Windows')  
+                                    timeout = params.get('timeout', 30)  
+                                    is_safe = params.get('safe', True)  
+                                      
+                                    if not command:  
+                                        results.append({  
+                                            "action": action,  
+                                            "ok": False,  
+                                            "message": "Comando vacío",  
+                                            "description": description  
+                                        })  
+                                        continue  
+                                      
+                                    # Validar seguridad del comando  
+                                    if not is_safe:  
+                                        results.append({  
+                                            "action": action,  
+                                            "ok": False,  
+                                            "message": "Comando marcado como no seguro",  
+                                            "description": description  
+                                        })  
+                                        continue  
+                                      
+                                    # Ejecutar comando de Windows  
+                                    try:  
+                                        if cmd_type == 'powershell':  
+                                            proc = subprocess.run(  
+                                                ['powershell', '-Command', command],  
+                                                capture_output=True,  
+                                                text=True,  
+                                                timeout=timeout,  
+                                                shell=False  
+                                            )  
+                                        elif cmd_type == 'python':  
+                                            proc = subprocess.run(  
+                                                ['python', '-c', command],  
+                                                capture_output=True,  
+                                                text=True,  
+                                                timeout=timeout,  
+                                                shell=False  
+                                            )  
+                                        else:  # cmd  
+                                            proc = subprocess.run(  
+                                                ['cmd', '/c', command],  
+                                                capture_output=True,  
+                                                text=True,  
+                                                timeout=timeout,  
+                                                shell=False  
+                                            )  
+                                          
+                                        success = proc.returncode == 0  
+                                        output = proc.stdout.strip() if success else proc.stderr.strip()  
+                                          
+                                        results.append({  
+                                            "action": action,  
+                                            "ok": success,  
+                                            "message": output or ("Comando ejecutado exitosamente" if success else f"Error código {proc.returncode}"),  
+                                            "description": description,  
+                                            "command": command[:50] + "..." if len(command) > 50 else command  
+                                        })  
+                                          
+                                        print(f"{'✅' if success else '❌'} {cmd_type}: {command[:50]}... → {output[:100] if output else 'Sin salida'}")  
+                                          
+                                    except subprocess.TimeoutExpired:  
+                                        results.append({  
+                                            "action": action,  
+                                            "ok": False,  
+                                            "message": f"Timeout después de {timeout}s",  
+                                            "description": description  
+                                        })  
+                                        print(f"⏰ Timeout ejecutando: {command[:50]}...")  
+                                          
+                                    except Exception as e:  
+                                        results.append({  
+                                            "action": action,  
+                                            "ok": False,  
+                                            "message": str(e),  
+                                            "description": description  
+                                        })  
+                                        print(f"❌ Error ejecutando: {command[:50]}... → {e}")  
+                                  
+                                # COMANDOS BÁSICOS (existentes)  
+                                else:  
+                                    if not action:  
+                                        continue  
+                                    r = run_command(action, params, {"username": current_username})  
+                                    results.append({  
+                                        "action": action,  
+                                        "ok": r.get("ok", True),  
+                                        "message": r.get("message") or r.get("result")  
+                                    })  
+                              
+                            socket_client.sendall(f'RESULT:{json.dumps(results, ensure_ascii=False)}'.encode('utf-8'))  
+                              
+                        except json.JSONDecodeError as e:  
+                            socket_client.sendall(f'ERROR:JSON inválido: {e}'.encode('utf-8'))  
+                        except Exception as e:  
                             socket_client.sendall(f'ERROR:{e}'.encode('utf-8'))
 
                     elif raw_cmd.startswith('CHAT::'):
