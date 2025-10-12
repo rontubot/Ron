@@ -59,23 +59,23 @@ def get_nircmd_path():
 # NUEVO: Agregar estas tres funciones aquí  
   
 def get_audio_processes():    
-    """Enumera procesos que probablemente tengan audio activo"""    
-    audio_apps = []    
+    """Enumera procesos que probablemente tengan audio activo (sin duplicados)"""    
+    audio_apps = set()  # CAMBIO: usar set para evitar duplicados  
     common_audio_processes = [    
-        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',  # Navegadores    
-        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',  # Reproductores    
-        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe'  # Comunicación    
+        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',  
+        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',  
+        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe'  
     ]    
         
     try:    
         for proc in psutil.process_iter(['name']):    
             proc_name = proc.info['name'].lower()    
             if proc_name in common_audio_processes:    
-                audio_apps.append(proc.info['name'])    
+                audio_apps.add(proc.info['name'])  # CAMBIO: add en lugar de append  
     except Exception as e:    
         logger.error(f"Error enumerando procesos de audio: {e}")    
         
-    return audio_apps    
+    return list(audio_apps)  # CAMBIO: convertir set a list
     
 def duck_other_applications():    
     """Reduce volumen de apps conocidas al 20%"""    

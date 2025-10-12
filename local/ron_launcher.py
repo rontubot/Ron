@@ -441,27 +441,27 @@ def detect_ron_activation(text: str) -> bool:
     # Esto cubre frases como "oye ron", "como estas ron", "ron", "oye rom", etc.
     return any(tok in ALLOWED_WAKE_WORDS for tok in tokens)
     
-def safe_activation_response():  
-    """Maneja la respuesta de activación de forma segura"""  
-    global speaking, listening_active  
-      
-    speaking = True  
-    listening_active = False  
-      
-    try:  
-        # NUEVO: Reducir volumen de otras apps  
-        duck_other_applications()  
+def safe_activation_response():      
+    """Maneja la respuesta de activación de forma segura"""      
+    global speaking, listening_active      
           
-        phrase = random.choice(activation_phrases)  
-        engine.say(phrase)  
-        engine.runAndWait()  
-        time.sleep(0.5)  
-    finally:  
-        # NUEVO: Restaurar volumen de otras apps  
-        restore_application_volumes()  
+    speaking = True      
+    listening_active = False      
+      
+    # NUEVO: Bajar volumen UNA VEZ al activar  
+    from core.commands import duck_other_applications  
+    duck_other_applications()  
           
-        speaking = False  
-        listening_active = True
+    try:      
+        # Seleccionar frase aleatoria      
+        phrase = random.choice(activation_phrases)      
+        engine.say(phrase)      
+        engine.runAndWait()      
+        time.sleep(0.5)      
+    finally:      
+        speaking = False      
+        listening_active = True  
+        # NO restaurar volumen aquí - se mantiene bajo mientras activado=True
 
 def load_device_memory():
     # TODO: cargar desde un JSON local si lo deseas
@@ -1544,138 +1544,105 @@ def handle_local_commands(text):
     
 
     
-def talk_to_ron(text):    
-    """Versión mejorada que prioriza comandos básicos sobre investigación autónoma"""    
-    global speaking, listening_active, activado    
-        
-    speaking = True    
-    listening_active = False    
-    response = None  # Inicializar response para evitar errores    
-        
-    try:    
-        # Verificar despedida ANTES de procesar    
-        if detect_farewell_patterns(text):    
-            response = "Hasta luego. Que tengas un buen día."    
-            print(f"🤖 Ron: {response}")    
+def talk_to_ron(text):      
+    """Versión mejorada que prioriza comandos básicos sobre investigación autónoma"""      
+    global speaking, listening_active, activado      
+          
+    speaking = True      
+    listening_active = False      
+    response = None  # Inicializar response para evitar errores      
+          
+    try:      
+        # Verificar despedida ANTES de procesar      
+        if detect_farewell_patterns(text):      
+            response = "Hasta luego. Que tengas un buen día."      
+            print(f"🤖 Ron: {response}")      
             cleaned_response = clean_text_for_tts(response)  
-              
-            # NUEVO: Ducking antes de hablar  
-            duck_other_applications()  
-              
-            try:  
-                engine.say(cleaned_response)    
-                engine.runAndWait()    
-                time.sleep(0.5)  
-            finally:  
-                # NUEVO: Restaurar volumen después de hablar  
-                restore_application_volumes()  
-                
-            if current_username:    
-                add_to_memory(current_username, text, response)    
-                
-            return {    
-                "shutdown": False,  # NO terminar programa, solo conversación    
-                "stay_active": False,  # Volver a escucha pasiva    
-                "response": response    
-            }    
-            
-        # PRIORIDAD 1: Intentar procesamiento normal (incluye comandos básicos)    
-        response = core_generate_response(text, current_username)    
-            
-        # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma    
-        if not response and requires_autonomous_execution(text):    
-            print("🔍 Detectada solicitud que requiere investigación autónoma...")    
-            autonomous_result = autonomous_command_research_and_execution(text, current_username)    
-                
-            if autonomous_result.get("success", False):    
-                executed_commands = autonomous_result.get("executed_commands", [])    
-                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."    
-                    
-                for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar    
-                    if cmd_result.get("success"):    
-                        response += f"\\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"    
-                    else:    
-                        response += f"\\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"    
-            else:    
-                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"    
-            
-        # Asegurar que response tenga un valor    
-        if not response:    
-            response = "❌ No pude procesar tu solicitud. ¿Puedes intentar de nuevo?"    
-            
-        # Verificar si la respuesta contiene señal de shutdown    
-        if "__SHUTDOWN__" in response:    
-            clean_response = response.replace("__SHUTDOWN__", "")    
-            print(f"🤖 Ron: {clean_response}")    
-              
-            # NUEVO: Ducking antes de hablar  
-            duck_other_applications()  
-              
-            try:  
-                engine.say(clean_response)    
-                engine.runAndWait()    
-                time.sleep(0.5)  
-            finally:  
-                # NUEVO: Restaurar volumen después de hablar  
-                restore_application_volumes()  
-                
-            if current_username:    
-                add_to_memory(current_username, text, clean_response)    
-                
-            return {    
-                "shutdown": False,  # NO terminar programa    
-                "stay_active": False,  # Volver a escucha pasiva    
-                "response": clean_response    
-            }    
-            
-        print(f"🤖 Ron: {response}")   
-        cleaned_response = clean_text_for_tts(response)  
-          
-        # NUEVO: Ducking antes de hablar  
-        duck_other_applications()  
-          
-        try:  
-            engine.say(cleaned_response)    
-            engine.runAndWait()    
+            engine.say(cleaned_response)      
+            engine.runAndWait()      
             time.sleep(0.5)  
-        finally:  
-            # NUEVO: Restaurar volumen después de hablar  
-            restore_application_volumes()  
-            
-        # Guardar en memoria    
-        if current_username:    
-            add_to_memory(current_username, text, response)    
-            
-        # Determinar si debe mantenerse activo con la nueva lógica    
-        stay_active = should_stay_active(text, response)    
-            
-        return {    
-            "shutdown": False,    
-            "stay_active": stay_active,    
-            "response": response    
-        }    
-            
-    except Exception as e:    
-        print(f"❌ Error en talk_to_ron: {e}")    
-        error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"    
-        print(f"🤖 Ron: {error_response}")    
-          
-        # NUEVO: Ducking antes de hablar (incluso en errores)  
-        duck_other_applications()  
-          
-        try:  
-            engine.say(error_response)    
-            engine.runAndWait()  
-        finally:  
-            # NUEVO: Restaurar volumen después de hablar  
-            restore_application_volumes()  
+                  
+            if current_username:      
+                add_to_memory(current_username, text, response)      
+                  
+            return {      
+                "shutdown": False,  # NO terminar programa, solo conversación      
+                "stay_active": False,  # Volver a escucha pasiva      
+                "response": response      
+            }      
               
-        return {"shutdown": False, "stay_active": True, "response": error_response}  # Mantener activo en errores    
-            
-    finally:    
-        speaking = False    
-        listening_active = True    
-        
+        # PRIORIDAD 1: Intentar procesamiento normal (incluye comandos básicos)      
+        response = core_generate_response(text, current_username)      
+              
+        # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma      
+        if not response and requires_autonomous_execution(text):      
+            print("🔍 Detectada solicitud que requiere investigación autónoma...")      
+            autonomous_result = autonomous_command_research_and_execution(text, current_username)      
+                  
+            if autonomous_result.get("success", False):      
+                executed_commands = autonomous_result.get("executed_commands", [])      
+                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."      
+                      
+                for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar      
+                    if cmd_result.get("success"):      
+                        response += f"\\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"      
+                    else:      
+                        response += f"\\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"      
+            else:      
+                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"      
+              
+        # Asegurar que response tenga un valor      
+        if not response:      
+            response = "❌ No pude procesar tu solicitud. ¿Puedes intentar de nuevo?"      
+              
+        # Verificar si la respuesta contiene señal de shutdown      
+        if "__SHUTDOWN__" in response:      
+            clean_response = response.replace("__SHUTDOWN__", "")      
+            print(f"🤖 Ron: {clean_response}")  
+            engine.say(clean_response)      
+            engine.runAndWait()      
+            time.sleep(0.5)  
+                  
+            if current_username:      
+                add_to_memory(current_username, text, clean_response)      
+                  
+            return {      
+                "shutdown": False,  # NO terminar programa      
+                "stay_active": False,  # Volver a escucha pasiva      
+                "response": clean_response      
+            }      
+              
+        print(f"🤖 Ron: {response}")     
+        cleaned_response = clean_text_for_tts(response)  
+        engine.say(cleaned_response)      
+        engine.runAndWait()      
+        time.sleep(0.5)  
+              
+        # Guardar en memoria      
+        if current_username:      
+            add_to_memory(current_username, text, response)      
+              
+        # Determinar si debe mantenerse activo con la nueva lógica      
+        stay_active = should_stay_active(text, response)      
+              
+        return {      
+            "shutdown": False,      
+            "stay_active": stay_active,      
+            "response": response      
+        }      
+              
+    except Exception as e:      
+        print(f"❌ Error en talk_to_ron: {e}")      
+        error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"      
+        print(f"🤖 Ron: {error_response}")  
+        engine.say(error_response)      
+        engine.runAndWait()  
+        return {"shutdown": False, "stay_active": True, "response": error_response}  # Mantener activo en errores      
+              
+    finally:      
+        speaking = False      
+        listening_active = True      
+          
     return {"shutdown": False, "stay_active": False, "response": ""}
 
   
