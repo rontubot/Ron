@@ -4,6 +4,7 @@ import webbrowser
 import requests  
 import logging  
 import re  
+import psutil 
 from config import WEATHER_API_KEY 
 from core.memory import (
     add_to_memory,
@@ -17,6 +18,11 @@ from core.memory import (
     update_reminder,
     remove_reminder_item,
 ) 
+from core.commands import (  
+    run_command,  
+    duck_other_applications,  
+    restore_application_volumes  
+)
   
 # Configurar logging  
 logging.basicConfig(level=logging.DEBUG)  
@@ -409,6 +415,71 @@ def list_files(directory_path):
 
         
 
+def get_audio_processes():  
+    """Enumera procesos que probablemente tengan audio activo"""  
+ 
+      
+    audio_apps = []  
+    common_audio_processes = [  
+        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',  # Navegadores  
+        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',  # Reproductores  
+        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe'  # Comunicación  
+    ]  
+      
+    try:  
+        for proc in psutil.process_iter(['name']):  
+            proc_name = proc.info['name'].lower()  
+            if proc_name in common_audio_processes:  
+                audio_apps.append(proc.info['name'])  
+    except Exception as e:  
+        logger.error(f"Error enumerando procesos de audio: {e}")  
+      
+    return audio_apps  
+  
+def duck_other_applications():  
+    """Reduce volumen de apps conocidas al 20%"""  
+    try:  
+        logger.info("Reduciendo volumen de otras aplicaciones")  
+        processes = get_audio_processes()  
+          
+        for proc_name in processes:  
+            result = subprocess.run(  
+                ['nircmd', 'setappvolume', proc_name, '0.2'],   
+                capture_output=True,  
+                text=True  
+            )  
+            if result.returncode == 0:  
+                logger.debug(f"Volumen reducido para {proc_name}")  
+            else:  
+                logger.warning(f"No se pudo reducir volumen de {proc_name}")  
+                  
+        return {"ok": True, "message": f"Volumen reducido en {len(processes)} aplicaciones"}  
+    except Exception as e:  
+        logger.error(f"Error en duck_other_applications: {e}")  
+        return {"ok": False, "error": str(e)}  
+  
+def restore_application_volumes():  
+    """Restaura volumen de apps al 100%"""  
+    try:  
+        logger.info("Restaurando volumen de aplicaciones")  
+        processes = get_audio_processes()  
+          
+        for proc_name in processes:  
+            result = subprocess.run(  
+                ['nircmd', 'setappvolume', proc_name, '1.0'],   
+                capture_output=True,  
+                text=True  
+            )  
+            if result.returncode == 0:  
+                logger.debug(f"Volumen restaurado para {proc_name}")  
+                  
+        return {"ok": True, "message": f"Volumen restaurado en {len(processes)} aplicaciones"}  
+    except Exception as e:  
+        logger.error(f"Error en restore_application_volumes: {e}")  
+        return {"ok": False, "error": str(e)}
+
+
+
 # ===== NUEVAS FUNCIONES DE DIAGNÓSTICO Y REPARACIÓN =====  
   
 def diagnose_system_performance():  
@@ -738,7 +809,9 @@ COMMANDS = {
     "list_files": list_files,  
   
     # ——— Utilidad  
-    "get_weather": get_weather,  
+    "get_weather": get_weather, 
+    "duck_other_applications": duck_other_applications,
+    "restore_application_volumes": restore_application_volumes,
 }
 
 
