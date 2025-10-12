@@ -18,12 +18,7 @@ from core.memory import (
     update_reminder,
     remove_reminder_item,
 ) 
-from core.commands import (  
-    run_command,  
-    duck_other_applications,  
-    restore_application_volumes  
-)
-  
+
 # Configurar logging  
 logging.basicConfig(level=logging.DEBUG)  
 logger = logging.getLogger(__name__)  
