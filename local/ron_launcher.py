@@ -27,6 +27,26 @@ from core.autonomous import (
 )
 
 
+def clean_text_for_tts(text: str) -> str:  
+    """Elimina caracteres especiales, emoticonos y markdown para TTS"""  
+    import re  
+      
+    # Eliminar emojis y símbolos especiales  
+    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑]+', '', text)  
+      
+    # Eliminar markdown (**, __, `, etc.)  
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **negrita**  
+    text = re.sub(r'__([^_]+)__', r'\1', text)      # __negrita__  
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *cursiva*  
+    text = re.sub(r'_([^_]+)_', r'\1', text)        # _cursiva_  
+    text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`  
+      
+    # Eliminar otros caracteres especiales comunes  
+    text = re.sub(r'[✅❌🔍🔴🟢💤🔄🎤📨🤖😄]', '', text)  
+      
+    return text.strip()
+
+
 # Reducir logs DEBUG  
 logging.getLogger('urllib3').setLevel(logging.WARNING)  
 logging.getLogger('httpcore').setLevel(logging.WARNING)  
