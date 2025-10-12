@@ -64,7 +64,8 @@ def get_audio_processes():
     common_audio_processes = [    
         'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',  
         'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',  
-        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe'  
+        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe' 'youtube.exe', 
+        'netflix.exe', 'whatsapp.exe', 
     ]    
         
     try:    
