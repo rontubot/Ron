@@ -892,104 +892,195 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
 
 
 
-def _process_user_input_streaming(user_input, save_to_memory=True, username=None):  
-    """  
-    Versión streaming de _process_user_input que genera chunks progresivamente.  
-    Yields chunks de texto a medida que se generan.  
-    """  
-    username = resolve_username(username)  
-    original_input = user_input  
-    user_input = (user_input or "").lower().strip()  
+def _process_user_input_streaming(user_input, save_to_memory=True, username=None):    
+    """    
+    Versión streaming de _process_user_input que genera chunks progresivamente.    
+    Yields chunks de texto a medida que se generan.    
+    """    
+    username = resolve_username(username)    
+    original_input = user_input    
+    user_input = (user_input or "").lower().strip()    
+        
+    # Idempotencia    
+    mem_for_idem = load_user_memory(username) or {}    
+    recent_turns = mem_for_idem.get("__recent_turns__", [])    
+    now = time.time()    
+    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()    
+        
+    for item in reversed(recent_turns[-10:]):    
+        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:    
+            cached_resp = item.get("response")    
+            if cached_resp:    
+                yield cached_resp    
+                return    
+            break    
+        
+    # === TODOS los casos que NO deben hacer streaming ===  
       
-    # Idempotencia (mismo código que _process_user_input)  
-    mem_for_idem = load_user_memory(username) or {}  
-    recent_turns = mem_for_idem.get("__recent_turns__", [])  
-    now = time.time()  
-    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()  
+    # 1. Nombre de usuario  
+    try:  
+        mem_name = load_user_memory(username) or {}  
+        display_name = get_display_name(username)  
+        if not display_name:  
+            possible = maybe_extract_name_from_text(original_input)  
+            if possible:  
+                set_display_name(username, possible)  
+            else:  
+                asked = (mem_name.get("profile", {}) or {}).get("asked_display_name_once")  
+                if not asked:  
+                    mem_name.setdefault("profile", {})["asked_display_name_once"] = True  
+                    save_user_memory(username, mem_name)  
+                    prompt_name = (  
+                        "¿Cómo quieres que te llame? (por ejemplo: Me llamo Ana)\n"  
+                        "Puedo guardar esto para dirigirme a ti correctamente."  
+                    )  
+                    yield prompt_name  
+                    return  
+    except Exception:  
+        pass  
       
-    for item in reversed(recent_turns[-10:]):  
-        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:  
-            cached_resp = item.get("response")  
-            if cached_resp:  
-                yield cached_resp  
-                return  
-            break  
+    # 2. Despedida  
+    if detect_farewell_patterns(user_input):  
+        response = "Hasta luego. Que tengas un buen día."  
+        if save_to_memory:  
+            _append_user_conv(username, original_input, response, source="voice")  
+        yield response  
+        return  
       
-    # Procesamiento de comandos directos (sin streaming)  
-    # Comandos como "abre chrome", "clima", etc. se ejecutan inmediatamente  
-    if user_input.startswith("abre ") or user_input.startswith("cierra "):  
-        # ... (mismo código de _process_user_input para comandos directos)  
+    # 3. Comandos directos (TODOS los casos de _process_user_input)  
+    direct_command_patterns = [  
+        ("apaga la computadora", "apaga el sistema"),  
+        ("reinicia la computadora", "reinicia el sistema"),  
+        ("suspende la computadora", "suspende el sistema"),  
+        ("diagnostica el sistema", "verifica la memoria", "revisa el rendimiento"),  
+        ("verifica servicios", "estado de servicios", "revisa servicios"),  
+        ("repara servicios", "reinicia servicios", "arregla servicios"),  
+        ("limpia archivos temporales", "optimiza el sistema", "limpia la computadora"),  
+        ("limpia dns", "reinicia dns", "arregla internet"),  
+        ("qué recordatorios tengo", "cuál es mi agenda"),  
+    ]  
+      
+    direct_command_prefixes = [  
+        "abre ", "cierra ", "investiga ", "reproducir ", "reproduce ",  
+        "youtube ", "yt ", "buscar en youtube ", "recuérdame", "añade un recordatorio",  
+        "he completado", "elimina"  
+    ]  
+      
+    # Verificar si es comando directo  
+    is_direct_command = False  
+    if "clima en" in user_input:  
+        is_direct_command = True  
+    else:  
+        for pattern_group in direct_command_patterns:  
+            if any(cmd in user_input for cmd in pattern_group):  
+                is_direct_command = True  
+                break  
+        if not is_direct_command:  
+            for prefix in direct_command_prefixes:  
+                if user_input.startswith(prefix):  
+                    is_direct_command = True  
+                    break  
+      
+    if is_direct_command:  
         result = _process_user_input(user_input, save_to_memory, username)  
         yield result  
         return  
+        
+    # === Conversación con OpenAI (CON STREAMING REAL) ===  
       
-    # Conversación con OpenAI (CON STREAMING)  
-    mensajes = construir_historial_usuario_openai(username)  
-    mensajes.append({"role": "user", "content": original_input})  
-      
+    # Perfil (mismo código que _process_user_input)  
     try:  
-        # NUEVO: stream=True para recibir chunks  
-        respuesta = client.chat.completions.create(  
-            model="gpt-5-chat-latest",  
-            messages=mensajes,  
-            response_format={"type": "json_object"},  
-            max_tokens=900,  
-            temperature=0.7,  
-            stream=True  # ACTIVAR STREAMING  
-        )  
-          
-        full_response = ""  
-        json_buffer = ""  
-          
-        for chunk in respuesta:  
-            if chunk.choices[0].delta.content:  
-                content = chunk.choices[0].delta.content  
-                json_buffer += content  
-                  
-                # Intentar parsear JSON parcial para extraer user_response  
+        mem = load_user_memory(username) or {}  
+        prof = get_or_init_profile(mem)  
+        if prof.get("enabled", True) and os.getenv("RON_PROFILE_TURN_CLASSIFIER", "1") == "1":   
+            append_to_profile_window(prof, original_input)  
+            snapshot = {  
+                "preferences": prof.get("preferences", {}),  
+                "dos": prof.get("dos", []),  
+                "donts": prof.get("donts", []),  
+            }  
+            try:  
+                cls = run_turn_classifier(client, "gpt-5-chat-latest", original_input, snapshot)  
+                ops = cls.get("ops") if isinstance(cls, dict) else None  
+                if ops:  
+                    apply_ops(prof, ops, confidence_threshold=0.65)  
+            except Exception:  
+                pass  
+            prof["message_count"] = int(prof.get("message_count", 0)) + 1  
+            do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)  
+            if do_batch:  
                 try:  
-                    partial_json = json.loads(json_buffer)  
-                    if "user_response" in partial_json:  
-                        user_response = partial_json["user_response"]  
-                        if user_response and user_response != full_response:  
-                            # Enviar solo el nuevo texto  
-                            new_text = user_response[len(full_response):]  
-                            full_response = user_response  
-                            yield new_text  
-                except json.JSONDecodeError:  
-                    # JSON incompleto, seguir acumulando  
+                    batch = run_batch_profiler(client, "gpt-5-chat-latest", prof["recent_window"])  
+                    apply_batch_result(prof, batch)  
+                except Exception:  
                     pass  
+        purge_expired_facts(prof)  
+        save_user_memory(username, mem)  
+    except Exception:  
+        pass  
+      
+    mensajes = construir_historial_usuario_openai(username)    
+    mensajes.append({"role": "user", "content": original_input})    
+        
+    try:    
+        # STREAMING SIN response_format (para recibir texto progresivo)  
+        respuesta = client.chat.completions.create(    
+            model="gpt-5-chat-latest",    
+            messages=mensajes,    
+            max_tokens=900,    
+            temperature=0.7,    
+            stream=True  # SIN response_format para streaming real  
+        )    
+            
+        full_response = ""    
+        accumulated_text = ""  
+            
+        for chunk in respuesta:    
+            if chunk.choices[0].delta.content:    
+                content = chunk.choices[0].delta.content    
+                accumulated_text += content  
+                full_response += content  
+                  
+                # Enviar cada chunk inmediatamente  
+                yield content  
           
-        # Procesar comandos al final (si los hay)  
+        # Al final, intentar parsear comandos del texto completo  
         try:  
-            final_json = json.loads(json_buffer)  
-            if final_json.get("commands"):  
-                # Ejecutar comandos pero no hacer streaming de esto  
-                parse_and_execute_commands_dynamic(  
-                    json_buffer,  
-                    ctx={"username": username, "last_user_text": original_input},  
-                    async_execute=os.getenv("RON_ASYNC_COMMANDS", "0") == "1"  
-                )  
-        except:  
-            pass  
-          
-        # Guardar en memoria  
-        if save_to_memory:  
-            _append_user_conv(username, original_input, full_response, source="voice")  
-          
-        # Actualizar __recent_turns__  
-        try:  
-            mem_tmp = load_user_memory(username) or {}  
-            rt = (mem_tmp.get("__recent_turns__", []) or [])[-19:]  
-            rt.append({"hash": turn_hash, "ts": now, "response": full_response})  
-            mem_tmp["__recent_turns__"] = rt  
-            save_user_memory(username, mem_tmp)  
-        except:  
-            pass  
+            # Intentar extraer JSON si el modelo lo generó  
+            corrected = fix_common_json_errors(full_response)  
+            response_data = json.loads(corrected)  
               
-    except Exception as e:  
-        logger.error(f"Error con OpenAI streaming: {e}")  
-        yield "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"  
+            # Ejecutar comandos si los hay  
+            commands_to_execute = response_data.get("commands", []) or []  
+            if commands_to_execute:  
+                for command in commands_to_execute:  
+                    action = (command.get("action") or "").strip()  
+                    params = command.get("params", {}) or {}  
+                    if action:  
+                        if action == "search_youtube":  
+                            params.setdefault("play_video", True)  
+                        run_command(action, params, {"username": username, "last_user_text": original_input})  
+        except:  
+            # Si no es JSON válido, usar el texto completo como respuesta  
+            pass  
+            
+        # Guardar en memoria    
+        if save_to_memory:    
+            _append_user_conv(username, original_input, full_response, source="voice")    
+            
+        # Actualizar __recent_turns__    
+        try:    
+            mem_tmp = load_user_memory(username) or {}    
+            rt = (mem_tmp.get("__recent_turns__", []) or [])[-19:]    
+            rt.append({"hash": turn_hash, "ts": now, "response": full_response})    
+            mem_tmp["__recent_turns__"] = rt    
+            save_user_memory(username, mem_tmp)    
+        except:    
+            pass    
+                
+    except Exception as e:    
+        logger.error(f"Error con OpenAI streaming: {e}")    
+        yield "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
   
   
 # Wrapper público para streaming  
