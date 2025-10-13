@@ -8,12 +8,13 @@ from openai import OpenAI
 import jwt      
 import bcrypt      
 from datetime import datetime, timedelta      
-from dotenv import load_dotenv      
+from dotenv import load_dotenv
+from fastapi.responses import StreamingResponse      
 from core.memory import (    
     load_memory, add_to_memory, save_memory, get_github_token,    
     load_user_memory, save_user_memory, load_users_from_github, save_users_to_github    
 )     
-from core.assistant import generate_response_no_memory, parse_commands_only, construir_historial_usuario_openai    
+from core.assistant import generate_response_no_memory, parse_commands_only, construir_historial_usuario_openai, responder_a_usuario_streaming    
 from core.memory import get_github_token as memory_get_github_token      
 import requests      
 import json      
@@ -520,6 +521,65 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         "reply": user_response,    
         "commands": commands    
     }
+
+
+
+@app.post("/ron/stream")  
+async def chat_with_ron_streaming(request: Request):  
+    """  
+    Endpoint de streaming que envía chunks de texto progresivamente.  
+    Usa Server-Sent Events (SSE) para comunicación unidireccional.  
+    """  
+    try:  
+        body = await request.json()  
+        text = body.get("text") or body.get("message") or ""  
+        username = body.get("username") or "default"  
+          
+        if not text.strip():  
+            return {"error": "Mensaje vacío"}  
+          
+        # Verificar autenticación (opcional)  
+        auth_header = request.headers.get("Authorization")  
+        if auth_header and auth_header.startswith("Bearer "):  
+            token = auth_header.split(" ")[1]  
+            try:  
+                verify_jwt_token(token)  
+            except:  
+                return JSONResponse(  
+                    status_code=401,  
+                    content={"error": "Token inválido o expirado"}  
+                )  
+          
+        async def generate():  
+            """Generador asíncrono para SSE"""  
+            try:  
+                for chunk in responder_a_usuario_streaming(text, username):  
+                    # Formato SSE: data: {contenido}\n\n  
+                    yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"  
+                  
+                # Señal de finalización  
+                yield f"data: {json.dumps({'done': True})}\n\n"  
+                  
+            except Exception as e:  
+                logger.error(f"Error en streaming: {e}")  
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"  
+          
+        return StreamingResponse(  
+            generate(),  
+            media_type="text/event-stream",  
+            headers={  
+                "Cache-Control": "no-cache",  
+                "Connection": "keep-alive",  
+                "X-Accel-Buffering": "no"  # Desactivar buffering en nginx  
+            }  
+        )  
+          
+    except Exception as e:  
+        logger.error(f"Error en /ron/stream: {e}")  
+        return JSONResponse(  
+            status_code=500,  
+            content={"error": str(e)}  
+        )
 
 
 

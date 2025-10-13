@@ -414,7 +414,7 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
     return stop_listening
       
 
-ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn"}  # ajusta aquí las variantes permitidas
+ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn", "ram"}  # ajusta aquí las variantes permitidas
 
 def _normalize_text(s: str) -> str:
     """Minúsculas y sin acentos/diacríticos para comparar tokens."""
