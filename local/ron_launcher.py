@@ -1707,6 +1707,7 @@ if __name__ == "__main__":
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)        
             
     activado = False
+    restore_application_volumes()
     try:  
         while True:  
             try:  
@@ -1753,7 +1754,8 @@ if __name__ == "__main__":
                     if utterance:  
                         # Primero comandos locales  
                         if handle_local_commands(utterance):  
-                            activado = False  # Volver a escucha pasiva  
+                            activado = False
+                            restore_application_volumes()  # Volver a escucha pasiva  
                             print("🔁 Vuelvo a escucha pasiva (comando local).")  
                             continue  
       
@@ -1763,7 +1765,8 @@ if __name__ == "__main__":
                         # Verificar shutdown PRIMERO  
                         if result.get("shutdown", False):  
                             print("🔴 Ron desactivado por despedida o comando")  
-                            activado = False  
+                            activado = False
+                            restore_application_volumes()  
                             break  
                           
                         # Luego verificar si debe continuar  
@@ -1774,9 +1777,11 @@ if __name__ == "__main__":
                             last_speech_time = time.time()  
                         else:  
                             print("💤 Volviendo a escucha pasiva (esperando 'Ron')")  
-                            activado = False  
+                            activado = False
+                            restore_application_volumes()  
                     else:  
-                        activado = False  
+                        activado = False
+                        restore_application_volumes()  
   
             except queue.Empty:  
                 # Verificar grabación manual  
@@ -1792,7 +1797,8 @@ if __name__ == "__main__":
                             # Verificar shutdown PRIMERO para grabación manual  
                             if result.get("shutdown", False):  
                                 print("🔴 Ron desactivado por despedida")  
-                                activado = False  
+                                activado = False
+                                restore_application_volumes()  
                                 break  
                               
                             # Aplicar la misma lógica para grabación manual  
@@ -1808,14 +1814,16 @@ if __name__ == "__main__":
                     conversation_buffer.clear()  
                     if utterance:  
                         if handle_local_commands(utterance):  
-                            activado = False  # Volver a escucha pasiva  
+                            activado = False
+                            restore_application_volumes()  # Volver a escucha pasiva  
                         else:  
                             result = talk_to_ron(utterance)  
                               
                             # Verificar shutdown PRIMERO para timeout  
                             if result.get("shutdown", False):  
                                 print("🔴 Ron desactivado por despedida")  
-                                activado = False  
+                                activado = False
+                                restore_application_volumes()  
                                 break  
                               
                             if result.get("stay_active", False):  
@@ -1823,7 +1831,8 @@ if __name__ == "__main__":
                                 activation_time = time.time()  
                                 last_speech_time = time.time()  
                             else:  
-                                activado = False  # Volver a escucha pasiva  
+                                activado = False
+                                restore_application_volumes()  # Volver a escucha pasiva  
                 continue
 
       
@@ -1832,6 +1841,15 @@ if __name__ == "__main__":
       
     finally:  
         control_enabled = False  
+
+        # NUEVO: Restaurar volumen SIEMPRE al cerrar  
+        try:  
+            restore_application_volumes()  
+            print("🔊 Volumen restaurado al cerrar Ron")  
+        except Exception as e:  
+            print(f"⚠️ No se pudo restaurar volumen: {e}")  
+          
+
         try:  
             stop_listening(wait_for_stop=False)  
         except Exception:  
