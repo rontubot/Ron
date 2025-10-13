@@ -525,63 +525,51 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
 
 
 @app.post("/ron/stream")  
-async def chat_with_ron_streaming(request: Request):  
-    """  
-    Endpoint de streaming que envía chunks de texto progresivamente.  
-    Usa Server-Sent Events (SSE) para comunicación unidireccional.  
-    """  
-    try:  
-        body = await request.json()  
-        text = body.get("text") or body.get("message") or ""  
-        username = body.get("username") or "default"  
-          
-        if not text.strip():  
-            return {"error": "Mensaje vacío"}  
-          
-        # Verificar autenticación (opcional)  
-        auth_header = request.headers.get("Authorization")  
-        if auth_header and auth_header.startswith("Bearer "):  
-            token = auth_header.split(" ")[1]  
-            try:  
-                verify_jwt_token(token)  
-            except:  
-                return JSONResponse(  
-                    status_code=401,  
-                    content={"error": "Token inválido o expirado"}  
-                )  
-          
-        async def generate():  
-            """Generador asíncrono para SSE"""  
-            try:  
-                for chunk in responder_a_usuario_streaming(text, username):  
-                    # Formato SSE: data: {contenido}\n\n  
-                    yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"  
-                  
-                # Señal de finalización  
-                yield f"data: {json.dumps({'done': True})}\n\n"  
-                  
-            except Exception as e:  
-                logger.error(f"Error en streaming: {e}")  
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"  
-          
-        return StreamingResponse(  
-            generate(),  
-            media_type="text/event-stream",  
-            headers={  
-                "Cache-Control": "no-cache",  
-                "Connection": "keep-alive",  
-                "X-Accel-Buffering": "no"  # Desactivar buffering en nginx  
-            }  
-        )  
-          
-    except Exception as e:  
-        logger.error(f"Error en /ron/stream: {e}")  
-        return JSONResponse(  
-            status_code=500,  
-            content={"error": str(e)}  
-        )
-
-
+async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):  
+    """Endpoint de streaming para respuestas progresivas"""  
+    # Requiere token  
+    if authorization is None:  
+        raise HTTPException(status_code=401, detail="Autenticación requerida")  
+      
+    current_user = None  
+    if authorization.startswith("Bearer "):  
+        token = authorization.split(" ", 1)[1]  
+        current_user = verify_jwt_token(token)  
+    else:  
+        raise HTTPException(status_code=401, detail="Autenticación requerida")  
+      
+    # Leer body  
+    body = await request.json()  
+    user_text = (body.get("text") or body.get("message") or "").strip()  
+    if not user_text:  
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
+      
+    # Función generadora para SSE  
+    async def generate_stream():  
+        try:  
+            from core.assistant import responder_a_usuario_streaming  
+              
+            # Generar chunks progresivamente  
+            for chunk in responder_a_usuario_streaming(user_text, username=current_user):  
+                # Formato SSE (Server-Sent Events)  
+                yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"  
+              
+            # Señal de finalización  
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"  
+              
+        except Exception as e:  
+            logger.exception("Error en streaming")  
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"  
+      
+    return StreamingResponse(  
+        generate_stream(),  
+        media_type="text/event-stream",  
+        headers={  
+            "Cache-Control": "no-cache",  
+            "Connection": "keep-alive",  
+            "X-Accel-Buffering": "no"  # Desactiva buffering en nginx  
+        }  
+    )
 
 
   
