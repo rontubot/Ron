@@ -13,23 +13,37 @@ from datetime import datetime as _dt
 import re as _re
 from pathlib import Path as _Path
 import os as _os
-    
+import logging, time
+log = logging.getLogger(__name__)
+
+
 # Configuración unificada para usar el mismo repositorio para lectura y escritura    
 GITHUB_USERNAME = "rontubot"    
 REPO_NAME = "ron-memory-store"    
 BRANCH = "main"    
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{REPO_NAME}/contents"    
+ENABLE_GITHUB_LOGIN = os.getenv("ENABLE_GITHUB_LOGIN", "false").lower() == "true"
+GITHUB_TOKEN_ENV = os.getenv("GITHUB_TOKEN", "").strip()
     
    
     
-def get_github_token():    
-    try:    
-        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=10)    
-        if r.status_code == 200:    
-            return r.text.strip()    
-    except Exception as e:    
-        print(f"⚠️ Error obteniendo token de GitHub: {e}")    
-    return None    
+def _use_github() -> bool:
+    """
+    Solo usamos GitHub si el feature está habilitado y hay un token en env.
+    Evita red e impide timeouts si no hay configuración correcta.
+    """
+    return ENABLE_GITHUB_LOGIN and bool(GITHUB_TOKEN_ENV)
+
+def get_github_token():
+    """
+    NUEVO: no hace ninguna llamada HTTP.
+    - Si ENABLE_GITHUB_LOGIN=false => None
+    - Si hay GITHUB_TOKEN en env => lo devuelve
+    - Si no => None (sin intentar device flow/HTTP)
+    """
+    if not ENABLE_GITHUB_LOGIN:
+        return None
+    return GITHUB_TOKEN_ENV or None  
     
 def get_memory_file_path():
     raise RuntimeError("get_memory_file_path() está deprecada: usar memory/users/{username}.json via load_user_memory/save_user_memory")   
@@ -37,6 +51,10 @@ def get_memory_file_path():
 # FUNCIONES DE MEMORIA POR USUARIO (movidas desde api.py)  
 def load_user_memory(username: str):
     """Carga la memoria específica del usuario"""
+    # Si GitHub no está habilitado o no hay token, devuelve default sin red
+    if not _use_github():
+        return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
+
     token = get_github_token()
     if not token:
         return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
@@ -73,6 +91,10 @@ def _reminders_path_for(username: str) -> str:
     return f"{REMINDERS_DIR}/{uname}.json"
 
 def load_user_reminders(username: str) -> dict:
+    # Sin GitHub => doc vacío en memoria
+    if not _use_github():
+        return {"user": username, "updated_at": _now(), "reminders": []}
+
     token = get_github_token()
     if not token:
         return {"user": username, "updated_at": _now(), "reminders": []}
@@ -87,7 +109,6 @@ def load_user_reminders(username: str) -> dict:
         r = requests.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
             data = json.loads(r.content)
-            # sanity
             data.setdefault("user", username)
             data.setdefault("updated_at", _now())
             data.setdefault("reminders", [])
@@ -101,6 +122,10 @@ def load_user_reminders(username: str) -> dict:
     return {"user": username, "updated_at": _now(), "reminders": []}
 
 def save_user_reminders(username: str, reminders_doc: dict) -> bool:
+    # Sin GitHub => no guardamos (pero no fallamos catastrófico)
+    if not _use_github():
+        return False
+
     token = get_github_token()
     if not token:
         return False
@@ -216,6 +241,9 @@ def find_reminder_by_title(username: str, query: str) -> list[dict]:
 
 def save_user_memory(username: str, memory_data: dict):
     """Guarda la memoria específica del usuario"""
+    if not _use_github():
+        return False
+
     token = get_github_token()
     if not token:
         return False
@@ -236,16 +264,11 @@ def save_user_memory(username: str, memory_data: dict):
     except Exception as e:
         print(f"⚠️ No se pudo obtener SHA existente: {e}")
 
-    # Preparar contenido con UTF-8 y sin escapar ASCII
     content = base64.b64encode(
         json.dumps(memory_data, indent=2, ensure_ascii=False).encode("utf-8")
     ).decode()
 
-    payload = {
-        "message": f"Actualizar memoria de {username}",
-        "content": content,
-        "branch": BRANCH,
-    }
+    payload = {"message": f"Actualizar memoria de {username}", "content": content, "branch": BRANCH}
     if sha:
         payload["sha"] = sha
 
@@ -255,63 +278,66 @@ def save_user_memory(username: str, memory_data: dict):
     except Exception as e:
         print(f"Error guardando memoria de usuario: {e}")
         return False
-        
   
-def load_users_from_github():  
-    """Carga la base de datos de usuarios desde GitHub"""  
-    token = get_github_token()  
-    if not token:  
-        return {}  
-      
-    file_path = "users/users.json"  
-    url = f"{GITHUB_API_BASE}/{file_path}?ref={BRANCH}"  
-    headers = {  
-        "Authorization": f"token {token}",  
-        "Accept": "application/vnd.github.v3.raw"  
-    }  
-      
-    try:  
-        r = requests.get(url, headers=headers, timeout=15)  
-        if r.status_code == 200:  
-            return json.loads(r.content)  
-        elif r.status_code == 404:  
-            return {}  
-    except Exception as e:  
-        print(f"Error cargando usuarios: {e}")  
-      
-    return {}  
-  
-def save_users_to_github(users_data: dict):  
-    """Guarda la base de datos de usuarios en GitHub"""  
-    token = get_github_token()  
-    if not token:  
-        return False  
-      
-    file_path = "users/users.json"  
-    url = f"{GITHUB_API_BASE}/{file_path}"  
-      
-    # Obtener SHA del archivo existente  
-    headers = {"Authorization": f"token {token}"}  
-    existing_file = requests.get(url, headers=headers)  
-    sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None  
-      
-    # Preparar datos para GitHub  
-    content = base64.b64encode(json.dumps(users_data, indent=2).encode()).decode()  
-    data = {  
-        "message": "Actualizar base de datos de usuarios",  
-        "content": content,  
-        "branch": BRANCH  
-    }  
-    if sha:  
-        data["sha"] = sha  
-      
-    try:  
-        response = requests.put(url, json=data, headers=headers)  
-        return response.status_code in [200, 201]  
-    except Exception as e:  
-        print(f"Error guardando usuarios: {e}")  
+def load_users_from_github():
+    """Carga la base de datos de usuarios desde GitHub"""
+    if not _use_github():
+        return {}
+
+    token = get_github_token()
+    if not token:
+        return {}
+
+    file_path = "users/users.json"
+    url = f"{GITHUB_API_BASE}/{file_path}?ref={BRANCH}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3.raw"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            return json.loads(r.content)
+        elif r.status_code == 404:
+            return {}
+    except Exception as e:
+        print(f"Error cargando usuarios: {e}")
+
+    return {}
+
+
+def save_users_to_github(users_data: dict):
+    """Guarda la base de datos de usuarios en GitHub"""
+    if not _use_github():
         return False
 
+    token = get_github_token()
+    if not token:
+        return False
+
+    file_path = "users/users.json"
+    url = f"{GITHUB_API_BASE}/{file_path}"
+
+    headers = {"Authorization": f"token {token}"}
+    try:
+        existing_file = requests.get(url, headers=headers, timeout=10)
+        sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None
+    except Exception as e:
+        print(f"⚠️ No se pudo obtener SHA usuarios: {e}")
+        sha = None
+
+    content = base64.b64encode(json.dumps(users_data, indent=2, ensure_ascii=False).encode("utf-8")).decode()
+    data = {"message": "Actualizar base de datos de usuarios", "content": content, "branch": BRANCH}
+    if sha:
+        data["sha"] = sha
+
+    try:
+        response = requests.put(url, json=data, headers=headers, timeout=20)
+        return response.status_code in [200, 201]
+    except Exception as e:
+        print(f"Error guardando usuarios: {e}")
+        return False
+
+
+        
 # ===== LEGACY SHIMS AHORA USER-AWARE =====
 # Todas estas funciones piden 'username' y guardan en memory/users/{username}.json
 # Si no les pasás username, fallan explícito (para no recrear rutas por dispositivo).

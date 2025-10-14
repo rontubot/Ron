@@ -1,28 +1,26 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response, Request  
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials      
-from fastapi.middleware.cors import CORSMiddleware      
-from pydantic import BaseModel      
-from fastapi.responses import PlainTextResponse     
-import os      
-from openai import OpenAI      
-import jwt      
-import bcrypt      
-from datetime import datetime, timedelta      
-from dotenv import load_dotenv
-from fastapi.responses import StreamingResponse      
-from core.memory import (    
-    load_memory, add_to_memory, save_memory, get_github_token,    
-    load_user_memory, save_user_memory, load_users_from_github, save_users_to_github    
-)     
-from core.assistant import generate_response_no_memory, parse_commands_only, construir_historial_usuario_openai, responder_a_usuario_streaming    
-from core.memory import get_github_token as memory_get_github_token      
-import requests      
-import json      
-import base64     
-import traceback  
-import re   
-import logging    
+from fastapi import FastAPI, HTTPException, Depends, Header, Response, Request
+from fastapi.security import HTTPBearer
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
+import os, json, base64, traceback, re, logging
+import jwt, bcrypt
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+from openai import OpenAI
+
+
+from core.memory import (
+    load_memory, add_to_memory, save_memory,
+    load_user_memory, save_user_memory,
+    load_users_from_github, save_users_to_github,
+)
+
+from core.assistant import (
+    generate_response_no_memory, parse_commands_only,
+    construir_historial_usuario_openai, responder_a_usuario_streaming
+)
   
 # NUEVO: Limpiar markdown y emojis  
  
@@ -141,128 +139,7 @@ def get_current_user(authorization: str = Header(None)) -> str:
     token = authorization.split(" ", 1)[1]      
     return verify_jwt_token(token)      
   
-# Función para cargar memoria por usuario      
-def load_user_memory(username: str):      
-    """Carga la memoria específica del usuario"""         
-          
-    token = get_github_token()      
-    if not token:      
-        return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}      
-          
-    file_path = f"memory/users/{username}.json"      
-    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"      
-    headers = {      
-        "Authorization": f"token {token}",      
-        "Accept": "application/vnd.github.v3.raw"      
-    }      
-          
-    try:      
-        r = requests.get(url, headers=headers, timeout=15)      
-        if r.status_code == 200:      
-            return json.loads(r.content)      
-        elif r.status_code == 404:      
-            return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}      
-    except Exception as e:      
-        print(f"Error cargando memoria de usuario: {e}")      
-          
-    return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}      
-      
-def save_user_memory(username: str, memory_data: dict):      
-    """Guarda la memoria específica del usuario"""      
-  
-    token = get_github_token()      
-    if not token:      
-        return False      
-          
-    file_path = f"memory/users/{username}.json"      
-    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}"      
-          
-    # Obtener SHA del archivo existente      
-    headers = {"Authorization": f"token {token}"}      
-    existing_file = requests.get(url, headers=headers)      
-    sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None      
-          
-    # Preparar datos para GitHub      
-    content = base64.b64encode(json.dumps(memory_data, indent=2).encode()).decode()      
-    data = {      
-        "message": f"Actualizar memoria de {username}",      
-        "content": content,      
-        "branch": "main"      
-    }      
-    if sha:      
-        data["sha"] = sha      
-          
-    try:      
-        response = requests.put(url, json=data, headers=headers)      
-        return response.status_code in [200, 201]      
-    except Exception as e:      
-        print(f"Error guardando memoria de usuario: {e}")      
-        return False      
-      
-# Detección de despedida      
-def detect_farewell_in_api(text: str) -> bool:      
-    farewells = [      
-        "hasta luego", "adiós", "nos vemos", "chau",      
-        "me voy", "cerrar sesión", "hasta pronto",      
-        "bye", "see you", "goodbye"      
-    ]      
-    return any(farewell in text.lower() for farewell in farewells)      
-      
-def load_users_from_github():      
-    """Carga la base de datos de usuarios desde GitHub"""      
-  
-    token = get_github_token()      
-    if not token:      
-        return {}      
-          
-    file_path = "users/users.json"      
-    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"      
-    headers = {      
-        "Authorization": f"token {token}",      
-        "Accept": "application/vnd.github.v3.raw"      
-    }      
-          
-    try:      
-        r = requests.get(url, headers=headers, timeout=15)      
-        if r.status_code == 200:      
-            return json.loads(r.content)      
-        elif r.status_code == 404:      
-            return {}      
-    except Exception as e:      
-        print(f"Error cargando usuarios: {e}")      
-          
-    return {}      
-      
-def save_users_to_github(users_data: dict):      
-    """Guarda la base de datos de usuarios en GitHub"""      
-    token = get_github_token()      
-    if not token:      
-        return False      
-          
-    file_path = "users/users.json"      
-    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}"      
-          
-    # Obtener SHA del archivo existente      
-    headers = {"Authorization": f"token {token}"}      
-    existing_file = requests.get(url, headers=headers)      
-    sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None      
-          
-    # Preparar datos para GitHub      
-    content = base64.b64encode(json.dumps(users_data, indent=2).encode()).decode()      
-    data = {      
-        "message": "Actualizar base de datos de usuarios",      
-        "content": content,      
-        "branch": "main"      
-    }      
-    if sha:      
-        data["sha"] = sha      
-          
-    try:      
-        response = requests.put(url, json=data, headers=headers)      
-        return response.status_code in [200, 201]      
-    except Exception as e:      
-        print(f"Error guardando usuarios: {e}")      
-        return False
+
 
 # Endpoints de autenticación      
 @app.post("/auth/register")      
@@ -333,34 +210,23 @@ def read_root():
     return {"message": "Ron API está corriendo con autenticación"}      
       
   
-@app.post("/ron")    
-def chat_with_ron(data: UserInput, authorization: str = Header(None)):    
-    # Requiere token    
-    if authorization is None:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    
-    current_user = None    
-    if authorization.startswith("Bearer "):    
-        token = authorization.split(" ", 1)[1]    
-        current_user = verify_jwt_token(token)    
-    else:    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    
-    # Aceptar 'text' o 'message'    
-    user_text = (data.text or data.message or "").strip()    
-    if not user_text:    
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
-    
-    # 1) Generar respuesta CON HISTORIAL usando el sistema correcto  
-    try:    
-        from openai import OpenAI    
-        from core.assistant import construir_historial_usuario_openai, parse_commands_only    
-            
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))    
-            
-        # Construir historial CON las conversaciones previas del usuario      
-        mensajes = construir_historial_usuario_openai(current_user)    
-          
+@app.post("/ron")
+def chat_with_ron(data: UserInput, authorization: str = Header(None)):
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    token = authorization.split(" ", 1)[1]
+    current_user = verify_jwt_token(token)
+
+    user_text = (data.text or data.message or "").strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
+
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        mensajes = construir_historial_usuario_openai(current_user)
         # AGREGAR PROMPT COMPLETO CON EJEMPLOS FEW-SHOT  
         mensajes.append({  
             "role": "system",  
@@ -407,169 +273,130 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         {"user_response":"Reiniciando servicio de audio.","commands":[{"type":"cmd","command":"net stop audiosrv && net start audiosrv","safe":true}]}  
         """  
         })
-                
-        mensajes.append({"role": "user", "content": user_text}) 
-                    
-        # Llamar a OpenAI    
-        respuesta = client.chat.completions.create(    
-            model="gpt-5-chat-latest",    
-            messages=mensajes,    
-            response_format={"type": "json_object"},    
-            max_tokens=900,    
-            temperature=0.7,    
-        )    
-            
-        gpt_response = respuesta.choices[0].message.content.strip()    
-          
-        # Log para debugging  
-        print(f"[DEBUG] GPT Response: {gpt_response[:200]}...")  
-            
-        # Usar parse_commands_only para extraer comandos SIN ejecutarlos    
-        parsed = parse_commands_only(gpt_response)    
-        
-        # Limpiar markdown y emojis      
-        user_response = parsed.get("user_response", "")  
-        user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)  # **negrita**  
-        user_response = re.sub(r'\*([^*]+)\*', r'\1', user_response)      # *cursiva*  
-        user_response = re.sub(r'`([^`]+)`', r'\1', user_response)        # `código`  
-        user_response = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]+', '', user_response)  # emojis   
-        commands = parsed.get("commands", [])  
+        mensajes.append({"role": "user", "content": user_text})
 
-        # NUEVO: Detectar si hay comandos de Windows directos  
-        windows_commands = []  
-        basic_commands = []  
-          
-        for cmd in commands:  
-            if cmd.get("type") in ["cmd", "powershell", "python"]:  
-                windows_commands.append(cmd)  
-            elif cmd.get("action"):  
-                basic_commands.append(cmd)  
-          
-        # Si hay comandos de Windows, crear un plan de ejecución  
-        if windows_commands:  
-            from core.autonomous import create_execution_plan  
-              
-            # Convertir comandos de Windows a formato de plan  
-            execution_plan = {  
-                "task": user_text,  
-                "steps": [  
-                    {  
-                        "order": i + 1,  
-                        "command": cmd["command"],  
-                        "type": cmd["type"],  
-                        "description": f"Ejecutar: {cmd['command'][:50]}...",  
-                        "timeout": 30  
-                    }  
-                    for i, cmd in enumerate(windows_commands) if cmd.get("safe", False)  
-                ],  
-                "estimated_time": len(windows_commands) * 5,  
-                "requires_confirmation": False  
-            }  
-              
-            # Agregar plan como comando especial  
-            commands = basic_commands + [{  
-                "action": "execute_autonomous_plan",  
-                "params": {"plan": execution_plan}  
-            }]  
-        else:  
-            commands = basic_commands  
-          
-        # Si NO hay comandos y la tarea requiere investigación autónoma  
-        if not commands and requires_autonomous_execution(user_text):  
-            from core.autonomous import research_system_commands, create_execution_plan  
-              
-            print(f"[DEBUG] Investigando comando autónomo para: {user_text}")  
-            research_results = research_system_commands(user_text, current_user)  
-              
-            if research_results:  
-                execution_plan = create_execution_plan(research_results)  
-                if execution_plan:  
-                    commands = [{  
-                        "action": "execute_autonomous_plan",  
-                        "params": {"plan": execution_plan}  
-                    }]  
-                    print(f"[DEBUG] Plan autónomo creado con {len(execution_plan['steps'])} pasos")
-          
-        # Log para debugging  
-        print(f"[DEBUG] Parsed commands: {commands}")  
-            
-    except Exception as e:    
-        print("ERROR /ron:", e)    
-        traceback.print_exc()    
-        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo en unos segundos."    
-            
-        # Registrar error en memoria    
-        try:    
-            from core.memory import add_to_memory  
-            add_to_memory(current_user, user_text, f"[error] {fallback_msg}")  
-        except Exception as _:    
-            pass    
-            
-        return {"ron": fallback_msg, "error": str(e), "commands": []}    
+        respuesta = client.chat.completions.create(
+            model="gpt-5-chat-latest",
+            messages=mensajes,
+            response_format={"type": "json_object"},
+            max_tokens=900,
+            temperature=0.7,
+        )
+
+        gpt_response = respuesta.choices[0].message.content.strip()
+        parsed = parse_commands_only(gpt_response)
+
+        user_response = parsed.get("user_response", "")
+        # Limpieza mínima de formato / emojis
+        user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)
+        user_response = re.sub(r'\*([^*]+)\*', r'\1', user_response)
+        user_response = re.sub(r'`([^`]+)`', r'\1', user_response)
+        user_response = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]', '', user_response)
+
+        commands = parsed.get("commands", [])
+
+        # Promover comandos de Windows a "plan" si aplica (idéntico a lo tuyo)
+        windows_commands, basic_commands = [], []
+        for cmd in commands:
+            if cmd.get("type") in ["cmd", "powershell", "python"]:
+                windows_commands.append(cmd)
+            elif cmd.get("action"):
+                basic_commands.append(cmd)
+
+        if windows_commands:
+            from core.autonomous import create_execution_plan
+            execution_plan = {
+                "task": user_text,
+                "steps": [{
+                    "order": i + 1,
+                    "command": c["command"],
+                    "type": c["type"],
+                    "description": f"Ejecutar: {c['command'][:50]}...",
+                    "timeout": 30
+                } for i, c in enumerate(windows_commands) if c.get("safe", False)],
+                "estimated_time": len(windows_commands) * 5,
+                "requires_confirmation": False
+            }
+            commands = basic_commands + [{
+                "action": "execute_autonomous_plan",
+                "params": {"plan": execution_plan}
+            }]
+        else:
+            commands = basic_commands
+
+        if not commands and requires_autonomous_execution(user_text):
+            from core.autonomous import research_system_commands, create_execution_plan
+            research_results = research_system_commands(user_text, current_user)
+            if research_results:
+                plan = create_execution_plan(research_results)
+                if plan:
+                    commands = [{"action": "execute_autonomous_plan", "params": {"plan": plan}}]
+
+    except Exception as e:
+        traceback.print_exc()
+        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo."
+        try:
+            add_to_memory(current_user, user_text, f"[error] {fallback_msg}")
+        except Exception:
+            pass
+        return {"ron": fallback_msg, "error": str(e), "commands": []}
+
+    # Guardar conversación
+    try:
+        add_to_memory(current_user, user_text, user_response)
+    except Exception as e:
+        return {"ron": user_response, "commands": commands,
+                "warning": f"No se pudo guardar la conversación: {str(e)}"}
+
+    return {"user_response": user_response, "ron": user_response, "reply": user_response, "commands": commands}
+
     
-    # 2) Guardar conversación    
-    try:    
-        from core.memory import add_to_memory  
-        add_to_memory(current_user, user_text, user_response)  
-    except Exception as e:    
-        return {"ron": user_response, "commands": commands, "warning": f"No se pudo guardar la conversación: {str(e)}"}    
-    
-    # 3) Devolver respuesta CON comandos sin ejecutar    
-    return {    
-        "user_response": user_response,    
-        "ron": user_response,    
-        "reply": user_response,    
-        "commands": commands    
-    }
 
 
+@app.post("/ron/stream")
+async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    current_user = verify_jwt_token(authorization.split(" ", 1)[1])
 
-@app.post("/ron/stream")  
-async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):  
-    """Endpoint de streaming para respuestas progresivas"""  
-    # Verificar autenticación  
-    if authorization is None:  
-        raise HTTPException(status_code=401, detail="Autenticación requerida")  
-      
-    current_user = None  
-    if authorization.startswith("Bearer "):  
-        token = authorization.split(" ", 1)[1]  
-        current_user = verify_jwt_token(token)  
-    else:  
-        raise HTTPException(status_code=401, detail="Autenticación requerida")  
-      
-    # Leer body  
-    body = await request.json()  
-    user_text = (body.get("text") or body.get("message") or "").strip()  
-    if not user_text:  
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
-      
-    # Función generadora para SSE  
-    async def event_generator():    
-        try:    
-            from core.assistant import responder_a_usuario_streaming    
-            import asyncio  
-                
-            # Ejecutar generador síncrono en thread separado  
-            loop = asyncio.get_event_loop()  
-              
-            for chunk in responder_a_usuario_streaming(user_text, current_user):    
-                yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"  
-                await asyncio.sleep(0)  # Permitir que el event loop procese otros eventos  
-                
-            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"    
-                
-        except Exception as e:    
+    body = await request.json()
+    user_text = (body.get("text") or body.get("message") or "").strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
+
+    async def event_generator():
+        full_text = ""
+        try:
+            import asyncio
+            for chunk in responder_a_usuario_streaming(user_text, current_user):
+                # Limpieza ligera por si hay símbolos no deseados
+                clean_chunk = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]', '', str(chunk or ""))
+                full_text += clean_chunk
+                yield f"data: {json.dumps({'chunk': clean_chunk}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+
+            # Guardar conversación al finalizar el stream
+            try:
+                add_to_memory(current_user, user_text, full_text)
+            except Exception:
+                pass
+
+            # Evento final (puedes agregar 'commands' aquí si quieres calcularlos aparte)
+            yield f"data: {json.dumps({'done': True, 'full_text': full_text, 'commands': []}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
             yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-      
-    return StreamingResponse(  
-        event_generator(),  
-        media_type="text/event-stream",  
-        headers={  
-            "Cache-Control": "no-cache",  
-            "X-Accel-Buffering": "no",  # Importante para nginx  
-        }  
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
+
+
   
 @app.get("/user/profile")      
 def get_user_profile(current_user: str = Depends(get_current_user)):      
