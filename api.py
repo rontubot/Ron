@@ -8,6 +8,7 @@ import os, json, base64, traceback, re, logging
 import jwt, bcrypt
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+load_dotenv()
 from openai import OpenAI
 
 
@@ -24,6 +25,21 @@ from core.assistant import (
   
 # NUEVO: Limpiar markdown y emojis  
  
+# === Config de GitHub login (manteniendo tu flujo real) ===
+ENABLE_GITHUB_LOGIN = os.getenv("ENABLE_GITHUB_LOGIN", "true").lower() == "true"
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+
+def ensure_github_ready():
+    """
+    Lanza 503 si el login/registro requieren GitHub y no hay token.
+    Evita fallar con 401 "Credenciales inválidas" cuando en realidad
+    el backend no puede leer/escribir usuarios.
+    """
+    if ENABLE_GITHUB_LOGIN and not GITHUB_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Auth de GitHub habilitada pero falta GITHUB_TOKEN en el entorno del servidor."
+        )
 
 # Desactivar logs DEBUG de librerías externas    
 logging.getLogger("urllib3").setLevel(logging.WARNING)    
@@ -36,7 +52,7 @@ logging.getLogger("core.assistant").setLevel(logging.INFO)
 logging.getLogger("core.commands").setLevel(logging.INFO)    
 logging.getLogger("core.memory").setLevel(logging.INFO)  
   
-load_dotenv()      
+   
       
 app = FastAPI()      
       
@@ -54,7 +70,9 @@ JWT_SECRET = os.getenv("JWT_SECRET", "1925e2a0e6c8d8c196af044c77cc52dc")
 JWT_ALGORITHM = "HS256"      
 security = HTTPBearer()     
       
-
+@app.head("/health")
+def health_head():
+    return Response(status_code=200)
 
 def clean_text_for_tts(text: str) -> str:  
     """Elimina caracteres especiales, emoticonos y markdown para TTS"""  
@@ -143,9 +161,10 @@ def get_current_user(authorization: str = Header(None)) -> str:
 
 # Endpoints de autenticación      
 @app.post("/auth/register")      
-def register(user_data: UserRegister):      
+def register(user_data: UserRegister):
+    ensure_github_ready()      
     # Cargar usuarios existentes desde GitHub      
-    users_db = load_users_from_github()      
+    users_db = load_users_from_github() or {}      
           
     if user_data.username in users_db:      
         raise HTTPException(status_code=400, detail="Usuario ya existe")      
@@ -167,7 +186,8 @@ def register(user_data: UserRegister):
 @app.post("/auth/login")  
 def login(credentials: UserCredentials, response: Response):  
     print(f"🔍 Login recibido - Username: {credentials.username}")  
-  
+    ensure_github_ready()
+
     users_db = load_users_from_github()  
     user = users_db.get(credentials.username)  
     if not user or not verify_password(credentials.password, user["password"]):  
@@ -350,7 +370,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
 
     return {"user_response": user_response, "ron": user_response, "reply": user_response, "commands": commands}
 
-    
+
 
 
 @app.post("/ron/stream")
