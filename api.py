@@ -527,7 +527,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
 @app.post("/ron/stream")  
 async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):  
     """Endpoint de streaming para respuestas progresivas"""  
-    # Requiere token  
+    # Verificar autenticación  
     if authorization is None:  
         raise HTTPException(status_code=401, detail="Autenticación requerida")  
       
@@ -545,33 +545,31 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
       
     # Función generadora para SSE  
-    async def generate_stream():  
-        try:  
-            from core.assistant import responder_a_usuario_streaming  
+    async def event_generator():    
+        try:    
+            from core.assistant import responder_a_usuario_streaming    
+            import asyncio  
+                
+            # Ejecutar generador síncrono en thread separado  
+            loop = asyncio.get_event_loop()  
               
-            # Generar chunks progresivamente  
-            for chunk in responder_a_usuario_streaming(user_text, username=current_user):  
-                # Formato SSE (Server-Sent Events)  
+            for chunk in responder_a_usuario_streaming(user_text, current_user):    
                 yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"  
-              
-            # Señal de finalización  
-            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"  
-              
-        except Exception as e:  
-            logger.exception("Error en streaming")  
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"  
+                await asyncio.sleep(0)  # Permitir que el event loop procese otros eventos  
+                
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"    
+                
+        except Exception as e:    
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
       
     return StreamingResponse(  
-        generate_stream(),  
+        event_generator(),  
         media_type="text/event-stream",  
         headers={  
             "Cache-Control": "no-cache",  
-            "Connection": "keep-alive",  
-            "X-Accel-Buffering": "no"  # Desactiva buffering en nginx  
+            "X-Accel-Buffering": "no",  # Importante para nginx  
         }  
     )
-
-
   
 @app.get("/user/profile")      
 def get_user_profile(current_user: str = Depends(get_current_user)):      
