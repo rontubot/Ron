@@ -1564,112 +1564,117 @@ def handle_local_commands(text):
     
 
     
-def talk_to_ron(text):    
-    global speaking, listening_active, activado    
-        
-    speaking = True    
-    listening_active = False    
-    response = None    
-        
-    # NUEVO: Asegurar que hay un display_name por defecto    
-    if current_username:    
-        try:    
-            if not get_display_name(current_username):    
-                set_display_name(current_username, "Usuario")  # Nombre por defecto    
-        except Exception:    
-            pass 
-    try:      
-        # Verificar despedida ANTES de procesar      
-        if detect_farewell_patterns(text):      
-            response = "Hasta luego. Que tengas un buen día."      
-            print(f"🤖 Ron: {response}")      
-            cleaned_response = clean_text_for_tts(response)  
-            engine.say(cleaned_response)      
-            engine.runAndWait()      
-            time.sleep(0.5)  
-                  
-            if current_username:      
-                add_to_memory(current_username, text, response)      
-                  
-            return {      
-                "shutdown": False,  # NO terminar programa, solo conversación      
-                "stay_active": False,  # Volver a escucha pasiva      
-                "response": response      
-            }      
-              
-        # PRIORIDAD 1: Intentar procesamiento normal (incluye comandos básicos)      
-        response = core_generate_response(text, current_username)      
-              
-        # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma      
-        if not response and requires_autonomous_execution(text):      
-            print("🔍 Detectada solicitud que requiere investigación autónoma...")      
-            autonomous_result = autonomous_command_research_and_execution(text, current_username)      
-                  
-            if autonomous_result.get("success", False):      
-                executed_commands = autonomous_result.get("executed_commands", [])      
-                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."      
-                      
-                for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar      
-                    if cmd_result.get("success"):      
-                        response += f"\\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"      
-                    else:      
-                        response += f"\\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"      
-            else:      
-                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"      
-              
-        # Asegurar que response tenga un valor      
-        if not response:      
-            response = "❌ No pude procesar tu solicitud. ¿Puedes intentar de nuevo?"      
-              
-        # Verificar si la respuesta contiene señal de shutdown      
-        if "__SHUTDOWN__" in response:      
-            clean_response = response.replace("__SHUTDOWN__", "")      
-            print(f"🤖 Ron: {clean_response}")  
-            engine.say(clean_response)      
-            engine.runAndWait()      
-            time.sleep(0.5)  
-                  
-            if current_username:      
-                add_to_memory(current_username, text, clean_response)      
-                  
-            return {      
-                "shutdown": False,  # NO terminar programa      
-                "stay_active": False,  # Volver a escucha pasiva      
-                "response": clean_response      
-            }      
-              
-        print(f"🤖 Ron: {response}")     
-        cleaned_response = clean_text_for_tts(response)  
-        engine.say(cleaned_response)      
-        engine.runAndWait()      
-        time.sleep(0.5)  
-              
-        # Guardar en memoria      
-        if current_username:      
-            add_to_memory(current_username, text, response)      
-              
-        # Determinar si debe mantenerse activo con la nueva lógica      
-        stay_active = should_stay_active(text, response)      
-              
-        return {      
-            "shutdown": False,      
-            "stay_active": stay_active,      
-            "response": response      
-        }      
-              
-    except Exception as e:      
-        print(f"❌ Error en talk_to_ron: {e}")      
-        error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"      
-        print(f"🤖 Ron: {error_response}")  
-        engine.say(error_response)      
-        engine.runAndWait()  
-        return {"shutdown": False, "stay_active": True, "response": error_response}  # Mantener activo en errores      
-              
-    finally:      
-        speaking = False      
-        listening_active = True      
+def talk_to_ron(text):      
+    global speaking, listening_active, activado      
           
+    speaking = True      
+    listening_active = False      
+    response = None      
+          
+    # NUEVO: Asegurar que hay un display_name por defecto      
+    if current_username:      
+        try:      
+            if not get_display_name(current_username):      
+                set_display_name(current_username, "Usuario")  # Nombre por defecto      
+        except Exception:      
+            pass   
+      
+    try:        
+        # Verificar despedida ANTES de procesar        
+        if detect_farewell_patterns(text):        
+            response = "Hasta luego. Que tengas un buen día."        
+            cleaned_response = clean_text_for_tts(response)  # Limpiar PRIMERO  
+            print(f"🤖 Ron: {cleaned_response}")  # Imprimir texto limpio  
+            engine.say(cleaned_response)        
+            engine.runAndWait()        
+            time.sleep(0.5)    
+                    
+            if current_username:        
+                add_to_memory(current_username, text, response)        
+                    
+            return {        
+                "shutdown": False,  # NO terminar programa, solo conversación        
+                "stay_active": False,  # Volver a escucha pasiva        
+                "response": response        
+            }        
+                
+        # PRIORIDAD 1: Intentar procesamiento normal (incluye comandos básicos)        
+        response = core_generate_response(text, current_username)        
+                
+        # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma        
+        if not response and requires_autonomous_execution(text):        
+            print("🔍 Detectada solicitud que requiere investigación autónoma...")        
+            autonomous_result = autonomous_command_research_and_execution(text, current_username)        
+                    
+            if autonomous_result.get("success", False):        
+                executed_commands = autonomous_result.get("executed_commands", [])        
+                response = f"✅ Completé tu solicitud. Ejecuté {len(executed_commands)} comando(s) exitosamente."        
+                        
+                for cmd_result in executed_commands[:3]:  # Máximo 3 para no saturar        
+                    if cmd_result.get("success"):        
+                        response += f"\n• {cmd_result.get('description', 'Comando')}: {cmd_result.get('output', 'Completado')}"        
+                    else:        
+                        response += f"\n• Error en {cmd_result.get('description', 'comando')}: {cmd_result.get('error', 'Error desconocido')}"        
+            else:        
+                response = f"❌ No pude completar tu solicitud: {autonomous_result.get('summary', 'Error en la investigación')}. ¿Quieres que lo intente de otra manera?"        
+                
+        # Asegurar que response tenga un valor        
+        if not response:        
+            response = "❌ No pude procesar tu solicitud. ¿Puedes intentar de nuevo?"        
+                
+        # Verificar si la respuesta contiene señal de shutdown        
+        if "__SHUTDOWN__" in response:        
+            clean_response = response.replace("__SHUTDOWN__", "")        
+            cleaned_response = clean_text_for_tts(clean_response)  # Limpiar PRIMERO  
+            print(f"🤖 Ron: {cleaned_response}")  # Imprimir texto limpio  
+            engine.say(cleaned_response)        
+            engine.runAndWait()        
+            time.sleep(0.5)    
+                    
+            if current_username:        
+                add_to_memory(current_username, text, clean_response)        
+                    
+            return {        
+                "shutdown": False,  # NO terminar programa        
+                "stay_active": False,  # Volver a escucha pasiva        
+                "response": clean_response        
+            }        
+                
+        # CAMBIO CRÍTICO: Limpiar ANTES de imprimir y hablar  
+        cleaned_response = clean_text_for_tts(response)    
+        print(f"🤖 Ron: {cleaned_response}")  # Ahora imprime texto limpio  
+        engine.say(cleaned_response)        
+        engine.runAndWait()        
+        time.sleep(0.5)    
+                
+        # Guardar en memoria        
+        if current_username:        
+            add_to_memory(current_username, text, response)        
+                
+        # Determinar si debe mantenerse activo con la nueva lógica        
+        stay_active = should_stay_active(text, response)        
+                
+        return {        
+            "shutdown": False,        
+            "stay_active": stay_active,        
+            "response": response        
+        }        
+                
+    except Exception as e:        
+        print(f"❌ Error en talk_to_ron: {e}")        
+        error_response = "❌ Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"        
+        cleaned_error = clean_text_for_tts(error_response)  # Limpiar PRIMERO  
+        print(f"🤖 Ron: {cleaned_error}")  # Imprimir texto limpio  
+        engine.say(cleaned_error)        
+        engine.runAndWait()    
+        return {"shutdown": False, "stay_active": True, "response": error_response}  # Mantener activo en errores        
+                
+    finally:        
+        speaking = False        
+        listening_active = True        
+            
     return {"shutdown": False, "stay_active": False, "response": ""}
+
 
   
 def requires_autonomous_execution(text):  
