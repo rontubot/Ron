@@ -347,7 +347,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
                   
         REGLAS OBLIGATORIAS:      
         - NO uses markdown (**negrita**, *cursiva*, `código`), emojis (😀🔥✅), ni símbolos especiales en 'user_response'. Solo texto plano sin formato.      
-        - NUNCA uses \n en 'user_response'. Usa puntos y comas para separar ideas.             
+        - NUNCA uses \n ni * en 'user_response'. Usa puntos y comas para separar ideas.             
         - Para comandos básicos (abrir apps, YouTube, recordatorios), usa las acciones predefinidas: open_application, search_youtube, add_reminder, etc.      
         - Para comandos avanzados del sistema, genera comandos cmd/PowerShell/Python directamente.      
         - Marca safe:true solo si el comando es seguro (no destructivo).      
