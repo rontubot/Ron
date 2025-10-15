@@ -1544,21 +1544,20 @@ def handle_local_commands(text):
     
 
     
-def talk_to_ron(text):  
-    global speaking, listening_active, activado  
-      
-    speaking = True  
-    listening_active = False  
-    response = None  
-      
-    # NUEVO: Asegurar que hay un display_name por defecto  
-    if current_username:  
-        try:  
- 
-            if not get_display_name(current_username):  
-                set_display_name(current_username, "Usuario")  # Nombre por defecto  
-        except Exception:  
-            pass           
+def talk_to_ron(text):    
+    global speaking, listening_active, activado    
+        
+    speaking = True    
+    listening_active = False    
+    response = None    
+        
+    # NUEVO: Asegurar que hay un display_name por defecto    
+    if current_username:    
+        try:    
+            if not get_display_name(current_username):    
+                set_display_name(current_username, "Usuario")  # Nombre por defecto    
+        except Exception:    
+            pass 
     try:      
         # Verificar despedida ANTES de procesar      
         if detect_farewell_patterns(text):      
