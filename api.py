@@ -340,9 +340,10 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         gpt_response = respuesta.choices[0].message.content.strip()
         parsed = parse_commands_only(gpt_response)
 
-        user_response = strip_markdown(parsed.get("user_response", ""))
-        # forzar una sola línea y espacios limpios
-        user_response = re.sub(r"\s*\n+\s*", " ", user_response).strip()
+        user_response = strip_markdown(parsed.get("user_response", "") or "")
+        user_response = user_response.replace("\r", "") 
+        user_response = user_response.strip()
+
         # Limpieza mínima de formato / emojis
         user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)
         user_response = re.sub(r'\*([^*]+)\*', r'\1', user_response)
@@ -427,12 +428,12 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
             for chunk in responder_a_usuario_streaming(user_text, current_user):
                 # Limpieza ligera por si hay símbolos no deseados
                 clean_chunk = strip_markdown(str(chunk or ""))
-                clean_chunk = re.sub(r"\s*\n+\s*", " ", clean_chunk).strip()
+                clean_chunk = clean_chunk.replace("\r", "")
                 full_text += clean_chunk
                 yield f"data: {json.dumps({'chunk': clean_chunk}, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0)
 
-            # Guardar conversación al finalizar el stream
+            # Guardar conversación al finalizar el stream 
             try:
                 add_to_memory(current_user, user_text, full_text)
             except Exception:
