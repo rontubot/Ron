@@ -22,8 +22,41 @@ from core.assistant import (
     generate_response_no_memory, parse_commands_only,
     construir_historial_usuario_openai, responder_a_usuario_streaming
 )
+
+
+# NUEVO: Limpiar markdown y emojis 
+
+MD_BLOCK = re.compile(r"```.+?```", re.DOTALL)                # bloque ```code```
+MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)   # ### heading
+MD_BOLD = re.compile(r"\*\*(.*?)\*\*")
+MD_ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.*?)\*(?<!\*)")
+MD_INLINE_CODE = re.compile(r"`([^`]+)`")
+MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
+MD_LIST = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
+MD_TABLE = re.compile(r"^\s*\|.*\|\s*$", re.MULTILINE)
+EMOJIS = re.compile(r"[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄🎤📨🤖]")
+
+def strip_markdown(s: str) -> str:
+    if not s:
+        return s or ""
+    s = MD_BLOCK.sub("", s)
+    s = MD_IMAGE.sub(r"\1", s)
+    s = MD_LINK.sub(r"\1", s)
+    s = MD_HEADING.sub("", s)
+    s = MD_TABLE.sub("", s)
+    s = MD_LIST.sub("", s)
+    s = MD_BOLD.sub(r"\1", s)
+    s = MD_ITALIC.sub(r"\1", s)
+    s = MD_INLINE_CODE.sub(r"\1", s)
+    s = EMOJIS.sub("", s)
+    # limpiar líneas vacías extra y espacios raros
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
   
-# NUEVO: Limpiar markdown y emojis  
+ 
  
 # === Config de GitHub login (manteniendo tu flujo real) ===
 ENABLE_GITHUB_LOGIN = os.getenv("ENABLE_GITHUB_LOGIN", "true").lower() == "true"
@@ -189,7 +222,7 @@ def login(credentials: UserCredentials, response: Response):
     print(f"🔍 Login recibido - Username: {credentials.username}")  
     ensure_github_ready()
 
-    users_db = load_users_from_github()  
+    users_db = load_users_from_github() or {} 
     user = users_db.get(credentials.username)  
     if not user or not verify_password(credentials.password, user["password"]):  
         raise HTTPException(status_code=401, detail="Credenciales inválidas")  
@@ -307,7 +340,9 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         gpt_response = respuesta.choices[0].message.content.strip()
         parsed = parse_commands_only(gpt_response)
 
-        user_response = parsed.get("user_response", "")
+        user_response = strip_markdown(parsed.get("user_response", ""))
+        # forzar una sola línea y espacios limpios
+        user_response = re.sub(r"\s*\n+\s*", " ", user_response).strip()
         # Limpieza mínima de formato / emojis
         user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)
         user_response = re.sub(r'\*([^*]+)\*', r'\1', user_response)
@@ -391,7 +426,8 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
             import asyncio
             for chunk in responder_a_usuario_streaming(user_text, current_user):
                 # Limpieza ligera por si hay símbolos no deseados
-                clean_chunk = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]', '', str(chunk or ""))
+                clean_chunk = strip_markdown(str(chunk or ""))
+                clean_chunk = re.sub(r"\s*\n+\s*", " ", clean_chunk).strip()
                 full_text += clean_chunk
                 yield f"data: {json.dumps({'chunk': clean_chunk}, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0)
