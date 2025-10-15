@@ -595,52 +595,30 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
         return text
 
     # === Nombre preferido del usuario (display_name) ===
-try:  
-    mem_name = load_user_memory(username) or {}  
-    display_name = get_display_name(username)  
-  
-    if not display_name:  
-        # 1) Intentar extraer del texto actual ("me llamo X", "mi nombre es X", "soy X")  
-        possible = maybe_extract_name_from_text(original_input)  
-        if possible:  
-            set_display_name(username, possible)  
-            display_name = possible  
-        else:  
-            # 2) Verificar estados  
-            profile = mem_name.get("profile", {}) or {}  
-            asked = profile.get("asked_display_name_once", False)  
-            waiting_for_name = profile.get("waiting_for_display_name", False)  
-              
-            if waiting_for_name:  
-                # Usuario está respondiendo a la pregunta del nombre  
-                # Aceptar cualquier texto como nombre (excepto comandos obvios)  
-                command_keywords = ["abre", "cierra", "busca", "reproduce", "apaga", "reinicia",   
-                                   "diagnostica", "verifica", "repara", "limpia", "suspende"]  
-                if not any(cmd in user_input for cmd in command_keywords):  
-                    # Usar el input completo como nombre  
-                    name_to_save = original_input.strip()[:50]  # Limitar a 50 caracteres  
-                    set_display_name(username, name_to_save)  
-                      
-                    # Limpiar flags  
-                    mem_name.setdefault("profile", {})["waiting_for_display_name"] = False  
-                    save_user_memory(username, mem_name)  
-                      
-                    return _finalize_and_return(f"Perfecto, {name_to_save}. ¿En qué puedo ayudarte?")  
-              
-            if not asked:  
-                # Primera vez que preguntamos  
-                mem_name.setdefault("profile", {})["asked_display_name_once"] = True  
-                mem_name.setdefault("profile", {})["waiting_for_display_name"] = True  
-                save_user_memory(username, mem_name)  
-                  
-                prompt_name = (  
-                    "¿Cómo quieres que te llame? (por ejemplo: Me llamo Ana)\n"  
-                    "Puedo guardar esto para dirigirme a ti correctamente."  
-                )  
-                return _finalize_and_return(prompt_name)  
-except Exception:  
-    # Si algo falla, seguimos sin bloquear el turno  
-    pass
+        try:  
+            mem_name = load_user_memory(username) or {}  
+            display_name = get_display_name(username)  
+          
+            if not display_name:  
+                # 1) Intentar extraer del texto actual  
+                possible = maybe_extract_name_from_text(original_input)  
+                if possible:  
+                    set_display_name(username, possible)  
+                    display_name = possible  
+                else:  
+                    # 2) Preguntar UNA sola vez  
+                    asked = (mem_name.get("profile", {}) or {}).get("asked_display_name_once")  
+                    if not asked:  
+                        mem_name.setdefault("profile", {})["asked_display_name_once"] = True  
+                        save_user_memory(username, mem_name)  
+                        prompt_name = (  
+                            "¿Cómo quieres que te llame? (por ejemplo: Me llamo Ana)\n"  
+                            "Puedo guardar esto para dirigirme a ti correctamente."  
+                        )  
+                        return _finalize_and_return(prompt_name)  
+        except Exception:  
+            # Si algo falla, seguimos sin bloquear el turno  
+            pass
 
     # ==== PERFIL: ventana + clasificador + contador + batch ====
     try:
