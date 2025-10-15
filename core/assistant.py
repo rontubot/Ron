@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 STRICT_JSON_SYSTEM = r"""
 Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra.
 Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.
-El campo user_response admite Markdown básico y \\n.
 Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.
 Nunca digas que no puedes hacer algo si existe un comando que lo haga.
 SOLO puedes usar estas acciones en 'commands':
@@ -423,7 +422,7 @@ def construir_historial_openai():
               
     REGLAS OBLIGATORIAS:      
     - NO uses markdown (**negrita**, *cursiva*, `código`), emojis (😀🔥✅), ni símbolos especiales en 'user_response'. Solo texto plano sin formato.      
-    - NUNCA uses \n ni * en 'user_response'. Usa puntos y comas para separar ideas.             
+    - NUNCA uses estas cosas (\n, *, #, \n1, \n2, \n3) en 'user_response'. Usa puntos y comas para separar ideas. Solo puedes hacerlo si el usuario lo pide             
     - Para comandos básicos (abrir apps, YouTube, recordatorios), usa las acciones predefinidas: open_application, search_youtube, add_reminder, etc.      
     - Para comandos avanzados del sistema, genera comandos cmd/PowerShell/Python directamente.      
     - Marca safe:true solo si el comando es seguro (no destructivo).      
