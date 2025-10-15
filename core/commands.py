@@ -452,68 +452,95 @@ def set_volume(level):
         logger.error(f"Error ajustando volumen: {str(e)}")    
         return f"Error ajustando volumen: {e}"  
     
-def create_file(file_path, content=""):  
-    """Crea un archivo con contenido opcional"""  
-    try:  
-        # NUEVO: Resolver ubicaciones estándar primero  
-        standard_locations = {  
-            "escritorio": os.path.join(os.path.expandvars("%USERPROFILE%"), "Desktop"),  
-            "desktop": os.path.join(os.path.expandvars("%USERPROFILE%"), "Desktop"),  
-            "documentos": os.path.join(os.path.expandvars("%USERPROFILE%"), "Documents"),  
-            "documents": os.path.join(os.path.expandvars("%USERPROFILE%"), "Documents"),  
-            "descargas": os.path.join(os.path.expandvars("%USERPROFILE%"), "Downloads"),  
-            "downloads": os.path.join(os.path.expandvars("%USERPROFILE%"), "Downloads"),  
-            "imagenes": os.path.join(os.path.expandvars("%USERPROFILE%"), "Pictures"),  
-            "pictures": os.path.join(os.path.expandvars("%USERPROFILE%"), "Pictures"),  
-            "videos": os.path.join(os.path.expandvars("%USERPROFILE%"), "Videos"),  
-            "musica": os.path.join(os.path.expandvars("%USERPROFILE%"), "Music"),  
-            "music": os.path.join(os.path.expandvars("%USERPROFILE%"), "Music"),  
-        }  
+def create_file(file_path, content=""):      
+    """Crea un archivo con contenido opcional"""      
+    try:      
+        # NUEVO: Limpiar símbolos <> si el modelo los generó incorrectamente  
+        file_path = file_path.replace('<ESCRITORIO>', 'escritorio')  
+        file_path = file_path.replace('<DOCUMENTOS>', 'documentos')  
+        file_path = file_path.replace('<DESCARGAS>', 'descargas')  
+        file_path = file_path.replace('<IMAGENES>', 'imagenes')  
+        file_path = file_path.replace('<MUSICA>', 'musica')  
+        file_path = file_path.replace('<VIDEOS>', 'videos')  
           
-        # Detectar si la ruta comienza con una ubicación estándar  
-        path_parts = file_path.replace("\\", "/").split("/")  
-        if path_parts[0].lower() in standard_locations:  
-            # Reemplazar la primera parte con la ruta real  
-            base_path = standard_locations[path_parts[0].lower()]  
-            remaining_path = "/".join(path_parts[1:])  
-            expanded_path = os.path.join(base_path, remaining_path)  
-        else:  
-            # Expandir variables de entorno y rutas de usuario normalmente  
-            expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+        logger.info(f"Creando archivo: {file_path}")      
           
-        logger.info(f"Creando archivo: {expanded_path}")  
+        # Expandir ruta  
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
           
-        # Crear directorio padre si no existe  
-        parent_dir = os.path.dirname(expanded_path)  
-        if parent_dir:  
-            os.makedirs(parent_dir, exist_ok=True)  
+        # Si es un nombre de ubicación estándar, resolverlo  
+        if "/" in file_path or "\\" in file_path:  
+            parts = file_path.split("/") if "/" in file_path else file_path.split("\\")  
+            first_part = parts[0].lower()  
+              
+            standard_locations = {  
+                "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),  
+                "documentos": os.path.join(os.path.expanduser("~"), "Documents"),  
+                "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),  
+                "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),  
+                "musica": os.path.join(os.path.expanduser("~"), "Music"),  
+                "videos": os.path.join(os.path.expanduser("~"), "Videos"),  
+            }  
+              
+            if first_part in standard_locations:  
+                # Reemplazar primera parte con ruta real  
+                parts[0] = standard_locations[first_part]  
+                expanded_path = os.path.join(*parts)  
           
-        # Crear archivo  
-        with open(expanded_path, 'w', encoding='utf-8') as f:  
-            f.write(content)  
+        # Crear directorio padre si no existe      
+        os.makedirs(os.path.dirname(expanded_path), exist_ok=True)      
           
-        return f"Archivo creado: {expanded_path}"  
+        with open(expanded_path, 'w', encoding='utf-8') as f:      
+            f.write(content)      
           
-    except Exception as e:  
-        logger.error(f"Error creando archivo: {str(e)}")  
+        return f"Archivo creado: {expanded_path}"      
+              
+    except Exception as e:      
+        logger.error(f"Error creando archivo: {str(e)}")      
         return f"Error creando archivo: {e}"
 
 
 def create_folder(folder_path):      
     """Crea una carpeta"""      
     try:      
-        # NUEVO: Expandir variables de entorno y rutas de usuario  
+        # NUEVO: Limpiar símbolos <> si el modelo los generó incorrectamente  
+        folder_path = folder_path.replace('<ESCRITORIO>', 'escritorio')  
+        folder_path = folder_path.replace('<DOCUMENTOS>', 'documentos')  
+        folder_path = folder_path.replace('<DESCARGAS>', 'descargas')  
+        folder_path = folder_path.replace('<IMAGENES>', 'imagenes')  
+        folder_path = folder_path.replace('<MUSICA>', 'musica')  
+        folder_path = folder_path.replace('<VIDEOS>', 'videos')  
+          
+        logger.info(f"Creando carpeta: {folder_path}")      
+          
+        # Expandir ruta  
         expanded_path = os.path.expandvars(os.path.expanduser(folder_path))  
           
-        logger.info(f"Creando carpeta: {expanded_path}")      
+        # Si es un nombre de ubicación estándar, resolverlo  
+        if "/" in folder_path or "\\" in folder_path:  
+            parts = folder_path.split("/") if "/" in folder_path else folder_path.split("\\")  
+            first_part = parts[0].lower()  
               
+            standard_locations = {  
+                "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),  
+                "documentos": os.path.join(os.path.expanduser("~"), "Documents"),  
+                "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),  
+                "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),  
+                "musica": os.path.join(os.path.expanduser("~"), "Music"),  
+                "videos": os.path.join(os.path.expanduser("~"), "Videos"),  
+            }  
+              
+            if first_part in standard_locations:  
+                # Reemplazar primera parte con ruta real  
+                parts[0] = standard_locations[first_part]  
+                expanded_path = os.path.join(*parts)  
+          
         os.makedirs(expanded_path, exist_ok=True)      
-              
         return f"Carpeta creada: {expanded_path}"      
               
     except Exception as e:      
         logger.error(f"Error creando carpeta: {str(e)}")      
-        return f"Error creando carpeta: {e}"   
+        return f"Error creando carpeta: {e}"  
     
 def move_file(source, destination):      
     """Mueve un archivo de origen a destino"""      
