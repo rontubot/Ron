@@ -340,9 +340,10 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         gpt_response = respuesta.choices[0].message.content.strip()
         parsed = parse_commands_only(gpt_response)
 
-        user_response = strip_markdown(parsed.get("user_response", "") or "")
-        user_response = user_response.replace("\r", "") 
+        user_response = strip_markdown(parsed.get("user_response", "")) or ""
         user_response = user_response.strip()
+        user_response = user_response.replace("\r", "")
+        user_response = re.sub(r"\s*\n+\s*", " ", user_response)
 
         # Limpieza mínima de formato / emojis
         user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)
@@ -404,11 +405,10 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     except Exception as e:
         return {"ron": user_response, "commands": commands,
                 "warning": f"No se pudo guardar la conversación: {str(e)}"}
-
-    return {"user_response": user_response, "ron": user_response, "reply": user_response, "commands": commands}
-
-
-
+    if data.return_json:
+        return {"user_response": user_response, "commands": commands}
+    else:
+        return PlainTextResponse(user_response)
 
 @app.post("/ron/stream")
 async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):
@@ -429,6 +429,7 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
                 # Limpieza ligera por si hay símbolos no deseados
                 clean_chunk = strip_markdown(str(chunk or ""))
                 clean_chunk = clean_chunk.replace("\r", "")
+                clean_chunk = re.sub(r"\s*\n+\s*", " ", clean_chunk).strip()  
                 full_text += clean_chunk
                 yield f"data: {json.dumps({'chunk': clean_chunk}, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0)
