@@ -594,7 +594,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             pass
         return text
 
-# === Nombre preferido del usuario (display_name) ===  
+    # === Nombre preferido del usuario (display_name) ===
 try:  
     mem_name = load_user_memory(username) or {}  
     display_name = get_display_name(username)  
