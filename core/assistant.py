@@ -40,18 +40,23 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra.
 Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.
 Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.
 Nunca digas que no puedes hacer algo si existe un comando que lo haga.
-SOLO puedes usar estas acciones en 'commands':
-["search_youtube","open_application","close_application","search_google","get_weather",
- "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",
- "check_system_services","restart_critical_services","clean_temp_files","flush_dns",
- "shutdown","restart","suspend","set_volume","create_file","create_folder",
- "move_file","copy_file","create_shortcut","delete_file","list_files"].
+SOLO puedes usar estas acciones en 'commands':  
+["search_youtube","open_application","close_application","search_google","get_weather",  
+ "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",  
+ "check_system_services","restart_critical_services","clean_temp_files","flush_dns",  
+ "shutdown","restart","suspend","set_volume","create_file","create_folder",  
+ "move_file","copy_file","create_shortcut","delete_file","list_files",  
+ "read_file","analyze_file","list_directory_detailed","get_standard_path"].  
 IMPORTANTE: Para close_application SIEMPRE incluye 'app_name' en params.
 Para set_volume usa 'level' (número 0-100).
 Para create_file usa 'file_path' y opcionalmente 'content'.
 Para create_folder usa 'folder_path'.
 Para move_file/copy_file usa 'source' y 'destination'.
 Para create_shortcut usa 'target_path', 'shortcut_path' y opcionalmente 'description'.
+Para read_file usa 'file_path'.  
+Para analyze_file usa 'file_path' y opcionalmente 'analysis_type' (general|code_review|improve).  
+Para list_directory_detailed usa 'directory_path'.  
+Para get_standard_path usa 'location_name' (escritorio, documentos, descargas, etc).
 """
 
 

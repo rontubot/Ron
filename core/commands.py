@@ -127,6 +127,95 @@ def restore_application_volumes():
         return {"ok": False, "error": str(e)}
 
 
+def analyze_file(file_path, analysis_type="general"):  
+    """  
+    Analiza un archivo y proporciona feedback inteligente.  
+      
+    Args:  
+        file_path: Ruta al archivo a analizar  
+        analysis_type: Tipo de análisis ("general", "code", "text", "improve")  
+      
+    Returns:  
+        Dict con análisis del archivo  
+    """  
+    try:  
+        # Expandir ruta  
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+          
+        if not os.path.exists(expanded_path):  
+            return f"El archivo no existe: {expanded_path}"  
+          
+        logger.info(f"Analizando archivo: {expanded_path}")  
+          
+        # Leer contenido del archivo  
+        try:  
+            with open(expanded_path, 'r', encoding='utf-8') as f:  
+                content = f.read()  
+        except UnicodeDecodeError:  
+            # Intentar con encoding alternativo  
+            with open(expanded_path, 'r', encoding='latin-1') as f:  
+                content = f.read()  
+          
+        # Obtener información del archivo  
+        file_size = os.path.getsize(expanded_path)  
+        file_ext = os.path.splitext(expanded_path)[1].lower()  
+        line_count = len(content.split('\n'))  
+          
+        # Análisis básico  
+        analysis = {  
+            "file": expanded_path,  
+            "size": f"{file_size} bytes",  
+            "lines": line_count,  
+            "extension": file_ext,  
+            "content_preview": content[:500] if len(content) > 500 else content  
+        }  
+          
+        # Análisis específico según tipo  
+        if analysis_type == "code" or file_ext in ['.py', '.js', '.java', '.cpp', '.c', '.ts', '.jsx', '.tsx']:  
+            # Análisis de código  
+            analysis["type"] = "code"  
+            analysis["functions"] = len(re.findall(r'\bdef\s+\w+\(|\bfunction\s+\w+\(|\bclass\s+\w+', content))  
+            analysis["comments"] = len(re.findall(r'#.*|//.*|/\*.*?\*/', content))  
+            analysis["imports"] = len(re.findall(r'\bimport\s+|\bfrom\s+.*\bimport\b|\brequire\(', content))  
+              
+        elif analysis_type == "text" or file_ext in ['.txt', '.md', '.doc', '.docx']:  
+            # Análisis de texto  
+            analysis["type"] = "text"  
+            words = content.split()  
+            analysis["words"] = len(words)  
+            analysis["characters"] = len(content)  
+            analysis["paragraphs"] = len(content.split('\n\n'))  
+              
+        else:  
+            # Análisis general  
+            analysis["type"] = "general"  
+          
+        # Formatear resultado para el usuario  
+        result = f"Análisis de {os.path.basename(expanded_path)}:\n"  
+        result += f"- Tamaño: {analysis['size']}\n"  
+        result += f"- Líneas: {analysis['lines']}\n"  
+          
+        if analysis["type"] == "code":  
+            result += f"- Funciones/Clases: {analysis['functions']}\n"  
+            result += f"- Comentarios: {analysis['comments']}\n"  
+            result += f"- Imports: {analysis['imports']}\n"  
+        elif analysis["type"] == "text":  
+            result += f"- Palabras: {analysis['words']}\n"  
+            result += f"- Caracteres: {analysis['characters']}\n"  
+            result += f"- Párrafos: {analysis['paragraphs']}\n"  
+          
+        # Agregar preview del contenido  
+        result += f"\nVista previa:\n{analysis['content_preview']}"  
+          
+        if len(content) > 500:  
+            result += "\n...(contenido truncado)"  
+          
+        return result  
+          
+    except Exception as e:  
+        logger.error(f"Error analizando archivo: {str(e)}")  
+        return f"Error analizando archivo: {e}"
+
 
   
 def _username(ctx: dict, params: dict | None = None) -> str:  
@@ -363,26 +452,53 @@ def set_volume(level):
         logger.error(f"Error ajustando volumen: {str(e)}")    
         return f"Error ajustando volumen: {e}"  
     
-def create_file(file_path, content=""):      
-    """Crea un archivo con contenido opcional"""      
-    try:      
-        # NUEVO: Expandir variables de entorno y rutas de usuario  
-        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+def create_file(file_path, content=""):  
+    """Crea un archivo con contenido opcional"""  
+    try:  
+        # NUEVO: Resolver ubicaciones estándar primero  
+        standard_locations = {  
+            "escritorio": os.path.join(os.path.expandvars("%USERPROFILE%"), "Desktop"),  
+            "desktop": os.path.join(os.path.expandvars("%USERPROFILE%"), "Desktop"),  
+            "documentos": os.path.join(os.path.expandvars("%USERPROFILE%"), "Documents"),  
+            "documents": os.path.join(os.path.expandvars("%USERPROFILE%"), "Documents"),  
+            "descargas": os.path.join(os.path.expandvars("%USERPROFILE%"), "Downloads"),  
+            "downloads": os.path.join(os.path.expandvars("%USERPROFILE%"), "Downloads"),  
+            "imagenes": os.path.join(os.path.expandvars("%USERPROFILE%"), "Pictures"),  
+            "pictures": os.path.join(os.path.expandvars("%USERPROFILE%"), "Pictures"),  
+            "videos": os.path.join(os.path.expandvars("%USERPROFILE%"), "Videos"),  
+            "musica": os.path.join(os.path.expandvars("%USERPROFILE%"), "Music"),  
+            "music": os.path.join(os.path.expandvars("%USERPROFILE%"), "Music"),  
+        }  
           
-        logger.info(f"Creando archivo: {expanded_path}")      
-              
-        # Crear directorio padre si no existe      
-        os.makedirs(os.path.dirname(expanded_path), exist_ok=True)      
-              
-        with open(expanded_path, 'w', encoding='utf-8') as f:      
-            f.write(content)      
-              
-        return f"Archivo creado: {expanded_path}"      
-              
-    except Exception as e:      
-        logger.error(f"Error creando archivo: {str(e)}")      
+        # Detectar si la ruta comienza con una ubicación estándar  
+        path_parts = file_path.replace("\\", "/").split("/")  
+        if path_parts[0].lower() in standard_locations:  
+            # Reemplazar la primera parte con la ruta real  
+            base_path = standard_locations[path_parts[0].lower()]  
+            remaining_path = "/".join(path_parts[1:])  
+            expanded_path = os.path.join(base_path, remaining_path)  
+        else:  
+            # Expandir variables de entorno y rutas de usuario normalmente  
+            expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+          
+        logger.info(f"Creando archivo: {expanded_path}")  
+          
+        # Crear directorio padre si no existe  
+        parent_dir = os.path.dirname(expanded_path)  
+        if parent_dir:  
+            os.makedirs(parent_dir, exist_ok=True)  
+          
+        # Crear archivo  
+        with open(expanded_path, 'w', encoding='utf-8') as f:  
+            f.write(content)  
+          
+        return f"Archivo creado: {expanded_path}"  
+          
+    except Exception as e:  
+        logger.error(f"Error creando archivo: {str(e)}")  
         return f"Error creando archivo: {e}"
-    
+
+
 def create_folder(folder_path):      
     """Crea una carpeta"""      
     try:      
@@ -442,6 +558,164 @@ def copy_file(source, destination):
     except Exception as e:      
         logger.error(f"Error copiando archivo: {str(e)}")      
         return f"Error copiando archivo: {e}"    
+
+def read_file(file_path):  
+    """Lee el contenido de un archivo de texto"""  
+    try:  
+        # Expandir ruta completa  
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+          
+        logger.info(f"Leyendo archivo: {expanded_path}")  
+          
+        # Verificar que existe  
+        if not os.path.exists(expanded_path):  
+            return f"El archivo no existe: {expanded_path}"  
+          
+        # Leer contenido (máximo 10KB para evitar sobrecarga)  
+        with open(expanded_path, 'r', encoding='utf-8', errors='ignore') as f:  
+            content = f.read(10240)  # Limitar a 10KB  
+          
+        # Detectar tipo de archivo  
+        ext = os.path.splitext(expanded_path)[1].lower()  
+        file_type = {  
+            '.py': 'Python', '.js': 'JavaScript', '.txt': 'Texto',  
+            '.json': 'JSON', '.md': 'Markdown', '.html': 'HTML',  
+            '.css': 'CSS', '.java': 'Java', '.cpp': 'C++'  
+        }.get(ext, 'Desconocido')  
+          
+        return {  
+            "ok": True,  
+            "file_path": expanded_path,  
+            "file_type": file_type,  
+            "content": content,  
+            "size_bytes": len(content),  
+            "message": f"Archivo leído: {os.path.basename(expanded_path)} ({file_type})"  
+        }  
+          
+    except Exception as e:  
+        logger.error(f"Error leyendo archivo: {str(e)}")  
+        return {"ok": False, "error": f"Error leyendo archivo: {e}"}
+
+def list_directory_detailed(directory_path):  
+    """Lista archivos en un directorio con información detallada"""  
+    try:  
+        # Expandir ruta  
+        expanded_path = os.path.expandvars(os.path.expanduser(directory_path))  
+          
+        logger.info(f"Listando directorio detallado: {expanded_path}")  
+          
+        if not os.path.exists(expanded_path):  
+            return f"El directorio no existe: {expanded_path}"  
+          
+        if not os.path.isdir(expanded_path):  
+            return f"La ruta no es un directorio: {expanded_path}"  
+          
+        # Obtener información de archivos  
+        files_info = []  
+        total_size = 0  
+          
+        for item in os.listdir(expanded_path):  
+            item_path = os.path.join(expanded_path, item)  
+            try:  
+                stat = os.stat(item_path)  
+                is_dir = os.path.isdir(item_path)  
+                  
+                files_info.append({  
+                    "name": item,  
+                    "type": "Carpeta" if is_dir else "Archivo",  
+                    "size_bytes": 0 if is_dir else stat.st_size,  
+                    "size_readable": "N/A" if is_dir else f"{stat.st_size / 1024:.1f} KB",  
+                    "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),  
+                    "extension": "" if is_dir else os.path.splitext(item)[1]  
+                })  
+                  
+                if not is_dir:  
+                    total_size += stat.st_size  
+                      
+            except Exception as e:  
+                logger.warning(f"No se pudo obtener info de {item}: {e}")  
+          
+        # Ordenar: carpetas primero, luego archivos por nombre  
+        files_info.sort(key=lambda x: (x["type"] != "Carpeta", x["name"].lower()))  
+          
+        # Generar resumen  
+        num_files = sum(1 for f in files_info if f["type"] == "Archivo")  
+        num_folders = sum(1 for f in files_info if f["type"] == "Carpeta")  
+          
+        summary = f"📁 {expanded_path}\n"  
+        summary += f"Total: {num_folders} carpetas, {num_files} archivos ({total_size / 1024:.1f} KB)\n\n"  
+          
+        # Listar items (máximo 50)  
+        for item in files_info[:50]:  
+            icon = "📁" if item["type"] == "Carpeta" else "📄"  
+            summary += f"{icon} {item['name']}"  
+            if item["type"] == "Archivo":  
+                summary += f" ({item['size_readable']}, {item['modified']})"  
+            summary += "\n"  
+          
+        if len(files_info) > 50:  
+            summary += f"\n... y {len(files_info) - 50} elementos más"  
+          
+        return {  
+            "ok": True,  
+            "directory": expanded_path,  
+            "files": files_info,  
+            "summary": summary,  
+            "total_files": num_files,  
+            "total_folders": num_folders,  
+            "total_size_bytes": total_size  
+        }  
+          
+    except Exception as e:  
+        logger.error(f"Error listando directorio: {str(e)}")  
+        return {"ok": False, "error": f"Error listando directorio: {e}"}
+
+
+def get_standard_path(location_name):  
+    """Resuelve nombres de ubicaciones estándar a rutas absolutas"""  
+    try:  
+        import os  
+          
+        # Mapeo de nombres comunes a rutas de Windows  
+        standard_paths = {  
+            "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),  
+            "desktop": os.path.join(os.path.expanduser("~"), "Desktop"),  
+            "documentos": os.path.join(os.path.expanduser("~"), "Documents"),  
+            "documents": os.path.join(os.path.expanduser("~"), "Documents"),  
+            "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),  
+            "downloads": os.path.join(os.path.expanduser("~"), "Downloads"),  
+            "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),  
+            "pictures": os.path.join(os.path.expanduser("~"), "Pictures"),  
+            "musica": os.path.join(os.path.expanduser("~"), "Music"),  
+            "music": os.path.join(os.path.expanduser("~"), "Music"),  
+            "videos": os.path.join(os.path.expanduser("~"), "Videos"),  
+            "temp": os.environ.get("TEMP", "C:\\Windows\\Temp"),  
+            "appdata": os.environ.get("APPDATA", ""),  
+            "home": os.path.expanduser("~"),  
+        }  
+          
+        location_key = location_name.lower().strip()  
+          
+        if location_key in standard_paths:  
+            path = standard_paths[location_key]  
+            return {  
+                "ok": True,  
+                "location": location_name,  
+                "path": path,  
+                "exists": os.path.exists(path),  
+                "message": f"{location_name} → {path}"  
+            }  
+        else:  
+            return {  
+                "ok": False,  
+                "error": f"Ubicación desconocida: {location_name}",  
+                "available": list(standard_paths.keys())  
+            }  
+              
+    except Exception as e:  
+        logger.error(f"Error resolviendo ruta estándar: {str(e)}")  
+        return {"ok": False, "error": str(e)}        
+
     
 def create_shortcut(target_path, shortcut_path, description=""):    
     """Crea un acceso directo"""    
@@ -819,6 +1093,12 @@ COMMANDS = {
     "network_reset": network_reset,    
     "check_disk_space": check_disk_space,    
     "system_file_check": system_file_check,    
+
+    # ——— Análisis de archivos
+    "read_file": read_file,  
+    "analyze_file": analyze_file,  
+    "list_directory_detailed": list_directory_detailed,  
+    "get_standard_path": get_standard_path,    
     
     # ——— Comandos Básicos Nuevos    
     "set_volume": set_volume,    
@@ -828,7 +1108,8 @@ COMMANDS = {
     "copy_file": copy_file,    
     "create_shortcut": create_shortcut,    
     "delete_file": delete_file,    
-    "list_files": list_files,    
+    "list_files": list_files,
+    "analyze_file": analyze_file,    
     
     # ——— Utilidad    
     "get_weather": get_weather,  
