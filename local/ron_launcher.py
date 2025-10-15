@@ -500,9 +500,7 @@ def should_stay_active(user_input, bot_response):
       
     # PRIORIDAD 3: Respuestas del bot que indican finalización  
     bot_ending_signals = [  
-        "hasta luego", "adiós", "que tengas un buen día",  
-        "eso es todo", "tarea completada", "finalizado",  
-        "no hay nada más que hacer"  
+        "hasta luego", "adiós", "que tengas un buen día", "tarea completada",  
     ]  
     if any(signal in bot_response.lower() for signal in bot_ending_signals):  
         print("🔴 Bot indicó finalización")  
