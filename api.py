@@ -425,27 +425,34 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
         full_text = ""  
         try:  
             import asyncio  
-            for chunk in responder_a_usuario_streaming(user_text, current_user):  
-                clean_chunk = strip_markdown(str(chunk or ""))  
-                clean_chunk = clean_chunk.replace("\r", "")  
-                clean_chunk = re.sub(r"\s*\n+\s*", " ", clean_chunk).strip()    
-                full_text += clean_chunk  
               
-            # NUEVO: Parsear JSON y extraer solo user_response  
+            # Primero acumular todo el JSON  
+            for chunk in responder_a_usuario_streaming(user_text, current_user):  
+                full_text += str(chunk or "")  
+              
+            # Parsear el JSON completo  
             try:  
                 parsed = json.loads(full_text)  
-                user_response_only = parsed.get("user_response", full_text)  
+                user_response_only = parsed.get("user_response", "")  
                 commands = parsed.get("commands", [])  
-            except:  
+            except json.JSONDecodeError:  
                 # Si no es JSON válido, usar el texto completo  
                 user_response_only = full_text  
                 commands = []  
               
-            # Enviar el texto limpio chunk por chunk  
-            for i in range(0, len(user_response_only), 10):  # chunks de 10 caracteres  
-                chunk = user_response_only[i:i+10]  
+            # Limpiar el texto final  
+            user_response_only = strip_markdown(user_response_only)  
+            user_response_only = user_response_only.replace("\r", "")  
+            # NO eliminar espacios, solo normalizar saltos de línea múltiples  
+            user_response_only = re.sub(r"\n{2,}", " ", user_response_only)  
+            user_response_only = user_response_only.strip()  
+              
+            # Enviar el texto limpio chunk por chunk (con espacios preservados)  
+            chunk_size = 5  # caracteres por chunk  
+            for i in range(0, len(user_response_only), chunk_size):  
+                chunk = user_response_only[i:i+chunk_size]  
                 yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"  
-                await asyncio.sleep(0.01)  # pequeño delay para simular streaming  
+                await asyncio.sleep(0.02)  # delay para efecto de escritura  
               
             # Guardar conversación  
             try:  
