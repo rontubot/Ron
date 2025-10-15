@@ -363,74 +363,84 @@ def set_volume(level):
         logger.error(f"Error ajustando volumen: {str(e)}")    
         return f"Error ajustando volumen: {e}"  
     
-def create_file(file_path, content=""):    
-    """Crea un archivo con contenido opcional"""    
-    try:    
-        logger.info(f"Creando archivo: {file_path}")    
-            
-        # Crear directorio padre si no existe    
-        import os    
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)    
-            
-        with open(file_path, 'w', encoding='utf-8') as f:    
-            f.write(content)    
-            
-        return f"Archivo creado: {file_path}"    
-            
-    except Exception as e:    
-        logger.error(f"Error creando archivo: {str(e)}")    
-        return f"Error creando archivo: {e}"    
+def create_file(file_path, content=""):      
+    """Crea un archivo con contenido opcional"""      
+    try:      
+        # NUEVO: Expandir variables de entorno y rutas de usuario  
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+          
+        logger.info(f"Creando archivo: {expanded_path}")      
+              
+        # Crear directorio padre si no existe      
+        os.makedirs(os.path.dirname(expanded_path), exist_ok=True)      
+              
+        with open(expanded_path, 'w', encoding='utf-8') as f:      
+            f.write(content)      
+              
+        return f"Archivo creado: {expanded_path}"      
+              
+    except Exception as e:      
+        logger.error(f"Error creando archivo: {str(e)}")      
+        return f"Error creando archivo: {e}"
     
-def create_folder(folder_path):    
-    """Crea una carpeta"""    
-    try:    
-        logger.info(f"Creando carpeta: {folder_path}")    
-            
-        import os    
-        os.makedirs(folder_path, exist_ok=True)    
-            
-        return f"Carpeta creada: {folder_path}"    
-            
-    except Exception as e:    
-        logger.error(f"Error creando carpeta: {str(e)}")    
-        return f"Error creando carpeta: {e}"    
+def create_folder(folder_path):      
+    """Crea una carpeta"""      
+    try:      
+        # NUEVO: Expandir variables de entorno y rutas de usuario  
+        expanded_path = os.path.expandvars(os.path.expanduser(folder_path))  
+          
+        logger.info(f"Creando carpeta: {expanded_path}")      
+              
+        os.makedirs(expanded_path, exist_ok=True)      
+              
+        return f"Carpeta creada: {expanded_path}"      
+              
+    except Exception as e:      
+        logger.error(f"Error creando carpeta: {str(e)}")      
+        return f"Error creando carpeta: {e}"   
     
-def move_file(source, destination):    
-    """Mueve un archivo de origen a destino"""    
-    try:    
-        logger.info(f"Moviendo archivo de {source} a {destination}")    
-            
-        import shutil    
-        import os    
-            
-        # Crear directorio destino si no existe    
-        os.makedirs(os.path.dirname(destination), exist_ok=True)    
-            
-        shutil.move(source, destination)    
-            
-        return f"Archivo movido de {source} a {destination}"    
-            
-    except Exception as e:    
-        logger.error(f"Error moviendo archivo: {str(e)}")    
-        return f"Error moviendo archivo: {e}"    
+def move_file(source, destination):      
+    """Mueve un archivo de origen a destino"""      
+    try:      
+        # NUEVO: Expandir variables de entorno y rutas de usuario  
+        expanded_source = os.path.expandvars(os.path.expanduser(source))  
+        expanded_dest = os.path.expandvars(os.path.expanduser(destination))  
+          
+        logger.info(f"Moviendo archivo de {expanded_source} a {expanded_dest}")      
+              
+        import shutil      
+              
+        # Crear directorio destino si no existe      
+        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)      
+              
+        shutil.move(expanded_source, expanded_dest)      
+              
+        return f"Archivo movido de {expanded_source} a {expanded_dest}"      
+              
+    except Exception as e:      
+        logger.error(f"Error moviendo archivo: {str(e)}")      
+        return f"Error moviendo archivo: {e}"   
     
-def copy_file(source, destination):    
-    """Copia un archivo de origen a destino"""    
-    try:    
-        logger.info(f"Copiando archivo de {source} a {destination}")    
-            
-        import shutil    
-        import os    
-            
-        # Crear directorio destino si no existe    
-        os.makedirs(os.path.dirname(destination), exist_ok=True)    
-            
-        shutil.copy2(source, destination)    
-            
-        return f"Archivo copiado de {source} a {destination}"    
-            
-    except Exception as e:    
-        logger.error(f"Error copiando archivo: {str(e)}")    
+def copy_file(source, destination):      
+    """Copia un archivo de origen a destino"""      
+    try:      
+        # NUEVO: Expandir variables de entorno y rutas de usuario  
+        expanded_source = os.path.expandvars(os.path.expanduser(source))  
+        expanded_dest = os.path.expandvars(os.path.expanduser(destination))  
+          
+        logger.info(f"Copiando archivo de {expanded_source} a {expanded_dest}")      
+              
+        import shutil      
+              
+        # Crear directorio destino si no existe      
+        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)      
+              
+        shutil.copy2(expanded_source, expanded_dest)      
+              
+        return f"Archivo copiado de {expanded_source} a {expanded_dest}"      
+              
+    except Exception as e:      
+        logger.error(f"Error copiando archivo: {str(e)}")      
         return f"Error copiando archivo: {e}"    
     
 def create_shortcut(target_path, shortcut_path, description=""):    
@@ -458,19 +468,21 @@ def create_shortcut(target_path, shortcut_path, description=""):
         logger.error(f"Error creando acceso directo: {str(e)}")    
         return f"Error creando acceso directo: {e}"    
     
-def delete_file(file_path):    
-    """Elimina un archivo"""    
-    try:    
-        logger.info(f"Eliminando archivo: {file_path}")    
-            
-        import os    
-        os.remove(file_path)    
-            
-        return f"Archivo eliminado: {file_path}"    
-            
-    except Exception as e:    
-        logger.error(f"Error eliminando archivo: {str(e)}")    
-        return f"Error eliminando archivo: {e}"    
+def delete_file(file_path):      
+    """Elimina un archivo"""      
+    try:      
+        # NUEVO: Expandir variables de entorno y rutas de usuario  
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
+          
+        logger.info(f"Eliminando archivo: {expanded_path}")      
+              
+        os.remove(expanded_path)      
+              
+        return f"Archivo eliminado: {expanded_path}"      
+              
+    except Exception as e:      
+        logger.error(f"Error eliminando archivo: {str(e)}")      
+        return f"Error eliminando archivo: {e}"
     
 def list_files(directory_path):    
     """Lista archivos en un directorio"""    
