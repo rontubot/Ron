@@ -33,42 +33,31 @@ from core.autonomous import (
 
 def clean_text_for_tts(text: str) -> str:    
     """Elimina caracteres especiales, emoticonos y markdown para TTS"""    
-    
+  
         
-    # 1. NUEVO: Eliminar saltos de línea explícitos PRIMERO  
+    # 1. Eliminar saltos de línea explícitos (\n, \\n)  
     text = text.replace('\\n', ' ')  
     text = text.replace('\n', ' ')  
       
-    # 2. Eliminar emojis y símbolos especiales    
-    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑]+', '', text)    
-        
-    # 3. Eliminar markdown (**, __, `, etc.)    
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **negrita**    
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *cursiva*    
-    text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`    
-    text = re.sub(r'_([^_]+)_', r'\1', text)        # _subrayado_    
-        
-    # 4. Eliminar encabezados markdown (###, ##, #)  
+    # 2. Eliminar encabezados markdown (###, ##, #)  
     text = re.sub(r'^\s*#{1,6}\s+', '', text, flags=re.MULTILINE)  
+    text = re.sub(r'\s+#{1,6}\s+', ' ', text)  # También en medio del texto  
       
-    # 5. Eliminar listas markdown (-, *, +)  
-    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)  
+    # 3. Eliminar markdown de formato  
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **negrita**    
+    text = re.sub(r'__([^_]+)__', r'\1', text)      # __negrita__    
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *cursiva*    
+    text = re.sub(r'_([^_]+)_', r'\1', text)        # _cursiva_    
+    text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`    
       
-    # 6. Eliminar nombres de comandos técnicos  
-    technical_terms = [  
-        'open_application', 'close_application', 'search_youtube', 'search_google',  
-        'add_reminder', 'get_reminders', 'remove_reminder',  
-        'set_volume', 'get_weather', 'create_file', 'create_folder',  
-        'move_file', 'copy_file', 'create_shortcut', 'delete_file', 'list_files'  
-    ]  
-    for term in technical_terms:  
-        text = text.replace(term, '')  
+    # 4. Eliminar TODOS los emojis (rangos Unicode completos)  
+    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑🧀-🫿]+', '', text)  # Agregado rango 🧀-🫿  
+    text = re.sub(r'[✅❌🔍🔴🟢💤🔄🎤📨🤖😄⚙️🗂️🧠]+', '', text)  # Emojis específicos  
       
-    # 7. Normalizar espacios múltiples  
+    # 5. Normalizar espacios múltiples  
     text = re.sub(r'\s{2,}', ' ', text)  
       
     return text.strip()
-
 
 
 # Reducir logs DEBUG  
