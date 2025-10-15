@@ -102,6 +102,54 @@ app.add_middleware(
 JWT_SECRET = os.getenv("JWT_SECRET", "1925e2a0e6c8d8c196af044c77cc52dc")      
 JWT_ALGORITHM = "HS256"      
 security = HTTPBearer()     
+
+
+def sanitize_user_response(text: str) -> str:  
+    """  
+    Elimina referencias técnicas, comandos internos, saltos de línea explícitos,  
+    y cualquier detalle de implementación del user_response antes de enviarlo al usuario.  
+    """  
+    if not text:  
+        return text  
+      
+    # 1. Eliminar saltos de línea explícitos (\n, \\n)  
+    text = text.replace('\\n', ' ')  
+    text = text.replace('\n', ' ')  
+      
+    # 2. Eliminar encabezados markdown (###, ##, #)  
+    text = re.sub(r'^\s*#{1,6}\s+', '', text, flags=re.MULTILINE)  
+      
+    # 3. Eliminar listas markdown (-, *, +)  
+    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)  
+      
+    # 4. Eliminar nombres de comandos técnicos  
+    technical_terms = [  
+        'open_application', 'close_application', 'search_youtube', 'search_google',  
+        'add_reminder', 'get_reminders', 'remove_reminder', 'update_reminder',  
+        'set_volume', 'get_weather', 'create_file', 'create_folder', 'move_file',  
+        'copy_file', 'delete_file', 'list_files', 'create_shortcut',  
+        'diagnose_system_performance', 'check_system_services', 'clean_temp_files',  
+        'flush_dns', 'network_reset', 'check_disk_space', 'system_file_check',  
+        'shutdown', 'restart', 'suspend', 'get_weather'  
+    ]  
+    for term in technical_terms:  
+        text = re.sub(rf'\b{term}\b', '', text, flags=re.IGNORECASE)  
+      
+    # 5. Eliminar markdown  
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **negrita**  
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *cursiva*  
+    text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`  
+      
+    # 6. Eliminar emojis  
+    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]+', '', text)  
+      
+    # 7. Normalizar espacios múltiples  
+    text = re.sub(r'\s{2,}', ' ', text)  
+      
+    return text.strip()
+
+
+
       
 @app.head("/health")
 def health_head():
@@ -366,11 +414,9 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         user_response = user_response.replace("\r", "")
         user_response = re.sub(r"\s*\n+\s*", " ", user_response)
 
-        # Limpieza mínima de formato / emojis
-        user_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', user_response)
-        user_response = re.sub(r'\*([^*]+)\*', r'\1', user_response)
-        user_response = re.sub(r'`([^`]+)`', r'\1', user_response)
-        user_response = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]', '', user_response)
+        # Sanitizar user_response para eliminar referencias técnicas  
+        user_response = sanitize_user_response(parsed.get("user_response", ""))  
+        commands = parsed.get("commands", [])
 
         commands = parsed.get("commands", [])
 
@@ -442,14 +488,45 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
     if not user_text:
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
 
-    async def event_generator():  
-        full_text = ""  
-        try:  
-            import asyncio  
-              
-            # Primero acumular todo el JSON  
-            for chunk in responder_a_usuario_streaming(user_text, current_user):  
-                full_text += str(chunk or "")  
+    async def event_generator():    
+        full_text = ""    
+        try:    
+            import asyncio    
+                
+            # 1. Acumular todo el stream  
+            for chunk in responder_a_usuario_streaming(user_text, current_user):    
+                full_text += str(chunk or "")    
+                
+            # 2. Parsear JSON completo  
+            try:    
+                response_data = json.loads(full_text)    
+                user_response_only = response_data.get("user_response", "")    
+                commands = response_data.get("commands", [])    
+            except json.JSONDecodeError:    
+                # Si no es JSON válido, usar el texto completo  
+                user_response_only = full_text    
+                commands = []    
+                
+            # 3. Sanitizar para eliminar referencias técnicas  
+            user_response_only = sanitize_user_response(user_response_only)    
+                
+            # 4. Enviar chunks pequeños del texto sanitizado  
+            for i in range(0, len(user_response_only), 3):    
+                chunk = user_response_only[i:i+3]    
+                yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"    
+                await asyncio.sleep(0.01)    
+                
+            # 5. Guardar conversación  
+            try:    
+                add_to_memory(current_user, user_text, user_response_only)    
+            except Exception:    
+                pass    
+            
+            # 6. Evento final con comandos  
+            yield f"data: {json.dumps({'done': True, 'full_text': user_response_only, 'commands': commands}, ensure_ascii=False)}\n\n"    
+            
+        except Exception as e:    
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
               
             # Parsear el JSON completo  
             try:  
