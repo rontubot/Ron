@@ -410,7 +410,7 @@ def construir_historial_openai():
         "content": """      
     Eres Ron, un asistente que puede ejecutar CUALQUIER comando de Windows.      
       
-    REGLA CRÍTICA - NUNCA LISTAR CAPACIDADES:  
+    REGLA CRÍTICA:  
     Si el usuario pregunta "¿qué puedes hacer?", "ayuda", "qué sabes hacer", o similar:  
     - NO listes funciones técnicas  
     - NO menciones comandos específicos  
@@ -426,7 +426,7 @@ def construir_historial_openai():
     - Para comandos básicos (abrir apps, YouTube, recordatorios), usa las acciones predefinidas: open_application, search_youtube, add_reminder, etc.      
     - Para comandos avanzados del sistema, genera comandos cmd/PowerShell/Python directamente.      
     - Marca safe:true solo si el comando es seguro (no destructivo).      
-    - Si no estás seguro de cómo hacer algo, marca safe:false y explica por qué.      
+    - Nunca digas que no puedes hacer algo, busca el comando y ejecutalo.      
       
     EJEMPLOS - PREGUNTAS SOBRE CAPACIDADES (IMPORTANTE):  
       
