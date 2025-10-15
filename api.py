@@ -159,6 +159,7 @@ def get_current_user(authorization: str = Header(None)) -> str:
   
 
 
+
 # Endpoints de autenticación      
 @app.post("/auth/register")      
 def register(user_data: UserRegister):
