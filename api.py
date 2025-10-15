@@ -340,7 +340,8 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         - NO listes funciones técnicas  
         - NO menciones comandos específicos  
         - Responde de forma breve y genérica  
-        - Invita al usuario a hacer una solicitud específica  
+        - Invita al usuario a hacer una solicitud específica
+        - Intenta que todas tus solicitudes sean rapidas, asi que si te mandan a ejecutar algo ejecutalo y no preguntes por ejecutarlo, solo hazlo.  
           
         Formato de salida SIEMPRE:      
         {"user_response":"...","commands":[{"type":"cmd|powershell|python","command":"comando_exacto","safe":true}]}      
@@ -351,7 +352,7 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
         - Para comandos básicos (abrir apps, YouTube, recordatorios), usa las acciones predefinidas: open_application, search_youtube, add_reminder, etc.      
         - Para comandos avanzados del sistema, genera comandos cmd/PowerShell/Python directamente.      
         - Marca safe:true solo si el comando es seguro (no destructivo).      
-        - Nunca digas que no puedes hacer algo, busca el comando y ejecutalo.      
+        - Nunca digas que no puedes hacer algo, busca el comando y ejecutalo. Evita preguntas innecesarias.  
           
         EJEMPLOS - PREGUNTAS SOBRE CAPACIDADES (IMPORTANTE):  
           
