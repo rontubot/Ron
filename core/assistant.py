@@ -372,16 +372,6 @@ def detect_farewell_patterns(user_input: str) -> bool:
         "hasta luego", "adiós", "nos vemos", "chao", "bye", "goodbye", "see you",  
         "hasta pronto", "hasta mañana", "me voy", "ya me voy",  
           
-        # Comandos de desactivación  
-        "desactívate", "desactivate", "apágate", "ciérrate", "termina",  
-        "sal", "salir", "exit", "quit",  
-          
-        # Finalizaciones de tarea  
-        "eso es todo", "ya terminé", "ya está", "perfecto", "listo",  
-        "gracias, eso es todo", "no necesito nada más", "ya no necesito nada",  
-          
-        # Confirmaciones de finalización  
-        "está bien así", "así está bien", "perfecto así", "ya está listo"  
     ]  
       
     user_lower = user_input.lower().strip()  
