@@ -34,52 +34,43 @@ def _use_github() -> bool:
     """
     return ENABLE_GITHUB_LOGIN and bool(GITHUB_TOKEN_ENV)
 
-def get_github_token():
-    """
-    NUEVO: no hace ninguna llamada HTTP.
-    - Si ENABLE_GITHUB_LOGIN=false => None
-    - Si hay GITHUB_TOKEN en env => lo devuelve
-    - Si no => None (sin intentar device flow/HTTP)
-    """
-    if not ENABLE_GITHUB_LOGIN:
-        return None
-    return GITHUB_TOKEN_ENV or None  
+def get_github_token():  
+    """Obtiene el token de GitHub desde el endpoint de Railway"""  
+    try:  
+        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=10)  
+        if r.status_code == 200:  
+            return r.text.strip()  
+    except Exception as e:  
+        print(f"⚠️ Error obteniendo token de GitHub: {e}")  
+    return None
     
 def get_memory_file_path():
     raise RuntimeError("get_memory_file_path() está deprecada: usar memory/users/{username}.json via load_user_memory/save_user_memory")   
   
 # FUNCIONES DE MEMORIA POR USUARIO (movidas desde api.py)  
-def load_user_memory(username: str):
-    """Carga la memoria específica del usuario"""
-    # Si GitHub no está habilitado o no hay token, devuelve default sin red
-    if not _use_github():
-        return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
-
-    token = get_github_token()
-    if not token:
-        return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
-
-    uname = _sanitized_username(username)
-    file_path = f"memory/users/{uname}.json"
-    url = f"{GITHUB_API_BASE}/{file_path}?ref={BRANCH}"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3.raw",
-    }
-
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 200:
-            return json.loads(r.content)
-        elif r.status_code == 404:
-            return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
-        else:
-            print(f"⚠️ Error al cargar memoria ({r.status_code}): {r.text[:200]}")
-    except Exception as e:
-        print(f"Error cargando memoria de usuario: {e}")
-
+def load_user_memory(username: str):  
+    """Carga la memoria específica del usuario"""  
+    token = get_github_token()  
+    if not token:  
+        return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}  
+      
+    file_path = f"memory/users/{username}.json"  
+    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"  
+    headers = {  
+        "Authorization": f"token {token}",  
+        "Accept": "application/vnd.github.v3.raw"  
+    }  
+      
+    try:  
+        r = requests.get(url, headers=headers, timeout=15)  
+        if r.status_code == 200:  
+            return json.loads(r.content)  
+        elif r.status_code == 404:  
+            return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}  
+    except Exception as e:  
+        print(f"Error cargando memoria de usuario: {e}")  
+      
     return {"datos": {"ron_nombre": "Ron", "creador": username}, "conversaciones": []}
-
 
 REMINDERS_DIR = "recordatorios"
 
@@ -239,44 +230,35 @@ def find_reminder_by_title(username: str, query: str) -> list[dict]:
 
 
 
-def save_user_memory(username: str, memory_data: dict):
-    """Guarda la memoria específica del usuario"""
-    if not _use_github():
-        return False
-
-    token = get_github_token()
-    if not token:
-        return False
-
-    uname = _sanitized_username(username)
-    file_path = f"memory/users/{uname}.json"
-    url = f"{GITHUB_API_BASE}/{file_path}"
-
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-
-    # Obtener SHA del archivo existente (si está)
-    sha = None
-    try:
-        existing_file = requests.get(url, headers=headers, timeout=10)
-        if existing_file.status_code == 200:
-            data = existing_file.json()
-            sha = data.get("sha")
-    except Exception as e:
-        print(f"⚠️ No se pudo obtener SHA existente: {e}")
-
-    content = base64.b64encode(
-        json.dumps(memory_data, indent=2, ensure_ascii=False).encode("utf-8")
-    ).decode()
-
-    payload = {"message": f"Actualizar memoria de {username}", "content": content, "branch": BRANCH}
-    if sha:
-        payload["sha"] = sha
-
-    try:
-        response = requests.put(url, json=payload, headers=headers, timeout=20)
-        return response.status_code in (200, 201)
-    except Exception as e:
-        print(f"Error guardando memoria de usuario: {e}")
+def save_user_memory(username: str, memory_data: dict):  
+    """Guarda la memoria específica del usuario"""  
+    token = get_github_token()  
+    if not token:  
+        return False  
+      
+    file_path = f"memory/users/{username}.json"  
+    url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}"  
+      
+    # Obtener SHA del archivo existente  
+    headers = {"Authorization": f"token {token}"}  
+    existing_file = requests.get(url, headers=headers)  
+    sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None  
+      
+    # Preparar datos para GitHub  
+    content = base64.b64encode(json.dumps(memory_data, indent=2).encode()).decode()  
+    data = {  
+        "message": f"Actualizar memoria de {username}",  
+        "content": content,  
+        "branch": "main"  
+    }  
+    if sha:  
+        data["sha"] = sha  
+      
+    try:  
+        response = requests.put(url, json=data, headers=headers)  
+        return response.status_code in [200, 201]  
+    except Exception as e:  
+        print(f"Error guardando memoria de usuario: {e}")  
         return False
   
 def load_users_from_github():
