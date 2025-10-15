@@ -35,13 +35,24 @@ def _use_github() -> bool:
     return ENABLE_GITHUB_LOGIN and bool(GITHUB_TOKEN_ENV)
 
 def get_github_token():  
-    """Obtiene el token de GitHub desde el endpoint de Railway"""  
+    """  
+    Obtiene el token de GitHub:  
+    1. Primero intenta desde variable de entorno (si corre en Railway)  
+    2. Si no, intenta desde el endpoint de Railway (si corre localmente)  
+    """  
+    # Primero intentar desde variable de entorno (Railway)  
+    token = os.getenv("GITHUB_TOKEN")  
+    if token:  
+        return token.strip()  
+      
+    # Si no hay variable local, intentar endpoint de Railway (Ron 24/7)  
     try:  
-        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=10)  
+        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=30)  
         if r.status_code == 200:  
             return r.text.strip()  
     except Exception as e:  
         print(f"⚠️ Error obteniendo token de GitHub: {e}")  
+      
     return None
     
 def get_memory_file_path():
