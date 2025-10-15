@@ -21,7 +21,7 @@ from core.commands import (
     restore_application_volumes  
 )
 from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response, detect_farewell_patterns
-from core.memory import add_to_memory
+from core.memory import add_to_memory, get_display_name, set_display_name 
 from core.autonomous import (  
     research_system_commands,  
     autonomous_command_execution,  
@@ -1544,14 +1544,21 @@ def handle_local_commands(text):
     
 
     
-def talk_to_ron(text):      
-    """Versión mejorada que prioriza comandos básicos sobre investigación autónoma"""      
-    global speaking, listening_active, activado      
-          
-    speaking = True      
-    listening_active = False      
-    response = None  # Inicializar response para evitar errores      
-          
+def talk_to_ron(text):  
+    global speaking, listening_active, activado  
+      
+    speaking = True  
+    listening_active = False  
+    response = None  
+      
+    # NUEVO: Asegurar que hay un display_name por defecto  
+    if current_username:  
+        try:  
+ 
+            if not get_display_name(current_username):  
+                set_display_name(current_username, "Usuario")  # Nombre por defecto  
+        except Exception:  
+            pass           
     try:      
         # Verificar despedida ANTES de procesar      
         if detect_farewell_patterns(text):      
