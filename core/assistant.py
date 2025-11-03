@@ -1028,25 +1028,20 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 # Enviar cada chunk inmediatamente  
                 yield content  
           
-        # Al final, intentar parsear comandos del texto completo  
-        try:  
-            # Intentar extraer JSON si el modelo lo generó  
-            corrected = fix_common_json_errors(full_response)  
-            response_data = json.loads(corrected)  
-              
-            # Ejecutar comandos si los hay  
-            commands_to_execute = response_data.get("commands", []) or []  
+        # Al final, intentar parsear comandos del texto completo    
+        try:    
+            # Intentar extraer JSON si el modelo lo generó    
+            corrected = fix_common_json_errors(full_response)    
+            response_data = json.loads(corrected)    
+                
+            # SOLO parsear comandos, NO ejecutarlos  
+            # Los comandos se retornan al cliente para ejecución local  
+            commands_to_execute = response_data.get("commands", []) or []    
             if commands_to_execute:  
-                for command in commands_to_execute:  
-                    action = (command.get("action") or "").strip()  
-                    params = command.get("params", {}) or {}  
-                    if action:  
-                        if action == "search_youtube":  
-                            params.setdefault("play_video", True)  
-                        run_command(action, params, {"username": username, "last_user_text": original_input})  
-        except:  
-            # Si no es JSON válido, usar el texto completo como respuesta  
-            pass  
+                logger.info(f"Comandos generados (NO ejecutados): {len(commands_to_execute)}")  
+        except:    
+            # Si no es JSON válido, usar el texto completo como respuesta    
+            pass
             
         # Guardar en memoria    
         if save_to_memory:    
