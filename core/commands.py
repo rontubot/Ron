@@ -363,13 +363,12 @@ def try_web_fallback(app_name, progress_callback=None):
         return f"Error al intentar abrir versión web: {e}"
 
 
- def search_google(query, progress_callback=None):      
+ def search_google(query, progress_callback=None):
     """Busca en Google"""  
-    def send_progress(msg):  
+    def send_progress(msg):
         if progress_callback:  
             progress_callback(msg)  
         logger.info(msg)  
-      
     try:      
         send_progress(f"🔍 Buscando en Google: {query}")  
         logger.info(f"Buscando en Google: {query}")      
