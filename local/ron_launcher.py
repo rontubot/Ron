@@ -170,23 +170,23 @@ web_apps = {
 }
 
 
-
- 
+# Callback para que TaskManager envíe mensajes por TTS  
 def tts_callback(text: str):  
     """Callback para que TaskManager envíe mensajes por TTS"""  
     global speaking, listening_active  
     speaking = True  
     listening_active = False  
     try:  
-        engine.say(clean_text_for_tts(text))  
+        cleaned_text = clean_text_for_tts(text)  
+        engine.say(cleaned_text)  
         engine.runAndWait()  
     finally:  
         speaking = False  
         listening_active = True  
   
 # Inicializar TaskManager global  
-task_manager = TaskManager(tts_callback)
-
+task_manager = TaskManager(tts_callback)  
+print("✅ TaskManager inicializado")
 
 def handle_external_control():  
     """Maneja comandos de control desde Electron"""  
@@ -1905,7 +1905,7 @@ if __name__ == "__main__":
                                 activado = False
                                 restore_application_volumes()  # Volver a escucha pasiva  
                 continue
-                
+
 
     except KeyboardInterrupt:    
         print("🔴 Cerrando Ron...")    

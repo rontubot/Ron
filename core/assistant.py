@@ -333,14 +333,15 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
             # Comandos que deben ejecutarse en background con progreso  
             if action in ["analyze_file", "diagnose_system_performance", "check_system_services"]:  
                 def execute_with_progress(cmd_action=action, cmd_params=params):  
-                    task_manager.send_message(f"Ejecutando {cmd_action}...")  
+                    # Agregar callback de progreso a los params  
+                    cmd_params['progress_callback'] = task_manager.send_message  
                     res = run_command(cmd_action, cmd_params, ctx or {})  
                     result_msg = res.get("message") or res.get("result") or "Completado"  
-                    task_manager.send_message(result_msg)  
+                    task_manager.send_message(f"✅ {result_msg}")  
                   
                 task_manager.run_background_task(f"{action}_{time.time()}", execute_with_progress)  
-                continue  
-  
+                continue
+      
     # Ejecutar comandos devueltos por la LLM (flujo normal)  
     for command in commands_to_execute:  
         action = (command.get("action") or "").strip()  
@@ -585,29 +586,30 @@ def handle_tool_call(llm_payload: dict, ctx: dict):
     return res
 
 
-# =========================
-# FUNCIÓN PRINCIPAL (única)
-# =========================
-def _process_user_input(user_input, save_to_memory=True, username=None):
-    """Procesa la entrada del usuario y ejecuta comandos vía run_command."""
-    username = resolve_username(username)
-
-    original_input = user_input
-    user_input = (user_input or "").lower().strip()
-
-    # ---- Idempotencia por turno (evita doble proceso del mismo input en pocos segundos)
-    mem_for_idem = load_user_memory(username) or {}
-    recent_turns = mem_for_idem.get("__recent_turns__", [])
-    now = time.time()
-    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()
-
-    # si el mismo hash fue procesado en los últimos 8s, devolvemos la misma respuesta sin repetir nada
-    for item in reversed(recent_turns[-10:]):  # mira los últimos 10
-        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:
-            cached_resp = item.get("response")
-            if cached_resp:
-                return cached_resp
+## =========================  
+# FUNCIÓN PRINCIPAL (única)  
+# =========================  
+def _process_user_input(user_input, save_to_memory=True, username=None, task_manager=None):  
+    """Procesa la entrada del usuario y ejecuta comandos vía run_command."""  
+    username = resolve_username(username)  
+  
+    original_input = user_input  
+    user_input = (user_input or "").lower().strip()  
+  
+    # ---- Idempotencia por turno (evita doble proceso del mismo input en pocos segundos)  
+    mem_for_idem = load_user_memory(username) or {}  
+    recent_turns = mem_for_idem.get("__recent_turns__", [])  
+    now = time.time()  
+    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()  
+  
+    # si el mismo hash fue procesado en los últimos 8s, devolvemos la misma respuesta sin repetir nada  
+    for item in reversed(recent_turns[-10:]):  # mira los últimos 10  
+        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:  
+            cached_resp = item.get("response")  
+            if cached_resp:  
+                return cached_resp  
             break
+
 
     # Helper: registra la respuesta en __recent_turns__ y retorna
     def _finalize_and_return(text: str):
@@ -900,10 +902,15 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
             temperature=0.7,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
-        ron_response = parse_and_execute_commands_dynamic(
-            gpt_response,
-            ctx={"username": username, "last_user_text": original_input},
-            async_execute=os.getenv("RON_ASYNC_COMMANDS", "0") == "1",
+        ron_response = parse_and_execute_commands_dynamic(  
+            gpt_response,  
+            ctx={  
+                "username": username,   
+                "last_user_text": original_input,  
+                "progress_callback": task_manager.send_message if task_manager else None  
+            },  
+            async_execute=os.getenv("RON_ASYNC_COMMANDS", "0") == "1",  
+            task_manager=task_manager  
         )
     except Exception as e:
         logger.error(f"Error con OpenAI: {e}")
@@ -919,28 +926,28 @@ def _process_user_input(user_input, save_to_memory=True, username=None):
 
 
 
-def _process_user_input_streaming(user_input, save_to_memory=True, username=None):    
-    """    
-    Versión streaming de _process_user_input que genera chunks progresivamente.    
-    Yields chunks de texto a medida que se generan.    
-    """    
-    username = resolve_username(username)    
-    original_input = user_input    
-    user_input = (user_input or "").lower().strip()    
-        
-    # Idempotencia    
-    mem_for_idem = load_user_memory(username) or {}    
-    recent_turns = mem_for_idem.get("__recent_turns__", [])    
-    now = time.time()    
-    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()    
-        
-    for item in reversed(recent_turns[-10:]):    
-        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:    
-            cached_resp = item.get("response")    
-            if cached_resp:    
-                yield cached_resp    
-                return    
-            break    
+def _process_user_input_streaming(user_input, save_to_memory=True, username=None, task_manager=None):      
+    """      
+    Versión streaming de _process_user_input que genera chunks progresivamente.      
+    Yields chunks de texto a medida que se generan.      
+    """      
+    username = resolve_username(username)      
+    original_input = user_input      
+    user_input = (user_input or "").lower().strip()      
+          
+    # Idempotencia      
+    mem_for_idem = load_user_memory(username) or {}      
+    recent_turns = mem_for_idem.get("__recent_turns__", [])      
+    now = time.time()      
+    turn_hash = hashlib.sha256(f"{username}|{original_input.strip().lower()}".encode()).hexdigest()      
+          
+    for item in reversed(recent_turns[-10:]):      
+        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:      
+            cached_resp = item.get("response")      
+            if cached_resp:      
+                yield cached_resp      
+                return      
+            break  
         
     # === TODOS los casos que NO deben hacer streaming ===  
       
@@ -1115,20 +1122,18 @@ def responder_a_usuario_streaming(user_input: str, username: str = "default"):
 # ================
 # WRAPPERS PÚBLICOS
 # ================
-def responder_a_usuario(user_input: str, username: str = "default"):
-    """Para clientes de voz - guarda en memoria automáticamente"""
-    return _process_user_input(user_input, save_to_memory=True, username=username)
 
-
-def generate_response_no_memory(user_input: str, username: str = "default"):
-    """Para clientes web - NO guarda en memoria automáticamente"""
-    return _process_user_input(user_input, save_to_memory=False, username=username)
-
-
-def generate_response_with_user_memory(user_input, username=None):
-    # Guarda en memoria del usuario si hay username
-    return _process_user_input(user_input, save_to_memory=True, username=username)
-
+def responder_a_usuario(user_input: str, username: str = "default", task_manager=None):  
+    return _process_user_input(user_input, save_to_memory=True, username=username, task_manager=task_manager)  
+  
+def generate_response_no_memory(user_input: str, username: str = "default", task_manager=None):  
+    return _process_user_input(user_input, save_to_memory=False, username=username, task_manager=task_manager)  
+  
+def generate_response_with_user_memory(user_input, username=None, task_manager=None):  
+    return _process_user_input(user_input, save_to_memory=True, username=username, task_manager=task_manager)  
+  
+def responder_a_usuario_streaming(user_input: str, username: str = "default", task_manager=None):  
+    return _process_user_input_streaming(user_input, save_to_memory=False, username=username, task_manager=task_manager)
 
 # Alias legacy
 generate_response = responder_a_usuario
