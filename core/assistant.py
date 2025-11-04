@@ -35,30 +35,48 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-STRICT_JSON_SYSTEM = r"""
-Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra.
-Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.
-Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.
-Nunca digas que no puedes hacer algo si existe un comando que lo haga.
-SOLO puedes usar estas acciones en 'commands':  
-["search_youtube","open_application","close_application","search_google","get_weather",  
- "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",  
- "check_system_services","restart_critical_services","clean_temp_files","flush_dns",  
- "shutdown","restart","suspend","set_volume","create_file","create_folder",  
- "move_file","copy_file","create_shortcut","delete_file","list_files",  
- "read_file","analyze_file","list_directory_detailed","get_standard_path"].  
-IMPORTANTE: Para close_application SIEMPRE incluye 'app_name' en params.
-Para set_volume usa 'level' (número 0-100).
-Para create_file usa 'file_path' y opcionalmente 'content'.
-Para create_folder usa 'folder_path'.
-Para move_file/copy_file usa 'source' y 'destination'.
-Para create_shortcut usa 'target_path', 'shortcut_path' y opcionalmente 'description'.
-Para read_file usa 'file_path'.  
-Para analyze_file usa 'file_path' y opcionalmente 'analysis_type' (general|code_review|improve).  
-Para list_directory_detailed usa 'directory_path'.  
-Para get_standard_path usa 'location_name' (escritorio, documentos, descargas, etc).
+STRICT_JSON_SYSTEM = r"""    
+Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra.    
+Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.    
+Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.    
+Nunca digas que no puedes hacer algo si existe un comando que lo haga.    
+SOLO puedes usar estas acciones en 'commands':      
+["search_youtube","open_application","close_application","search_google","get_weather",      
+ "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",      
+ "check_system_services","restart_critical_services","clean_temp_files","flush_dns",      
+ "shutdown","restart","suspend","set_volume","create_file","create_folder",      
+ "move_file","copy_file","create_shortcut","delete_file","list_files",      
+ "read_file","analyze_file","list_directory_detailed","get_standard_path"].      
+    
+IMPORTANTE:     
+- Para create_file usa 'file_path' con la ruta COMPLETA (ejemplo: "C:\\Users\\{username}\\Desktop\\archivo.txt")    
+- NO uses get_standard_path + create_file en secuencia. Genera la ruta completa directamente.    
+- Para search_youtube: si el usuario dice "reproduce", "reproducir", "pon", "poner", "escucha", "escuchar", SIEMPRE incluye "play_video": true  
+- Para search_youtube: si el usuario solo dice "busca" o "buscar", usa "play_video": false  
+- Para close_application SIEMPRE incluye 'app_name' en params.    
+- Para set_volume usa 'level' (número 0-100).    
+- Para create_folder usa 'folder_path' con ruta completa.    
+- Para move_file/copy_file usa 'source' y 'destination' con rutas completas.    
+- Para create_shortcut usa 'target_path', 'shortcut_path' y opcionalmente 'description'.    
+- Para read_file usa 'file_path'.      
+- Para analyze_file usa 'file_path' y opcionalmente 'analysis_type' (general|code_review|improve).      
+- Para list_directory_detailed usa 'directory_path'.      
+    
+Rutas estándar de Windows:    
+- Escritorio: C:\\Users\\{username}\\Desktop    
+- Documentos: C:\\Users\\{username}\\Documents    
+- Descargas: C:\\Users\\{username}\\Downloads    
+  
+EJEMPLOS - YouTube:  
+Usuario: "reproduce Paulo Londra"  
+Asistente: {"user_response":"Reproduciendo Paulo Londra.","commands":[{"action":"search_youtube","params":{"query":"Paulo Londra","play_video":true}}]}  
+  
+Usuario: "pon música de rock"  
+Asistente: {"user_response":"Poniendo música de rock.","commands":[{"action":"search_youtube","params":{"query":"música rock","play_video":true}}]}  
+  
+Usuario: "busca videos de gatos"  
+Asistente: {"user_response":"Buscando videos de gatos.","commands":[{"action":"search_youtube","params":{"query":"videos de gatos","play_video":false}}]}  
 """
-
 
 
 STYLE_GUIDE = """
