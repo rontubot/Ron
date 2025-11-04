@@ -1083,7 +1083,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
 # Wrapper público para streaming  
 def responder_a_usuario_streaming(user_input: str, username: str = "default"):  
     """Para clientes que soporten streaming - genera chunks progresivamente"""  
-    return _process_user_input_streaming(user_input, save_to_memory=True, username=username)
+    return _process_user_input_streaming(user_input, save_to_memory=False, username=username)
 
 
 
