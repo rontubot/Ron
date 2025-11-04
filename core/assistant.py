@@ -293,53 +293,78 @@ def fix_common_json_errors(response: str) -> str:
     return response
 
 
-def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = None, async_execute: bool = False) -> str:
-    try:
-        corrected = fix_common_json_errors(gpt_response)
-        response_data = json.loads(corrected)
-    except json.JSONDecodeError:
-        import re as _re
-        ur = ""
-        m = _re.search(r'"user_response"\s*:\s*"(.+?)"', gpt_response, flags=_re.DOTALL)
-        if m:
-            raw = m.group(1)
-            try:
-                ur = json.loads(f'"{raw}"')
-            except Exception:
-                ur = raw.replace("\\n", "\n").replace('\\"', '"')
-        return ur or "Procesando tu solicitud..."
-    except Exception as e:
-        logger.error(f"Error inesperado parseando JSON: {e}")
-        return "Procesando tu solicitud..."
-
-    user_response = response_data.get("user_response", "")
-    commands_to_execute = response_data.get("commands", []) or []
-
-    # Log para ver si el modelo trajo comandos
-    if commands_to_execute:
-        logger.info(f"[LLM commands] {', '.join([ (c.get('action') or '?') for c in commands_to_execute ])}")
-    else:
-        logger.info("[LLM commands] (vacío)")
-
-    # Ejecutar comandos devueltos por la LLM
-    for command in commands_to_execute:
-        action = (command.get("action") or "").strip()
-        params = command.get("params", {}) or {}
-        if not action:
-            continue
-        if action == "search_youtube":
-            params.setdefault("play_video", True)
-
-        if async_execute:
-            import threading
-            threading.Thread(
-                target=lambda: run_command(action, params, ctx or {}),
-                daemon=True
-            ).start()
-        else:
-            res = run_command(action, params, ctx or {})
-            if not res.get("ok", True):
-                logger.warning(f"Comando '{action}' falló: {res.get('error')}")
+def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = None, async_execute: bool = False, task_manager = None) -> str:  
+    try:  
+        corrected = fix_common_json_errors(gpt_response)  
+        response_data = json.loads(corrected)  
+    except json.JSONDecodeError:  
+        import re as _re  
+        ur = ""  
+        m = _re.search(r'"user_response"\s*:\s*"(.+?)"', gpt_response, flags=_re.DOTALL)  
+        if m:  
+            raw = m.group(1)  
+            try:  
+                ur = json.loads(f'"{raw}"')  
+            except Exception:  
+                ur = raw.replace("\\n", "\n").replace('\\"', '"')  
+        return ur or "Procesando tu solicitud..."  
+    except Exception as e:  
+        logger.error(f"Error inesperado parseando JSON: {e}")  
+        return "Procesando tu solicitud..."  
+  
+    user_response = response_data.get("user_response", "")  
+    commands_to_execute = response_data.get("commands", []) or []  
+  
+    # Log para ver si el modelo trajo comandos  
+    if commands_to_execute:  
+        logger.info(f"[LLM commands] {', '.join([ (c.get('action') or '?') for c in commands_to_execute ])}")  
+    else:  
+        logger.info("[LLM commands] (vacío)")  
+  
+    # Si hay task_manager disponible, usarlo para comandos largos  
+    if task_manager and commands_to_execute:  
+        for command in commands_to_execute:  
+            action = (command.get("action") or "").strip()  
+            params = command.get("params", {}) or {}  
+              
+            if not action:  
+                continue  
+                  
+            # Comandos que deben ejecutarse en background con progreso  
+            if action in ["analyze_file", "diagnose_system_performance", "check_system_services"]:  
+                def execute_with_progress(cmd_action=action, cmd_params=params):  
+                    task_manager.send_message(f"Ejecutando {cmd_action}...")  
+                    res = run_command(cmd_action, cmd_params, ctx or {})  
+                    result_msg = res.get("message") or res.get("result") or "Completado"  
+                    task_manager.send_message(result_msg)  
+                  
+                task_manager.run_background_task(f"{action}_{time.time()}", execute_with_progress)  
+                continue  
+  
+    # Ejecutar comandos devueltos por la LLM (flujo normal)  
+    for command in commands_to_execute:  
+        action = (command.get("action") or "").strip()  
+        params = command.get("params", {}) or {}  
+        if not action:  
+            continue  
+              
+        # Si ya se procesó en background, saltar  
+        if task_manager and action in ["analyze_file", "diagnose_system_performance", "check_system_services"]:  
+            continue  
+              
+        if action == "search_youtube":  
+            params.setdefault("play_video", True)  
+  
+        if async_execute:  
+            import threading  
+            threading.Thread(  
+                target=lambda: run_command(action, params, ctx or {}),  
+                daemon=True  
+            ).start()  
+        else:  
+            res = run_command(action, params, ctx or {})  
+            if not res.get("ok", True):  
+                logger.warning(f"Comando '{action}' falló: {res.get('error')}")  
     return user_response if user_response else "Procesando tu solicitud..."
 
 
