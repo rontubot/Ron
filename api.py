@@ -478,64 +478,118 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     else:
         return PlainTextResponse(user_response)
 
-@app.post("/ron/stream")  
-async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):  
-    if authorization is None or not authorization.startswith("Bearer "):  
-        raise HTTPException(status_code=401, detail="Autenticación requerida")  
-    current_user = verify_jwt_token(authorization.split(" ", 1)[1])  
-  
-    body = await request.json()  
-    user_text = (body.get("text") or body.get("message") or "").strip()  
-    if not user_text:  
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
-  
-    async def event_generator():      
-        full_text = ""      
-        try:      
-            import asyncio      
+@app.post("/ron/stream")    
+async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):    
+    if authorization is None or not authorization.startswith("Bearer "):    
+        raise HTTPException(status_code=401, detail="Autenticación requerida")    
+    current_user = verify_jwt_token(authorization.split(" ", 1)[1])    
+    
+    body = await request.json()    
+    user_text = (body.get("text") or body.get("message") or "").strip()    
+    if not user_text:    
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
+    
+    async def event_generator():  
+        import asyncio  
+        import threading  
+        from queue import Queue, Empty  
+          
+        # Cola para mensajes de progreso  
+        progress_queue = Queue()  
+        final_result = {"done": False, "response": None, "error": None}  
+          
+        # Callback para capturar mensajes de progreso  
+        def progress_callback(message: str):  
+            """Callback que encola mensajes de progreso"""  
+            # Sanitizar el mensaje antes de enviarlo  
+            clean_msg = sanitize_user_response(message)  
+            progress_queue.put({"type": "progress", "message": clean_msg})  
+          
+        # Función que ejecuta el procesamiento en thread separado  
+        def execute_with_progress():  
+            try:  
+                # Importar aquí para evitar problemas de importación circular  
+                from core.assistant import _process_user_input  
                   
-            # 1. Acumular todo el stream    
-            for chunk in responder_a_usuario_streaming(user_text, current_user):      
-                full_text += str(chunk or "")      
+                # Ejecutar con callback de progreso en el contexto  
+                result = _process_user_input(  
+                    user_text,   
+                    save_to_memory=True,   
+                    username=current_user,  
+                    task_manager=None  # No hay TaskManager en API, usamos callback directo  
+                )  
                   
-            # 2. Parsear JSON completo    
-            try:      
-                response_data = json.loads(full_text)      
-                user_response_only = response_data.get("user_response", "")      
-                commands = response_data.get("commands", [])      
-            except json.JSONDecodeError:      
-                # Si no es JSON válido, usar el texto completo    
-                user_response_only = full_text      
-                commands = []      
+                # Sanitizar resultado final  
+                clean_result = sanitize_user_response(result) if isinstance(result, str) else result  
+                final_result["response"] = clean_result  
+                final_result["done"] = True  
+                progress_queue.put({"type": "done", "response": clean_result})  
                   
-            # 3. Sanitizar para eliminar referencias técnicas    
-            user_response_only = sanitize_user_response(user_response_only)      
-                  
-            # 4. Enviar chunks pequeños del texto sanitizado    
-            for i in range(0, len(user_response_only), 3):      
-                chunk = user_response_only[i:i+3]      
-                yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"      
-                await asyncio.sleep(0.01)      
-                  
-            # 5. Guardar conversación    
-            try:      
-                add_to_memory(current_user, user_text, user_response_only)      
-            except Exception:      
-                pass      
-              
-            # 6. Evento final con comandos    
-            yield f"data: {json.dumps({'done': True, 'full_text': user_response_only, 'commands': commands}, ensure_ascii=False)}\n\n"      
-              
-        except Exception as e:      
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"  
-  
-    return StreamingResponse(  
-        event_generator(),  
-        media_type="text/event-stream",  
-        headers={  
-            "Cache-Control": "no-cache",  
-            "X-Accel-Buffering": "no",  
-        },  
+            except Exception as e:  
+                logger.error(f"Error en procesamiento con progreso: {e}")  
+                final_result["error"] = str(e)  
+                final_result["done"] = True  
+                progress_queue.put({"type": "error", "error": str(e)})  
+          
+        # Iniciar thread de procesamiento  
+        worker_thread = threading.Thread(target=execute_with_progress, daemon=True)  
+        worker_thread.start()  
+          
+        # Enviar mensajes conforme llegan a la cola  
+        try:  
+            while not final_result["done"]:  
+                try:  
+                    # Esperar mensaje con timeout  
+                    msg = progress_queue.get(timeout=0.5)  
+                      
+                    if msg["type"] == "progress":  
+                        # Enviar mensaje de progreso  
+                        yield f"data: {json.dumps({'type': 'progress', 'chunk': msg['message']}, ensure_ascii=False)}\n\n"  
+                        await asyncio.sleep(0.01)  
+                          
+                    elif msg["type"] == "done":  
+                        # Parsear comandos si existen  
+                        try:  
+                            if isinstance(msg["response"], str):  
+                                response_data = json.loads(msg["response"])  
+                                user_response = response_data.get("user_response", msg["response"])  
+                                commands = response_data.get("commands", [])  
+                            else:  
+                                user_response = msg["response"]  
+                                commands = []  
+                        except (json.JSONDecodeError, TypeError):  
+                            user_response = msg["response"]  
+                            commands = []  
+                          
+                        # Guardar conversación  
+                        try:  
+                            add_to_memory(current_user, user_text, user_response)  
+                        except Exception:  
+                            pass  
+                          
+                        # Enviar respuesta final  
+                        yield f"data: {json.dumps({'type': 'done', 'full_text': user_response, 'commands': commands}, ensure_ascii=False)}\n\n"  
+                        break  
+                          
+                    elif msg["type"] == "error":  
+                        yield f"data: {json.dumps({'type': 'error', 'error': msg['error']}, ensure_ascii=False)}\n\n"  
+                        break  
+                          
+                except Empty:  
+                    # No hay mensajes, continuar esperando  
+                    continue  
+                      
+        except Exception as e:  
+            logger.error(f"Error en event_generator: {e}")  
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"  
+    
+    return StreamingResponse(    
+        event_generator(),    
+        media_type="text/event-stream",    
+        headers={    
+            "Cache-Control": "no-cache",    
+            "X-Accel-Buffering": "no",    
+        },    
     )
 
   
