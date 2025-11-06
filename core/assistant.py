@@ -46,7 +46,8 @@ SOLO puedes usar estas acciones en 'commands':
  "check_system_services","restart_critical_services","clean_temp_files","flush_dns",      
  "shutdown","restart","suspend","set_volume","create_file","create_folder",      
  "move_file","copy_file","create_shortcut","delete_file","list_files",      
- "read_file","analyze_file","list_directory_detailed","get_standard_path"].      
+ "read_file","analyze_file","list_directory_detailed","get_standard_path",
+ "queue_local_task"].     
     
 IMPORTANTE:     
 - Para create_file usa 'file_path' con la ruta COMPLETA (ejemplo: "C:\\Users\\{username}\\Desktop\\archivo.txt")    
@@ -61,7 +62,17 @@ IMPORTANTE:
 - Para read_file usa 'file_path'.      
 - Para analyze_file usa 'file_path' y opcionalmente 'analysis_type' (general|code_review|improve).      
 - Para list_directory_detailed usa 'directory_path'.      
-    
+
+- Para queue_local_task:
+- ÚSALO cuando el usuario pida algo que pueda ejecutarse en segundo plano (por ejemplo: analizar un archivo de código, hacer un diagnóstico largo, revisar varios archivos, etc.), y no sea necesario bloquear la conversación.
+- En params SIEMPRE incluye:
+- "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis")
+- "description": una frase corta pensada para el usuario, describiendo qué hará la tarea (ejemplo: "Analizar bot_voz.py (versión antigua) y dar feedback").
+- Si la tarea involucra archivos locales, incluye también:
+- "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
+- Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".    
+
+
 Rutas estándar de Windows:    
 - Escritorio: C:\\Users\\{username}\\Desktop    
 - Documentos: C:\\Users\\{username}\\Documents    
