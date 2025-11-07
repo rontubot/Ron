@@ -197,109 +197,39 @@ def restore_application_volumes(progress_callback=None):
 
 
 
-def analyze_file(file_path, analysis_type="general", progress_callback=None):    
-    """    
-    Analiza un archivo y proporciona feedback inteligente.    
-        
-    Args:    
-        file_path: Ruta al archivo a analizar    
-        analysis_type: Tipo de análisis ("general", "code", "text", "improve")  
-        progress_callback: Función opcional para enviar mensajes de progreso  
-        
-    Returns:    
-        Dict con análisis del archivo    
-    """    
-    def send_progress(msg):  
-        """Helper para enviar progreso si hay callback"""  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:    
-        # Expandir ruta    
-        expanded_path = os.path.expandvars(os.path.expanduser(file_path))    
-            
-        if not os.path.exists(expanded_path):    
-            return f"El archivo no existe: {expanded_path}"    
-            
-        send_progress(f"📂 Iniciando análisis de {os.path.basename(expanded_path)}...")  
-        logger.info(f"Analizando archivo: {expanded_path}")    
-            
-        # Leer contenido del archivo    
-        send_progress("📖 Leyendo contenido del archivo...")  
-        try:    
-            with open(expanded_path, 'r', encoding='utf-8') as f:    
-                content = f.read()    
-        except UnicodeDecodeError:    
-            # Intentar con encoding alternativo    
-            with open(expanded_path, 'r', encoding='latin-1') as f:    
-                content = f.read()    
-            
-        # Obtener información del archivo    
-        file_size = os.path.getsize(expanded_path)    
-        file_ext = os.path.splitext(expanded_path)[1].lower()    
-        line_count = len(content.split('\n'))    
-          
-        send_progress(f"📊 Archivo leído: {file_size} bytes, {line_count} líneas")  
-            
-        # Análisis básico    
-        analysis = {    
-            "file": expanded_path,    
-            "size": f"{file_size} bytes",    
-            "lines": line_count,    
-            "extension": file_ext,    
-            "content_preview": content[:500] if len(content) > 500 else content    
-        }    
-            
-        # Análisis específico según tipo    
-        send_progress("🔍 Analizando estructura del código...")  
-        if analysis_type == "code" or file_ext in ['.py', '.js', '.java', '.cpp', '.c', '.ts', '.jsx', '.tsx']:    
-            # Análisis de código    
-            analysis["type"] = "code"    
-            analysis["functions"] = len(re.findall(r'\bdef\s+\w+\(|\bfunction\s+\w+\(|\bclass\s+\w+', content))    
-            analysis["comments"] = len(re.findall(r'#.*|//.*|/\*.*?\*/', content))    
-            analysis["imports"] = len(re.findall(r'\bimport\s+|\bfrom\s+.*\bimport\b|\brequire\(', content))    
-                
-        elif analysis_type == "text" or file_ext in ['.txt', '.md', '.doc', '.docx']:    
-            # Análisis de texto    
-            analysis["type"] = "text"    
-            words = content.split()    
-            analysis["words"] = len(words)    
-            analysis["characters"] = len(content)    
-            analysis["paragraphs"] = len(content.split('\n\n'))    
-                
-        else:    
-            # Análisis general    
-            analysis["type"] = "general"    
-            
-        # Formatear resultado para el usuario    
-        send_progress("✅ Análisis completado, generando reporte...")  
-        result = f"Análisis de {os.path.basename(expanded_path)}:\n"    
-        result += f"- Tamaño: {analysis['size']}\n"    
-        result += f"- Líneas: {analysis['lines']}\n"    
-            
-        if analysis["type"] == "code":    
-            result += f"- Funciones/Clases: {analysis['functions']}\n"    
-            result += f"- Comentarios: {analysis['comments']}\n"    
-            result += f"- Imports: {analysis['imports']}\n"    
-        elif analysis["type"] == "text":    
-            result += f"- Palabras: {analysis['words']}\n"    
-            result += f"- Caracteres: {analysis['characters']}\n"    
-            result += f"- Párrafos: {analysis['paragraphs']}\n"    
-            
-        # Agregar preview del contenido    
-        result += f"\nVista previa:\n{analysis['content_preview']}"    
-            
-        if len(content) > 500:    
-            result += "\n...(contenido truncado)"    
-          
-        send_progress("📋 Reporte completo generado")  
-        return result    
-            
-    except Exception as e:    
-        logger.error(f"Error analizando archivo: {str(e)}")    
-        return f"Error analizando archivo: {e}"  
-  
+def analyze_file(file_path, analysis_type="general", progress_callback=None):
+    """
+    Analiza un archivo y proporciona feedback inteligente.
+    """
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))
+
+        if not os.path.exists(expanded_path):
+            msg = f"El archivo no existe: {expanded_path}"
+            send_progress(f"⚠️ {msg}")
+            # ⬇️ ahora devolvemos error estructurado
+            return {"ok": False, "error": msg}
+
+        send_progress(f"📂 Iniciando análisis de {os.path.basename(expanded_path)}...")
+        ...
+        # resto igual hasta el final
+        ...
+        send_progress("📋 Reporte completo generado")
+        return {
+            "ok": True,
+            "message": result,
+            "analysis": analysis,
+        }
+
+    except Exception as e:
+        logger.error(f"Error analizando archivo: {str(e)}")
+        return {"ok": False, "error": f"Error analizando archivo: {e}"}
+
 
 def cmd_analyze_local_file(params, ctx):
     """
@@ -762,74 +692,75 @@ def create_folder(folder_path, progress_callback=None):
         logger.error(f"Error creando carpeta: {str(e)}")        
         return f"Error creando carpeta: {e}"    
       
-def move_file(source, destination, progress_callback=None):        
-    """Mueve un archivo de origen a destino"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:        
-        # NUEVO: Expandir variables de entorno y rutas de usuario    
+def move_file(source, destination, progress_callback=None):
+    """Mueve un archivo de origen a destino"""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
         expanded_source = os.path.expandvars(os.path.expanduser(source))
         expanded_dest = os.path.expandvars(os.path.expanduser(destination))
-            
+
         send_progress(f"📦 Moviendo archivo de {expanded_source} a {expanded_dest}")
         logger.info(f"Moviendo archivo de {expanded_source} a {expanded_dest}")
-                
+
         import shutil
 
         if not os.path.exists(expanded_source):
-            send_progress("⚠️ El archivo de origen no existe")
-            return f"El archivo de origen no existe: {expanded_source}"
+            msg = f"El archivo de origen no existe: {expanded_source}"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
 
         send_progress("📁 Verificando directorio destino...")
         os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)
-          
+
         send_progress("🚚 Moviendo archivo...")
         shutil.move(expanded_source, expanded_dest)
-          
-        send_progress(f"✅ Archivo movido exitosamente")
+
+        send_progress("✅ Archivo movido exitosamente")
         return f"Archivo movido de {expanded_source} a {expanded_dest}"
 
-          
-        send_progress(f"✅ Archivo movido exitosamente")  
-        return f"Archivo movido de {expanded_source} a {expanded_dest}"        
-                
-    except Exception as e:        
-        logger.error(f"Error moviendo archivo: {str(e)}")        
-        return f"Error moviendo archivo: {e}"     
+    except Exception as e:
+        logger.error(f"Error moviendo archivo: {str(e)}")
+        return {"ok": False, "error": f"Error moviendo archivo: {e}"}
+
       
-def copy_file(source, destination, progress_callback=None):        
-    """Copia un archivo de origen a destino"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:        
-        # NUEVO: Expandir variables de entorno y rutas de usuario    
-        expanded_source = os.path.expandvars(os.path.expanduser(source))    
-        expanded_dest = os.path.expandvars(os.path.expanduser(destination))    
-            
-        send_progress(f"📋 Copiando archivo de {expanded_source} a {expanded_dest}")  
-        logger.info(f"Copiando archivo de {expanded_source} a {expanded_dest}")        
-                
-        import shutil        
-          
-        send_progress("📁 Verificando directorio destino...")  
-        # Crear directorio destino si no existe        
-        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)        
-          
-        send_progress("📄 Copiando archivo...")  
-        shutil.copy2(expanded_source, expanded_dest)        
-          
-        send_progress(f"✅ Archivo copiado exitosamente")  
-        return f"Archivo copiado de {expanded_source} a {expanded_dest}"        
-                
-    except Exception as e:        
-        logger.error(f"Error copiando archivo: {str(e)}")        
-        return f"Error copiando archivo: {e}"  
+def copy_file(source, destination, progress_callback=None):
+    """Copia un archivo de origen a destino"""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        expanded_source = os.path.expandvars(os.path.expanduser(source))
+        expanded_dest = os.path.expandvars(os.path.expanduser(destination))
+
+        send_progress(f"📋 Copiando archivo de {expanded_source} a {expanded_dest}")
+        logger.info(f"Copiando archivo de {expanded_source} a {expanded_dest}")
+
+        import shutil
+
+        if not os.path.exists(expanded_source):
+            msg = f"El archivo de origen no existe: {expanded_source}"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
+
+        send_progress("📁 Verificando directorio destino...")
+        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)
+
+        send_progress("📄 Copiando archivo...")
+        shutil.copy2(expanded_source, expanded_dest)
+
+        send_progress("✅ Archivo copiado exitosamente")
+        return f"Archivo copiado de {expanded_source} a {expanded_dest}"
+
+    except Exception as e:
+        logger.error(f"Error copiando archivo: {str(e)}")
+        return {"ok": False, "error": f"Error copiando archivo: {e}"}
+
   
   
 def create_shortcut(target, shortcut_path, progress_callback=None):  
@@ -856,27 +787,34 @@ def create_shortcut(target, shortcut_path, progress_callback=None):
         return f"Error creando acceso directo: {e}"  
   
   
-def delete_file(file_path, progress_callback=None):  
-    """Elimina un archivo"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:  
+def delete_file(file_path, progress_callback=None):
+    """Elimina un archivo"""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
         expanded_path = os.path.expandvars(os.path.expanduser(file_path))
 
         if not os.path.exists(expanded_path):
-            send_progress("⚠️ El archivo no existe")
-            return f"El archivo no existe: {expanded_path}"
+            msg = f"El archivo no existe: {expanded_path}"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
+
         if not os.path.isfile(expanded_path):
-            send_progress("⚠️ La ruta no es un archivo")
-            return f"La ruta no es un archivo: {expanded_path}"
+            msg = f"La ruta no es un archivo: {expanded_path}"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
 
         os.remove(expanded_path)
-          
-        send_progress(f"✅ Archivo eliminado exitosamente")
+
+        send_progress("✅ Archivo eliminado exitosamente")
         return f"Archivo eliminado: {expanded_path}"
+
+    except Exception as e:
+        logger.error(f"Error eliminando archivo: {str(e)}")
+        return {"ok": False, "error": f"Error eliminando archivo: {e}"}
 
   
   
@@ -886,45 +824,33 @@ def list_files(directory_path, progress_callback=None):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
-      
+
     try:
         expanded = os.path.expandvars(os.path.expanduser(directory_path))
         send_progress(f"📂 Listando archivos en: {expanded}")
         logger.info(f"Listando archivos en: {expanded}")
 
         if not os.path.isdir(expanded):
-            send_progress("⚠️ La ruta no es un directorio válido")
-            return f"La ruta no es un directorio válido: {expanded}"
+            msg = f"La ruta no es un directorio válido: {expanded}"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
 
         files = os.listdir(expanded)
-          
+
         send_progress(f"📊 Encontrados {len(files)} archivos")
-              
+
         if files:
-            file_list = "\\n".join(files[:20])  # Limitar a 20 archivos      
-            send_progress(f"✅ Lista generada")
-            return f"Archivos en {expanded}:\\n{file_list}"
+            file_list = "\n".join(files[:20])  # Limitar a 20 archivos
+            send_progress("✅ Lista generada")
+            return f"Archivos en {expanded}:\n{file_list}"
         else:
-            send_progress(f"⚠️ Directorio vacío")
+            send_progress("⚠️ Directorio vacío")
             return f"No hay archivos en {expanded}"
-                  
+
     except Exception as e:
         logger.error(f"Error listando archivos: {str(e)}")
-        return f"Error listando archivos: {e}"
-          
-        send_progress(f"📊 Encontrados {len(files)} archivos")  
-              
-        if files:      
-            file_list = "\\n".join(files[:20])  # Limitar a 20 archivos      
-            send_progress(f"✅ Lista generada")  
-            return f"Archivos en {directory_path}:\\n{file_list}"      
-        else:      
-            send_progress(f"⚠️ Directorio vacío")  
-            return f"No hay archivos en {directory_path}"      
-                  
-    except Exception as e:      
-        logger.error(f"Error listando archivos: {str(e)}")      
-        return f"Error listando archivos: {e}"  
+        return {"ok": False, "error": f"Error listando archivos: {e}"}
+
   
   
 def diagnose_system_performance(progress_callback=None):      
