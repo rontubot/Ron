@@ -24,6 +24,52 @@ from core.memory import (
 logging.basicConfig(level=logging.DEBUG)      
 logger = logging.getLogger(__name__)      
     
+
+def _call_ron_api_feedback(prompt: str, username: str = "local-task") -> str:
+    """
+    Llama al backend de Ron (/ron) para generar un feedback en lenguaje natural
+    a partir de un prompt. Devuelve solo el texto útil.
+    """
+    try:
+        base = (os.environ.get("RON_API_URL") or "").strip().rstrip("/")
+        if not base:
+            base = "https://ron-production.up.railway.app"
+
+        url = f"{base}/ron"
+        token = os.environ.get("RON_AUTH_TOKEN") or ""
+
+        payload = {
+            "text": prompt,
+            "message": prompt,
+            "username": username,
+            "source": "desktop-task",
+            "return_json": True,
+        }
+
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        resp = requests.post(url, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+
+        # Intentar parsear JSON primero
+        try:
+            data = resp.json()
+        except Exception:
+            return resp.text.strip()
+
+        for key in ("user_response", "ron", "reply", "message", "text"):
+            val = data.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+        return resp.text.strip()
+    except Exception as e:
+        logger.error(f"Error llamando al backend de Ron para feedback: {e}")
+        return ""
+
+
   
 # Diccionario de sitios comunes (expandido del código local)      
 web_apps = {      
@@ -142,6 +188,11 @@ def restore_application_volumes(progress_callback=None):
         return {"ok": False, "error": str(e)}
 
 
+
+
+
+
+
 def analyze_file(file_path, analysis_type="general", progress_callback=None):    
     """    
     Analiza un archivo y proporciona feedback inteligente.    
@@ -245,6 +296,64 @@ def analyze_file(file_path, analysis_type="general", progress_callback=None):
         logger.error(f"Error analizando archivo: {str(e)}")    
         return f"Error analizando archivo: {e}"  
   
+
+def cmd_analyze_local_file(params, ctx):
+    """
+    Comando de alto nivel para analizar un archivo local:
+    - Usa analyze_file para obtener métricas y vista previa
+    - Envía ese análisis al backend de Ron para generar feedback armado
+    """
+    username = _username(ctx, params)
+    file_path = params.get("file_path") or params.get("path")
+
+    if not file_path:
+        return {"ok": False, "error": "Falta 'file_path' o 'path' para analizar"}
+
+    analysis_type = params.get("analysis_type") or "code"
+
+    # Podemos pasar progress_callback si lo hubiera
+    progress_callback = ctx.get("progress_callback")
+
+    # 1) Análisis automático básico
+    base_report = analyze_file(
+        file_path,
+        analysis_type=analysis_type,
+        progress_callback=progress_callback,
+    )
+    if not isinstance(base_report, str):
+        base_report = str(base_report)
+
+    # 2) Pedir a Ron un feedback más armado usando ese análisis
+    prompt = (
+        "Quiero que actúes como un experto en revisión de código. "
+        "Te paso un análisis automático de un archivo y una vista previa de su contenido. "
+        "Con esa información, genera un feedback técnico claro en español para el usuario. "
+        "Incluye:\n"
+        "- Un breve resumen de lo que hace el archivo.\n"
+        "- Puntos fuertes del código.\n"
+        "- Problemas, riesgos o malas prácticas que veas.\n"
+        "- Recomendaciones concretas de mejora.\n\n"
+        "Análisis automático y vista previa del archivo:\n"
+        f"{base_report}\n\n"
+        "Fin del análisis."
+    )
+
+    feedback = _call_ron_api_feedback(prompt, username=username)
+
+    if feedback:
+        final_message = feedback
+    else:
+        # Si falla la llamada al backend, al menos devolvemos el análisis básico
+        final_message = base_report
+
+    return {
+        "ok": True,
+        "message": final_message,
+        "analysis": base_report,
+    }
+
+
+
   
 def _username(ctx: dict, params: dict | None = None) -> str:    
     """    
@@ -1178,7 +1287,9 @@ COMMANDS = {
     "system_file_check": system_file_check,  
   
     # ——— Análisis de archivos  
-    "analyze_file": analyze_file,    
+    "analyze_file": analyze_file,
+    "analyze_local_file": cmd_analyze_local_file,
+    "analyze_local_file": analyze_file,    
       
     # ——— Comandos Básicos Nuevos      
     "set_volume": set_volume,      
