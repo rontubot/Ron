@@ -85,7 +85,7 @@ logging.getLogger("core.assistant").setLevel(logging.INFO)
 logging.getLogger("core.commands").setLevel(logging.INFO)    
 logging.getLogger("core.memory").setLevel(logging.INFO)  
   
-   
+
       
 app = FastAPI()      
       
@@ -314,91 +314,155 @@ def read_root():
   
 @app.post("/ron")
 def chat_with_ron(data: UserInput, authorization: str = Header(None)):
-    if authorization is None:
+    """
+    Endpoint principal de Ron (modo no streaming).
+    Siempre devuelve JSON con este formato:
+
+    {
+        "user_response": "<texto plano para el usuario>",
+        "commands": [ ... ],
+        "shutdown": false,
+        "ron": "<alias de user_response para compatibilidad antigua>"
+    }
+    """
+    # --- 1) Autenticación básica ---
+    if authorization is None or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Autenticación requerida")
 
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Autenticación requerida")
     token = authorization.split(" ", 1)[1]
     current_user = verify_jwt_token(token)
 
+    # --- 2) Texto de usuario ---
     user_text = (data.text or data.message or "").strip()
     if not user_text:
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
 
     try:
+        # --- 3) Historial por usuario ---
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         mensajes = construir_historial_usuario_openai(current_user)
-        # AGREGAR PROMPT COMPLETO CON EJEMPLOS FEW-SHOT  
-        mensajes.append({      
-            "role": "system",      
-            "content": """      
-        Eres Ron, un asistente que puede ejecutar CUALQUIER comando de Windows.      
-          
-        REGLA CRÍTICA:  
-        Si el usuario pregunta "¿qué puedes hacer?", "ayuda", "qué sabes hacer", o similar:  
-        - NO listes funciones técnicas  
-        - NO menciones comandos específicos  
-        - Responde de forma breve y genérica  
-        - Invita al usuario a hacer una solicitud específica
-        - Intenta que todas tus solicitudes sean rapidas, asi que si te mandan a ejecutar algo ejecutalo y no preguntes por ejecutarlo, solo hazlo.  
-          
-        Formato de salida SIEMPRE:      
-        {"user_response":"...","commands":[{"type":"cmd|powershell|python","command":"comando_exacto","safe":true}]}      
-                  
-        REGLAS OBLIGATORIAS:      
-        - NO uses markdown (**negrita**, *cursiva*, `código`), emojis (😀🔥✅), ni símbolos especiales en 'user_response'. Solo texto plano sin formato.      
-        - NUNCA uses \n ni * en 'user_response'. Usa puntos y comas para separar ideas.             
-        - Para comandos básicos (abrir apps, YouTube, recordatorios), usa las acciones predefinidas: open_application, search_youtube, add_reminder, etc.      
-        - Para comandos avanzados del sistema, genera comandos cmd/PowerShell/Python directamente.      
-        - Marca safe:true solo si el comando es seguro (no destructivo).      
-        - Nunca digas que no puedes hacer algo, busca el comando y ejecutalo. Evita preguntas innecesarias.  
-          
-        EJEMPLOS - PREGUNTAS SOBRE CAPACIDADES (IMPORTANTE):  
-          
-        Usuario: "¿qué puedes hacer?"  
-        Asistente:  
-        {"user_response":"Puedo ayudarte con tareas del sistema, búsquedas, recordatorios y más. ¿En qué necesitas ayuda?","commands":[]}  
-          
-        Usuario: "ayuda"  
-        Asistente:  
-        {"user_response":"Estoy aquí para ayudarte. ¿Qué necesitas que haga?","commands":[]}  
-          
-        Usuario: "qué sabes hacer"  
-        Asistente:  
-        {"user_response":"Puedo asistirte con diversas tareas. ¿Hay algo específico que quieras que haga?","commands":[]}  
-                  
-        EJEMPLOS - COMANDOS BÁSICOS:      
-                  
-        Usuario: "abre chrome"      
-        Asistente:      
-        {"user_response":"Abriendo Google Chrome.","commands":[{"action":"open_application","params":{"app_name":"chrome"}}]}      
-                  
-        Usuario: "busca en youtube cualquier cosa"      
-        Asistente:      
-        {"user_response":"Buscando en YouTube.","commands":[{"action":"search_youtube","params":{"query":"video popular","play_video":true}}]}      
-                  
-        Usuario: "recuérdame llamar a mamá a las 8pm"      
-        Asistente:      
-        {"user_response":"Listo, te recordaré llamar a mamá a las 8pm.","commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_time":"20:00"}}]}      
-                  
-        EJEMPLOS - COMANDOS AVANZADOS:      
-                  
-        Usuario: "sube el volumen al 80%"      
-        Asistente:      
-        {"user_response":"Subiendo volumen al 80%.","commands":[{"type":"powershell","command":"Set-Volume -Level 80","safe":true}]}      
-                  
-        Usuario: "limpia archivos temporales"      
-        Asistente:      
-        {"user_response":"Limpiando archivos temporales.","commands":[{"type":"cmd","command":"del /q /f /s %TEMP%\\*","safe":true}]}      
-                  
-        Usuario: "reinicia el servicio de audio"      
-        Asistente:      
-        {"user_response":"Reiniciando servicio de audio.","commands":[{"type":"cmd","command":"net stop audiosrv && net start audiosrv","safe":true}]}      
-        """      
+
+        # --- 4) System prompt unificado (formato de salida claro) ---
+        mensajes.append({
+            "role": "system",
+            "content": """
+Eres Ron, un asistente que puede ejecutar comandos de Windows y automatizaciones locales.
+
+REGLA CRÍTICA:
+Si el usuario pregunta "¿qué puedes hacer?", "ayuda", "qué sabes hacer" o similar:
+- NO listes funciones técnicas ni nombres de acciones internos.
+- NO menciones comandos específicos (ni cmd, ni PowerShell, ni nombres de funciones).
+- Responde de forma breve y genérica.
+- Invita al usuario a hacer una solicitud específica.
+- Intenta que todas tus respuestas sean rápidas: si te piden ejecutar algo y es seguro, hazlo sin pedir confirmación adicional.
+
+FORMATO DE RESPUESTA (OBLIGATORIO):
+
+Siempre responde con UN SOLO JSON, sin texto extra, con esta forma general:
+
+{
+  "user_response": "texto plano para el usuario",
+  "commands": [ ... ]
+}
+
+Los campos significan:
+
+- user_response:
+  - Resumen en lenguaje natural de lo que hiciste o vas a hacer.
+  - SOLO texto plano; NO uses markdown (**negrita**, *cursiva*, `código`), ni emojis (😀🔥✅), ni símbolos especiales.
+  - NO uses saltos de línea (\n) ni viñetas; usa frases separadas por punto y coma.
+
+- commands:
+  - Lista que puede estar vacía [].
+  - Cada elemento puede ser de DOS tipos:
+
+  (A) COMANDO DE ALTO NIVEL (RECOMENDADO):
+
+    {
+      "action": "nombre_de_accion",
+      "params": { ... },
+      "safe": true
+    }
+
+    Acciones de alto nivel válidas incluyen, entre otras:
+    - "open_application"
+    - "close_application"
+    - "search_youtube"
+    - "search_google"
+    - "add_reminder"
+    - "get_reminders"
+    - "remove_reminder"
+    - "update_reminder"
+    - "set_volume"
+    - "diagnose_system_performance"
+    - "clean_temp_files"
+    - "execute_autonomous_plan"
+    - "queue_local_task"
+
+  (B) COMANDO DE SISTEMA (cmd/PowerShell/Python) PARA PLANES AUTÓNOMOS:
+
+    {
+      "type": "cmd" | "powershell" | "python",
+      "command": "comando_exacto",
+      "safe": true
+    }
+
+    - Usa este formato SOLO cuando realmente necesites un comando de sistema de bajo nivel.
+    - "safe": true SI Y SOLO SI el comando no es destructivo.
+
+REGLAS OBLIGATORIAS PARA 'user_response':
+- NO uses markdown, emojis ni símbolos especiales.
+- NUNCA uses \\n ni * en 'user_response'. Usa puntos y comas para separar ideas.
+- NO expliques detalles técnicos internos (no menciones 'open_application', 'execute_autonomous_plan', ni nombres de acciones internos).
+- Habla siempre como un asistente amable y directo.
+
+EJEMPLOS - PREGUNTAS SOBRE CAPACIDADES:
+
+Usuario: "¿qué puedes hacer?"
+Asistente:
+{"user_response":"Puedo ayudarte con tareas del sistema, búsquedas, recordatorios y más; dime qué necesitas y lo hago","commands":[]}
+
+Usuario: "ayuda"
+Asistente:
+{"user_response":"Estoy aquí para ayudarte; dime qué necesitas que haga","commands":[]}
+
+Usuario: "qué sabes hacer"
+Asistente:
+{"user_response":"Puedo asistirte con diversas tareas en tu PC y con información; dime qué quieres que haga","commands":[]}
+
+EJEMPLOS - COMANDOS BÁSICOS (ALTO NIVEL):
+
+Usuario: "abre chrome"
+Asistente:
+{"user_response":"Abriendo Google Chrome","commands":[{"action":"open_application","params":{"app_name":"chrome"},"safe":true}]}
+
+Usuario: "busca en youtube cualquier cosa"
+Asistente:
+{"user_response":"Buscando un video popular en YouTube","commands":[{"action":"search_youtube","params":{"query":"video popular","play_video":true},"safe":true}]}
+
+Usuario: "recuérdame llamar a mamá a las 8pm"
+Asistente:
+{"user_response":"Voy a recordarte llamar a mamá a las ocho de la noche","commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_time":"20:00"},"safe":true}]}
+
+EJEMPLOS - COMANDOS AVANZADOS (SISTEMA):
+
+Usuario: "sube el volumen al 80%"
+Asistente:
+{"user_response":"Subiendo el volumen al ochenta por ciento","commands":[{"type":"powershell","command":"Set-Volume -Level 80","safe":true}]}
+
+Usuario: "limpia archivos temporales"
+Asistente:
+{"user_response":"Limpiando archivos temporales","commands":[{"type":"cmd","command":"del /q /f /s %TEMP%\\*","safe":true}]}
+
+Usuario: "reinicia el servicio de audio"
+Asistente:
+{"user_response":"Reiniciando el servicio de audio","commands":[{"type":"cmd","command":"net stop audiosrv && net start audiosrv","safe":true}]}
+"""
         })
+
         mensajes.append({"role": "user", "content": user_text})
 
+        # --- 5) Llamada al modelo en modo JSON ---
         respuesta = client.chat.completions.create(
             model="gpt-5-chat-latest",
             messages=mensajes,
@@ -407,21 +471,22 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
             temperature=0.7,
         )
 
-        gpt_response = respuesta.choices[0].message.content.strip()
-        parsed = parse_commands_only(gpt_response)
+        gpt_response = (respuesta.choices[0].message.content or "").strip()
 
-        user_response = strip_markdown(parsed.get("user_response", "")) or ""
-        user_response = user_response.strip()
+        # --- 6) Parsear JSON a estructura {user_response, commands} ---
+        parsed = parse_commands_only(gpt_response) or {}
+
+        # user_response: limpiar markdown, saltos y referencias técnicas
+        raw_user_resp = parsed.get("user_response", "") or ""
+        user_response = strip_markdown(raw_user_resp) or ""
         user_response = user_response.replace("\r", "")
         user_response = re.sub(r"\s*\n+\s*", " ", user_response)
+        user_response = sanitize_user_response(user_response) or ""
 
-        # Sanitizar user_response para eliminar referencias técnicas  
-        user_response = sanitize_user_response(parsed.get("user_response", ""))  
-        commands = parsed.get("commands", [])
+        # commands tal como vienen del modelo
+        commands = parsed.get("commands", []) or []
 
-        commands = parsed.get("commands", [])
-
-        # Promover comandos de Windows a "plan" si aplica (idéntico a lo tuyo)
+        # --- 7) Separar comandos de sistema (cmd/powershell/python) vs de alto nivel ---
         windows_commands, basic_commands = [], []
         for cmd in commands:
             if cmd.get("type") in ["cmd", "powershell", "python"]:
@@ -429,54 +494,88 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
             elif cmd.get("action"):
                 basic_commands.append(cmd)
 
+        # --- 8) Si hay comandos de sistema, crear un plan autónomo ---
         if windows_commands:
             from core.autonomous import create_execution_plan
+
             execution_plan = {
                 "task": user_text,
-                "steps": [{
-                    "order": i + 1,
-                    "command": c["command"],
-                    "type": c["type"],
-                    "description": f"Ejecutar: {c['command'][:50]}...",
-                    "timeout": 30
-                } for i, c in enumerate(windows_commands) if c.get("safe", False)],
+                "steps": [
+                    {
+                        "order": i + 1,
+                        "command": c.get("command", ""),
+                        "type": c.get("type", ""),
+                        "description": f"Ejecutar: {c.get('command','')[:50]}...",
+                        "timeout": 30,
+                    }
+                    for i, c in enumerate(windows_commands)
+                    if c.get("safe", False)
+                ],
                 "estimated_time": len(windows_commands) * 5,
-                "requires_confirmation": False
+                "requires_confirmation": False,
             }
+
             commands = basic_commands + [{
                 "action": "execute_autonomous_plan",
-                "params": {"plan": execution_plan}
+                "params": {"plan": execution_plan},
+                "safe": True,
             }]
         else:
             commands = basic_commands
 
+        # --- 9) Si no hay comandos pero el texto sugiere tarea compleja, intenta crear plan autónomo ---
         if not commands and requires_autonomous_execution(user_text):
             from core.autonomous import research_system_commands, create_execution_plan
             research_results = research_system_commands(user_text, current_user)
             if research_results:
                 plan = create_execution_plan(research_results)
                 if plan:
-                    commands = [{"action": "execute_autonomous_plan", "params": {"plan": plan}}]
+                    commands = [{
+                        "action": "execute_autonomous_plan",
+                        "params": {"plan": plan},
+                        "safe": True,
+                    }]
 
     except Exception as e:
         traceback.print_exc()
-        fallback_msg = "Tuve un problema técnico al generar la respuesta. Intenta de nuevo."
+        fallback_msg = "Tuve un problema técnico al generar la respuesta; intenta de nuevo."
         try:
             add_to_memory(current_user, user_text, f"[error] {fallback_msg}")
         except Exception:
             pass
-        return {"ron": fallback_msg, "error": str(e), "commands": []}
 
-    # Guardar conversación
+        # Respuesta de error NORMALIZADA
+        return {
+            "user_response": fallback_msg,
+            "commands": [],
+            "shutdown": False,
+            "error": str(e),
+            "ron": fallback_msg,  # alias de compat
+        }
+
+    # --- 10) Guardar conversación en memoria ---
     try:
         add_to_memory(current_user, user_text, user_response)
     except Exception as e:
-        return {"ron": user_response, "commands": commands,
-                "warning": f"No se pudo guardar la conversación: {str(e)}"}
-    if data.return_json:
-        return {"user_response": user_response, "commands": commands}
-    else:
-        return PlainTextResponse(user_response)
+        # Si falla la memoria, igual devolvemos respuesta al usuario
+        return {
+            "user_response": user_response,
+            "commands": commands,
+            "shutdown": False,
+            "warning": f"No se pudo guardar la conversación: {str(e)}",
+            "ron": user_response,  # alias de compat
+        }
+
+    # --- 11) Respuesta normalizada (SIEMPRE JSON) ---
+    payload = {
+        "user_response": user_response,
+        "commands": commands,
+        "shutdown": False,
+        "ron": user_response,  # alias para código viejo que aún lea 'ron'
+    }
+
+    return payload
+
 
 @app.post("/ron/stream")    
 async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):    
