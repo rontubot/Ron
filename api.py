@@ -614,14 +614,30 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
             for chunk in responder_a_usuario_streaming(user_text, current_user):        
                 full_text += str(chunk or "")        
                     
-            # 2. Parsear JSON completo      
-            try:        
-                response_data = json.loads(full_text)        
-                user_response_only = response_data.get("user_response", "")        
-                commands = response_data.get("commands", [])        
-            except json.JSONDecodeError:        
-                user_response_only = full_text        
-                commands = []        
+            # 2. Parsear JSON completo (aunque venga mezclado con texto)
+            try:
+                # Intento directo
+                response_data = json.loads(full_text)
+            except json.JSONDecodeError:
+                response_data = {}
+                # Intento extra: buscar el primer '{' y el último '}' y parsear solo eso
+                try:
+                    start = full_text.find("{")
+                    end = full_text.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        candidate = full_text[start:end + 1]
+                        response_data = json.loads(candidate)
+                except Exception:
+                    response_data = {}
+
+            if response_data:
+                user_response_only = response_data.get("user_response", "") or ""
+                commands = response_data.get("commands", []) or []
+            else:
+                # Si no logramos sacar un JSON válido, usamos el texto crudo
+                user_response_only = full_text
+                commands = []
+
                     
             # 3. Sanitizar texto      
             user_response_only = sanitize_user_response(user_response_only)        
