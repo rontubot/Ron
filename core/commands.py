@@ -72,20 +72,24 @@ def _call_ron_api_feedback(prompt: str, username: str = "local-task") -> str:
 
   
 # Diccionario de sitios comunes (expandido del código local)      
-web_apps = {      
-    "youtube": "https://www.youtube.com",      
-    "google": "https://www.google.com",      
-    "facebook": "https://www.facebook.com",      
-    "instagram": "https://www.instagram.com",      
-    "twitter": "https://www.twitter.com",      
-    "tiktok": "https://www.tiktok.com",      
-    "whatsapp": "https://web.whatsapp.com",      
-    "linkedin": "https://www.linkedin.com",      
-    "spotify": "https://open.spotify.com",      
-    "netflix": "https://www.netflix.com"      
-}      
-      
-  
+web_apps = {
+    "youtube": "https://www.youtube.com",
+    "google": "https://www.google.com",
+    "gmail": "https://mail.google.com",
+    "gmail.com": "https://mail.google.com",
+    "correo gmail": "https://mail.google.com",
+    "facebook": "https://www.facebook.com",
+    "instagram": "https://www.instagram.com",
+    "twitter": "https://www.twitter.com",
+    "x": "https://twitter.com",
+    "tiktok": "https://www.tiktok.com",
+    "whatsapp": "https://web.whatsapp.com",
+    "linkedin": "https://www.linkedin.com",
+    "spotify": "https://open.spotify.com",
+    "netflix": "https://www.netflix.com",
+}
+
+
 def get_nircmd_path():    
     """Obtiene la ruta a nircmd.exe según el entorno"""    
     # Si está empaquetado con Electron    
@@ -767,20 +771,27 @@ def move_file(source, destination, progress_callback=None):
       
     try:        
         # NUEVO: Expandir variables de entorno y rutas de usuario    
-        expanded_source = os.path.expandvars(os.path.expanduser(source))    
-        expanded_dest = os.path.expandvars(os.path.expanduser(destination))    
+        expanded_source = os.path.expandvars(os.path.expanduser(source))
+        expanded_dest = os.path.expandvars(os.path.expanduser(destination))
             
-        send_progress(f"📦 Moviendo archivo de {expanded_source} a {expanded_dest}")  
-        logger.info(f"Moviendo archivo de {expanded_source} a {expanded_dest}")        
+        send_progress(f"📦 Moviendo archivo de {expanded_source} a {expanded_dest}")
+        logger.info(f"Moviendo archivo de {expanded_source} a {expanded_dest}")
                 
-        import shutil        
+        import shutil
+
+        if not os.path.exists(expanded_source):
+            send_progress("⚠️ El archivo de origen no existe")
+            return f"El archivo de origen no existe: {expanded_source}"
+
+        send_progress("📁 Verificando directorio destino...")
+        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)
           
-        send_progress("📁 Verificando directorio destino...")  
-        # Crear directorio destino si no existe        
-        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)        
+        send_progress("🚚 Moviendo archivo...")
+        shutil.move(expanded_source, expanded_dest)
           
-        send_progress("🚚 Moviendo archivo...")  
-        shutil.move(expanded_source, expanded_dest)        
+        send_progress(f"✅ Archivo movido exitosamente")
+        return f"Archivo movido de {expanded_source} a {expanded_dest}"
+
           
         send_progress(f"✅ Archivo movido exitosamente")  
         return f"Archivo movido de {expanded_source} a {expanded_dest}"        
@@ -853,32 +864,53 @@ def delete_file(file_path, progress_callback=None):
         logger.info(msg)  
       
     try:  
-        send_progress(f"🗑️ Eliminando archivo: {file_path}")  
-        logger.info(f"Eliminando archivo: {file_path}")  
+        expanded_path = os.path.expandvars(os.path.expanduser(file_path))
+
+        if not os.path.exists(expanded_path):
+            send_progress("⚠️ El archivo no existe")
+            return f"El archivo no existe: {expanded_path}"
+        if not os.path.isfile(expanded_path):
+            send_progress("⚠️ La ruta no es un archivo")
+            return f"La ruta no es un archivo: {expanded_path}"
+
+        os.remove(expanded_path)
           
-        expanded_path = os.path.expandvars(os.path.expanduser(file_path))  
-        os.remove(expanded_path)  
-          
-        send_progress(f"✅ Archivo eliminado exitosamente")  
-        return f"Archivo eliminado: {expanded_path}"  
-    except Exception as e:  
-        logger.error(f"Error eliminando archivo: {str(e)}")  
-        return f"Error eliminando archivo: {e}"  
+        send_progress(f"✅ Archivo eliminado exitosamente")
+        return f"Archivo eliminado: {expanded_path}"
+
   
   
-def list_files(directory_path, progress_callback=None):      
-    """Lista archivos en un directorio"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
+def list_files(directory_path, progress_callback=None):
+    """Lista archivos en un directorio"""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
       
-    try:      
-        send_progress(f"📂 Listando archivos en: {directory_path}")  
-        logger.info(f"Listando archivos en: {directory_path}")      
+    try:
+        expanded = os.path.expandvars(os.path.expanduser(directory_path))
+        send_progress(f"📂 Listando archivos en: {expanded}")
+        logger.info(f"Listando archivos en: {expanded}")
+
+        if not os.path.isdir(expanded):
+            send_progress("⚠️ La ruta no es un directorio válido")
+            return f"La ruta no es un directorio válido: {expanded}"
+
+        files = os.listdir(expanded)
+          
+        send_progress(f"📊 Encontrados {len(files)} archivos")
               
-        import os      
-        files = os.listdir(directory_path)      
+        if files:
+            file_list = "\\n".join(files[:20])  # Limitar a 20 archivos      
+            send_progress(f"✅ Lista generada")
+            return f"Archivos en {expanded}:\\n{file_list}"
+        else:
+            send_progress(f"⚠️ Directorio vacío")
+            return f"No hay archivos en {expanded}"
+                  
+    except Exception as e:
+        logger.error(f"Error listando archivos: {str(e)}")
+        return f"Error listando archivos: {e}"
           
         send_progress(f"📊 Encontrados {len(files)} archivos")  
               
@@ -1287,9 +1319,10 @@ COMMANDS = {
     "system_file_check": system_file_check,  
   
     # ——— Análisis de archivos  
+    # análisis rápido local (solo métricas + preview)
     "analyze_file": analyze_file,
-    "analyze_local_file": cmd_analyze_local_file,
-    "analyze_local_file": analyze_file,    
+    # análisis completo: usa analyze_file + _call_ron_api_feedback para generar feedback técnico
+    "analyze_local_file": cmd_analyze_local_file,  
       
     # ——— Comandos Básicos Nuevos      
     "set_volume": set_volume,      
