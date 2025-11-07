@@ -142,11 +142,28 @@ def sanitize_user_response(text: str) -> str:
       
     # 6. Eliminar emojis  
     text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]+', '', text)  
-      
+
     # 7. Normalizar espacios múltiples  
-    text = re.sub(r'\s{2,}', ' ', text)  
-      
+    text = re.sub(r'\s{2,}', ' ', text)
+
+    # 8. Eliminar repeticiones consecutivas de frases
+    #    (por ejemplo: "Hola...;Hola..." -> "Hola...")
+    #    Partimos por separadores ; . ! ?
+    parts = [p.strip() for p in re.split(r'[;.!?]+', text) if p.strip()]
+    if len(parts) >= 2:
+      dedup = []
+      last = None
+      for p in parts:
+          if p == last:
+              # si es igual a la anterior, lo saltamos
+              continue
+          dedup.append(p)
+          last = p
+      # Volvemos a unir con punto y coma suave
+      text = '; '.join(dedup)
+
     return text.strip()
+
 
 
 
