@@ -94,45 +94,42 @@ web_apps = {
 
 def _resolve_standard_path(raw_path: str) -> str:
     """
-    Normaliza rutas tipo 'escritorio/archivo.txt' o 'documentos\\algo'
+    Normaliza rutas tipo 'mis documentos', 'descargas', 'imagenes', etc.
     a rutas absolutas del usuario en Windows.
     """
     if not raw_path:
         return raw_path
 
-    # Limpiar placeholders raros que pueda generar el modelo
-    raw = raw_path.replace('<ESCRITORIO>', 'escritorio')
-    raw = raw.replace('<DOCUMENTOS>', 'documentos')
-    raw = raw.replace('<DESCARGAS>', 'descargas')
-    raw = raw.replace('<IMAGENES>', 'imagenes')
-    raw = raw.replace('<MUSICA>', 'musica')
-    raw = raw.replace('<VIDEOS>', 'videos')
+    raw = raw_path.strip().lower()
+    raw = raw.replace("<", "").replace(">", "").replace("~", "")
+    raw = raw.replace("\\", "/")
 
-    raw = os.path.expandvars(os.path.expanduser(raw))
-
-    # Detectar separador
-    if "/" in raw and "\\" in raw:
-        # si mezcla, normalizamos a '\\'
-        raw = raw.replace("/", "\\")
-    sep = "\\" if "\\" in raw else "/"
-
-    parts = raw.split(sep)
-    first = parts[0].lower()
-
-    standard_locations = {
-        "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),
-        "documentos": os.path.join(os.path.expanduser("~"), "Documents"),
-        "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),
-        "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),
-        "musica": os.path.join(os.path.expanduser("~"), "Music"),
-        "videos": os.path.join(os.path.expanduser("~"), "Videos"),
+    # Mapeo de alias -> carpetas reales
+    home = os.path.expanduser("~")
+    aliases = {
+        # Español
+        "escritorio": os.path.join(home, "Desktop"),
+        "mi escritorio": os.path.join(home, "Desktop"),
+        "mis documentos": os.path.join(home, "Documents"),
+        "documentos": os.path.join(home, "Documents"),
+        "descargas": os.path.join(home, "Downloads"),
+        "mis descargas": os.path.join(home, "Downloads"),
+        "imagenes": os.path.join(home, "Pictures"),
+        "mis imagenes": os.path.join(home, "Pictures"),
+        "videos": os.path.join(home, "Videos"),
+        "mis videos": os.path.join(home, "Videos"),
+        "música": os.path.join(home, "Music"),
+        "musica": os.path.join(home, "Music"),
+        "mi musica": os.path.join(home, "Music"),
     }
 
-    if first in standard_locations:
-        parts[0] = standard_locations[first]
-        return os.path.join(*parts)
+    for key, val in aliases.items():
+        if raw.startswith(key):
+            rest = raw[len(key):].lstrip("/\\ ")
+            return os.path.join(val, rest)
 
-    return raw
+    # Si no coincide con alias, expandir variables normales
+    return os.path.expandvars(os.path.expanduser(raw))
 
 
 
