@@ -6,7 +6,8 @@ import logging
 import re      
 import psutil    
 import sys   
-from config import WEATHER_API_KEY     
+from config import WEATHER_API_KEY
+from datetime import datetime     
 from core.memory import (    
     add_to_memory,    
     get_user_data,    
@@ -88,6 +89,52 @@ web_apps = {
     "spotify": "https://open.spotify.com",
     "netflix": "https://www.netflix.com",
 }
+
+
+
+def _resolve_standard_path(raw_path: str) -> str:
+    """
+    Normaliza rutas tipo 'escritorio/archivo.txt' o 'documentos\\algo'
+    a rutas absolutas del usuario en Windows.
+    """
+    if not raw_path:
+        return raw_path
+
+    # Limpiar placeholders raros que pueda generar el modelo
+    raw = raw_path.replace('<ESCRITORIO>', 'escritorio')
+    raw = raw.replace('<DOCUMENTOS>', 'documentos')
+    raw = raw.replace('<DESCARGAS>', 'descargas')
+    raw = raw.replace('<IMAGENES>', 'imagenes')
+    raw = raw.replace('<MUSICA>', 'musica')
+    raw = raw.replace('<VIDEOS>', 'videos')
+
+    raw = os.path.expandvars(os.path.expanduser(raw))
+
+    # Detectar separador
+    if "/" in raw and "\\" in raw:
+        # si mezcla, normalizamos a '\\'
+        raw = raw.replace("/", "\\")
+    sep = "\\" if "\\" in raw else "/"
+
+    parts = raw.split(sep)
+    first = parts[0].lower()
+
+    standard_locations = {
+        "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),
+        "documentos": os.path.join(os.path.expanduser("~"), "Documents"),
+        "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),
+        "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),
+        "musica": os.path.join(os.path.expanduser("~"), "Music"),
+        "videos": os.path.join(os.path.expanduser("~"), "Videos"),
+    }
+
+    if first in standard_locations:
+        parts[0] = standard_locations[first]
+        return os.path.join(*parts)
+
+    return raw
+
+
 
 
 def get_nircmd_path():    
@@ -197,9 +244,12 @@ def restore_application_volumes(progress_callback=None):
 
 
 
-def analyze_file(file_path, analysis_type="general", progress_callback=None):
+def analyze_file(file_path, analysis_type="general", progress_callback=None, max_preview_chars=4000):
     """
-    Analiza un archivo y proporciona feedback inteligente.
+    Analiza un archivo local y devuelve un reporte en texto plano:
+    - ruta, tamaño, tipo, Nº de líneas
+    - para código (ej. .py) intenta contar funciones / clases
+    - vista previa (truncada) del contenido
     """
     def send_progress(msg):
         if progress_callback:
@@ -207,28 +257,94 @@ def analyze_file(file_path, analysis_type="general", progress_callback=None):
         logger.info(msg)
 
     try:
+        if not file_path:
+            msg = "Falta 'file_path' para analizar"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        # Permitir ~, variables de entorno, etc.
         expanded_path = os.path.expandvars(os.path.expanduser(file_path))
 
         if not os.path.exists(expanded_path):
             msg = f"El archivo no existe: {expanded_path}"
             send_progress(f"⚠️ {msg}")
-            # ⬇️ ahora devolvemos error estructurado
-            return {"ok": False, "error": msg}
+            return msg
+
+        if not os.path.isfile(expanded_path):
+            msg = f"La ruta no es un archivo: {expanded_path}"
+            send_progress(f"⚠️ {msg}")
+            return msg
 
         send_progress(f"📂 Iniciando análisis de {os.path.basename(expanded_path)}...")
-        ...
-        # resto igual hasta el final
-        ...
-        send_progress("📋 Reporte completo generado")
-        return {
-            "ok": True,
-            "message": result,
-            "analysis": analysis,
+
+        size_bytes = os.path.getsize(expanded_path)
+        size_kb = size_bytes / 1024.0
+        ext = os.path.splitext(expanded_path)[1].lower() or "desconocido"
+
+        # Heurística simple para decidir si lo tratamos como texto
+        text_like_exts = {
+            ".py", ".txt", ".md", ".json", ".js", ".ts",
+            ".html", ".css", ".csv", ".ini", ".cfg",
+            ".yml", ".yaml"
         }
+        is_probably_text = ext in text_like_exts or size_bytes < 2 * 1024 * 1024
+
+        content = ""
+        if is_probably_text:
+            send_progress("📖 Leyendo contenido para vista previa...")
+            with open(expanded_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        else:
+            send_progress("📦 Archivo binario; se omitirá la vista previa del contenido")
+
+        lines = content.splitlines() if content else []
+        num_lines = len(lines)
+
+        metrics = [
+            f"Ruta: {expanded_path}",
+            f"Tipo: {ext}",
+            f"Tamaño: {size_bytes} bytes (~{size_kb:.1f} KB)",
+            f"Líneas: {num_lines}",
+        ]
+
+        # Métricas específicas para Python
+        if ext == ".py" and content:
+            num_funcs = len(re.findall(r'^def\s+\w+', content, flags=re.MULTILINE))
+            num_classes = len(re.findall(r'^class\s+\w+', content, flags=re.MULTILINE))
+            metrics.append(f"Funciones (def): {num_funcs}")
+            metrics.append(f"Clases (class): {num_classes}")
+
+        # Vista previa
+        preview_block = ""
+        if content:
+            snippet = content[:max_preview_chars]
+            if len(content) > max_preview_chars:
+                preview_block = (
+                    f"Vista previa del contenido (truncado a {max_preview_chars} caracteres):\n"
+                    f"{snippet}"
+                )
+            else:
+                preview_block = f"Contenido completo:\n{snippet}"
+
+        report_parts = [
+            "=== METADATOS DEL ARCHIVO ===",
+            *metrics,
+        ]
+        if preview_block:
+            report_parts.append("")
+            report_parts.append("=== VISTA PREVIA ===")
+            report_parts.append(preview_block)
+
+        report = "\n".join(report_parts).strip()
+
+        send_progress("📋 Reporte completo generado")
+        return report
 
     except Exception as e:
-        logger.error(f"Error analizando archivo: {str(e)}")
-        return {"ok": False, "error": f"Error analizando archivo: {e}"}
+        logger.error(f"Error analizando archivo: {e}")
+        send_progress(f"⚠️ Error analizando archivo: {e}")
+        return f"Error analizando archivo: {e}"
+
 
 
 def cmd_analyze_local_file(params, ctx):
@@ -819,24 +935,23 @@ def delete_file(file_path, progress_callback=None):
   
   
 def list_files(directory_path, progress_callback=None):
-    """Lista archivos en un directorio"""
+    """Lista archivos en un directorio (simple)."""
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        expanded = os.path.expandvars(os.path.expanduser(directory_path))
+        expanded = _resolve_standard_path(directory_path)
         send_progress(f"📂 Listando archivos en: {expanded}")
         logger.info(f"Listando archivos en: {expanded}")
 
         if not os.path.isdir(expanded):
             msg = f"La ruta no es un directorio válido: {expanded}"
             send_progress(f"⚠️ {msg}")
-            return {"ok": False, "error": msg}
+            return msg
 
         files = os.listdir(expanded)
-
         send_progress(f"📊 Encontrados {len(files)} archivos")
 
         if files:
@@ -849,9 +964,107 @@ def list_files(directory_path, progress_callback=None):
 
     except Exception as e:
         logger.error(f"Error listando archivos: {str(e)}")
-        return {"ok": False, "error": f"Error listando archivos: {e}"}
+        return f"Error listando archivos: {e}"
 
+
+def list_directory_detailed(directory=None, path=None, progress_callback=None):
+    """
+    Lista un directorio con detalles (tamaño y fecha) para cada entrada.
+    Soporta parámetros 'directory' o 'path'.
+    """
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        target = directory or path
+        if not target:
+            msg = "Falta 'directory' o 'path' para listar el directorio"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        expanded = _resolve_standard_path(target)
+        send_progress(f"📂 Listando (detallado) en: {expanded}")
+
+        if not os.path.isdir(expanded):
+            msg = f"La ruta no es un directorio válido: {expanded}"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        entries = os.listdir(expanded)
+        if not entries:
+            send_progress("⚠️ Directorio vacío")
+            return f"No hay archivos en {expanded}"
+
+        lines = []
+        for name in entries[:50]:  # limitamos por si hay miles
+            full = os.path.join(expanded, name)
+            try:
+                stat = os.stat(full)
+                size_kb = stat.st_size / 1024.0
+                mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+                kind = "📁" if os.path.isdir(full) else "📄"
+                lines.append(f"{kind} {name} — {size_kb:.1f} KB — modificado {mtime}")
+            except Exception:
+                lines.append(f"❓ {name}")
+
+        send_progress("✅ Lista detallada generada")
+        return f"Contenido de {expanded}:\n" + "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error listando directorio detallado: {e}")
+        return f"Error listando directorio: {e}"
   
+
+
+def read_file(file_path=None, path=None, max_chars=4000, progress_callback=None):
+    """
+    Lee el contenido de un archivo de texto y devuelve una vista previa.
+    Soporta parámetros 'file_path' o 'path'.
+    """
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        target = file_path or path
+        if not target:
+            msg = "Falta 'file_path' o 'path' para leer el archivo"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        expanded = _resolve_standard_path(target)
+
+        if not os.path.exists(expanded):
+            msg = f"El archivo no existe: {expanded}"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        if not os.path.isfile(expanded):
+            msg = f"La ruta no es un archivo: {expanded}"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        send_progress(f"📖 Leyendo archivo: {os.path.basename(expanded)}")
+
+        with open(expanded, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        if len(content) > max_chars:
+            preview = content[:max_chars]
+            send_progress("📏 Contenido truncado para vista previa")
+            return f"Vista previa de {expanded} (truncado a {max_chars} caracteres):\n{preview}"
+        else:
+            send_progress("✅ Archivo leído completamente")
+            return f"Contenido de {expanded}:\n{content}"
+
+    except Exception as e:
+        logger.error(f"Error leyendo archivo: {e}")
+        return f"Error leyendo archivo: {e}"
+
+
   
 def diagnose_system_performance(progress_callback=None):      
     """Diagnostica rendimiento del sistema"""  
@@ -1259,6 +1472,8 @@ COMMANDS = {
     "create_shortcut": create_shortcut,      
     "delete_file": delete_file,      
     "list_files": list_files,  
+    "list_directory_detailed": list_directory_detailed,
+    "read_file": read_file,
       
     # ——— Utilidad      
     "get_weather": get_weather,    
