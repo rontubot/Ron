@@ -342,7 +342,7 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
                 continue  
                   
             # Comandos que deben ejecutarse en background con progreso  
-            if action in ["analyze_file", "diagnose_system_performance", "check_system_services"]:  
+            if action in ["analyze_file", "diagnose_system_performance", "check_system_services", "search_file"]:  
                 def execute_with_progress(cmd_action=action, cmd_params=params):  
                     # Agregar callback de progreso a los params  
                     cmd_params['progress_callback'] = task_manager.send_message  

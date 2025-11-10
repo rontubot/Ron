@@ -261,6 +261,157 @@ def restore_application_volumes(progress_callback=None):
         return {"ok": False, "error": str(e)}
 
 
+def search_file(name=None, filename=None, query=None, roots=None, max_depth=5, progress_callback=None):
+    """
+    Busca un archivo por nombre en subcarpetas de rutas base.
+    - name / filename / query: nombre a buscar (ej: 'notas.txt')
+    - roots: lista opcional de rutas base (str o lista de str).
+             Si no se pasa, usa Escritorio, Documentos y Descargas.
+    - max_depth: profundidad máxima de búsqueda relativa a cada root.
+    """
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        search_name = (filename or name or query or "").strip()
+        if not search_name:
+            msg = "Falta 'name' o 'filename' para buscar el archivo"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        search_name_lower = search_name.lower()
+        send_progress(f"🔍 Buscando '{search_name}' en el sistema...")
+
+        home = os.path.expanduser("~")
+
+        # Determinar raíces de búsqueda
+        base_roots = []
+        if roots:
+            # Permitir pasar un string o una lista
+            if isinstance(roots, str):
+                roots = [roots]
+            for r in roots:
+                base_roots.append(_resolve_standard_path(r))
+        else:
+            base_roots = [
+                os.path.join(home, "Desktop"),
+                os.path.join(home, "Documents"),
+                os.path.join(home, "Downloads"),
+            ]
+
+        results = []
+
+        for base in base_roots:
+            if not os.path.isdir(base):
+                continue
+
+            send_progress(f"📂 Explorando: {base}")
+            base_depth = base.count(os.sep)
+
+            for root, dirs, files in os.walk(base):
+                # Limitar profundidad
+                current_depth = root.count(os.sep)
+                if current_depth - base_depth > max_depth:
+                    # No seguir bajando más profundo
+                    dirs[:] = []
+                    continue
+
+                for fname in files:
+                    fname_lower = fname.lower()
+                    if search_name_lower == fname_lower or search_name_lower in fname_lower:
+                        full_path = os.path.join(root, fname)
+                        results.append(full_path)
+                        send_progress(f"✅ Encontrado: {full_path}")
+
+                        # Evitar listas enormes
+                        if len(results) >= 50:
+                            send_progress("⚠️ Demasiados resultados, se truncará la lista")
+                            break
+                if len(results) >= 50:
+                    break
+            if len(results) >= 50:
+                break
+
+        if not results:
+            msg = f"No encontré '{search_name}' en Escritorio, Documentos ni Descargas."
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        # Construir respuesta
+        lines = [f"Encontré {len(results)} coincidencia(s) para '{search_name}':"]
+        for i, path in enumerate(results[:20], start=1):
+            lines.append(f"{i}. {path}")
+
+        msg_ok = "\n".join(lines)
+        send_progress("✅ Búsqueda de archivo completada")
+        return msg_ok
+
+    except Exception as e:
+        logger.error(f"Error buscando archivo '{name or filename or query}': {e}")
+        return f"Error al buscar el archivo: {e}"
+
+
+def append_to_file(file_path=None, path=None, text="", times=1, add_newline=True, progress_callback=None):
+    """
+    Agrega texto a un archivo de texto.
+    Soporta:
+    - file_path o path
+    - text: el texto a agregar
+    - times: cuántas veces repetir el texto
+    - add_newline: si se agrega salto de línea después de cada repetición
+    """
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        target = file_path or path
+        if not target:
+            msg = "Falta 'file_path' o 'path' para appendear al archivo"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        resolved = _resolve_standard_path(target)
+
+        # Normalizar times (puede venir como string)
+        try:
+            if isinstance(times, str):
+                import re as _re
+                m = _re.search(r"\d+", times)
+                times_int = int(m.group(0)) if m else 1
+            else:
+                times_int = int(times)
+        except Exception:
+            times_int = 1
+
+        if times_int < 1:
+            times_int = 1
+
+        send_progress(f"📝 Agregando texto al archivo: {resolved}")
+        logger.info(f"Append a archivo {resolved} (text='{text}', times={times_int})")
+
+        # Crear archivo si no existe
+        parent = os.path.dirname(resolved)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+        with open(resolved, "a", encoding="utf-8", errors="replace") as f:
+            for _ in range(times_int):
+                f.write(text)
+                if add_newline:
+                    f.write("\n")
+
+        msg_ok = f"Texto agregado al archivo: {resolved}"
+        send_progress(f"✅ {msg_ok}")
+        return msg_ok
+
+    except Exception as e:
+        logger.error(f"Error appendiendo al archivo '{file_path or path}': {e}")
+        return f"Error al modificar el archivo: {e}"
+
 
 
 
@@ -1589,6 +1740,8 @@ COMMANDS = {
     "list_files": list_files,  
     "list_directory_detailed": list_directory_detailed,
     "read_file": read_file,
+    "append_to_file": append_to_file,
+    "search_file": search_file,  
       
     # ——— Utilidad      
     "get_weather": get_weather,    
