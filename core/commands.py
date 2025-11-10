@@ -98,16 +98,29 @@ def _resolve_standard_path(raw_path: str) -> str:
     """
     Normaliza rutas tipo 'mis documentos', 'descargas', 'imagenes', etc.
     a rutas absolutas del usuario en Windows.
+
+    También resuelve el placeholder {username} en rutas como:
+    C:/Users/{username}/Desktop/archivo.txt
     """
     if not raw_path:
         return raw_path
 
-    raw = raw_path.strip().lower()
-    raw = raw.replace("<", "").replace(">", "").replace("~", "")
+
+    # Normalizamos separadores pero mantenemos el string original para no perder mayúsculas
+    raw = str(raw_path).strip()
     raw = raw.replace("\\", "/")
+    raw = raw.replace("<", "").replace(">", "").replace("~", "")
+
+    home = os.path.expanduser("~")
+    # Nombre de usuario real según la carpeta Home (ej: C:\Users\LMAR -> 'LMAR')
+    real_username = os.path.basename(home)
+
+    # Soporte para placeholder {username} (case-insensitive en la práctica en Windows)
+    raw = raw.replace("{username}", real_username)
+
+    lower = raw.lower()
 
     # Mapeo de alias -> carpetas reales
-    home = os.path.expanduser("~")
     aliases = {
         # Español
         "escritorio": os.path.join(home, "Desktop"),
@@ -118,20 +131,30 @@ def _resolve_standard_path(raw_path: str) -> str:
         "mis descargas": os.path.join(home, "Downloads"),
         "imagenes": os.path.join(home, "Pictures"),
         "mis imagenes": os.path.join(home, "Pictures"),
+        "imágenes": os.path.join(home, "Pictures"),
+        "mis imágenes": os.path.join(home, "Pictures"),
         "videos": os.path.join(home, "Videos"),
         "mis videos": os.path.join(home, "Videos"),
         "música": os.path.join(home, "Music"),
         "musica": os.path.join(home, "Music"),
         "mi musica": os.path.join(home, "Music"),
+        "mi música": os.path.join(home, "Music"),
     }
 
-    for key, val in aliases.items():
-        if raw.startswith(key):
+    # Si empieza por un alias conocido (ej: "escritorio/notas.txt")
+    for key, base_dir in aliases.items():
+        if lower.startswith(key):
             rest = raw[len(key):].lstrip("/\\ ")
-            return os.path.join(val, rest)
+            return os.path.join(base_dir, rest) if rest else base_dir
 
-    # Si no coincide con alias, expandir variables normales
-    return os.path.expandvars(os.path.expanduser(raw))
+    # Si ya parece una ruta absoluta (C:/..., D:/..., \\servidor\...)
+    # devolvemos la ruta expandida (variables de entorno, ~, etc.)
+    expanded = os.path.expandvars(os.path.expanduser(raw))
+    if os.path.isabs(expanded):
+        return expanded
+
+    # Fallback: interpretamos la ruta como relativa al home del usuario
+    return os.path.join(home, expanded)
 
 
 
@@ -1156,7 +1179,7 @@ def read_file(file_path=None, path=None, max_chars=4000, progress_callback=None)
         logger.error(f"Error leyendo archivo: {e}")
         return f"Error leyendo archivo: {e}"
 
-        
+
   
 def diagnose_system_performance(progress_callback=None):      
     """Diagnostica rendimiento del sistema"""  
