@@ -6,6 +6,8 @@ import logging
 import re      
 import psutil    
 import sys   
+import csv
+import io
 from config import WEATHER_API_KEY
 from datetime import datetime     
 from core.memory import (    
@@ -465,31 +467,139 @@ def open_application(app_name, progress_callback=None):
         return f"No pude abrir {app_name}: {e}"  
   
   
-def close_application(app_name, progress_callback=None):      
-    """Cierra una aplicación por nombre"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:      
-        send_progress(f"🔴 Cerrando {app_name}...")  
-        logger.info(f"Intentando cerrar aplicación: {app_name}")      
-        cmd = f'taskkill /IM "{app_name}.exe" /F'      
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)      
-              
-        if result.returncode == 0:      
-            logger.info(f"Aplicación {app_name} cerrada exitosamente")  
-            send_progress(f"✅ {app_name} cerrado exitosamente")  
-            return f"{app_name} cerrado."      
-        else:      
-            logger.error(f"Error al cerrar {app_name}: {result.stderr}")  
-            send_progress(f"⚠️ No se pudo cerrar {app_name}")  
-            return f"No pude cerrar {app_name}."      
-                  
-    except Exception as e:      
-        logger.error(f"Excepción al cerrar {app_name}: {str(e)}")      
-        return f"Error al cerrar {app_name}: {e}"  
+def close_application(app_name, progress_callback=None):
+    """Cierra una aplicación por nombre, usando aliases y detección dinámica de procesos."""
+    def send_progress(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        original_name = str(app_name or "").strip()
+        if not original_name:
+            msg = "No se especificó el nombre de la aplicación a cerrar."
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        # Solo soportado en Windows
+        if os.name != "nt":
+            msg = "El cierre de aplicaciones solo está disponible en Windows."
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        send_progress(f"🔴 Cerrando {original_name}...")
+        logger.info(f"Intentando cerrar aplicación: {original_name}")
+
+        lower_name = original_name.lower()
+
+        # Aliases para apps comunes (puedes ir sumando más aquí)
+        alias_map = {
+            "photoshop": ["Photoshop.exe", "Adobe Photoshop.exe"],
+            "premiere": ["Adobe Premiere Pro.exe", "Premiere.exe"],
+            "after effects": ["AfterFX.exe", "Adobe After Effects.exe"],
+            "chrome": ["chrome.exe", "GoogleChromePortable.exe"],
+            "edge": ["msedge.exe"],
+            "word": ["WINWORD.EXE"],
+            "excel": ["EXCEL.EXE"],
+            "powerpoint": ["POWERPNT.EXE"],
+            "spotify": ["Spotify.exe"],
+            "discord": ["Discord.exe"],
+        }
+
+        candidate_exes = []
+
+        # 1) Coincidencias con aliases conocidos
+        for key, exes in alias_map.items():
+            if key in lower_name:
+                candidate_exes.extend(exes)
+
+        # 2) Fallback genérico: usar la última palabra como base
+        if not candidate_exes:
+            base = original_name.replace(".exe", "").split()[-1]
+            candidate_exes.append(base + ".exe")
+
+        # 3) Obtener lista de procesos activos con tasklist
+        running_processes = []
+        try:
+            tl = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+            )
+            if tl.returncode == 0 and tl.stdout:
+                reader = csv.reader(io.StringIO(tl.stdout))
+                for row in reader:
+                    if not row:
+                        continue
+                    image_name = row[0].strip().strip('"')
+                    if image_name:
+                        running_processes.append(image_name)
+        except Exception as e:
+            logger.warning(f"No se pudo ejecutar tasklist para detectar procesos: {e}")
+
+        # 4) Seleccionar procesos a matar
+        to_kill = set()
+        lower_running = {p.lower(): p for p in running_processes}
+
+        # 4.1 Coincidencia exacta con los candidates
+        for cand in candidate_exes:
+            cl = cand.lower()
+            if cl in lower_running:
+                to_kill.add(lower_running[cl])
+
+        # 4.2 Fallback: búsqueda "contiene" por tokens (para nombres tipo 'Adobe Photoshop 2024.exe')
+        if not to_kill and running_processes:
+            tokens = [t for t in lower_name.replace(".exe", "").split() if len(t) >= 3]
+            for img_lower, img_real in lower_running.items():
+                if any(t in img_lower for t in tokens):
+                    to_kill.add(img_real)
+
+        if not to_kill:
+            msg = f"No encontré ningún proceso que coincida con '{original_name}'."
+            logger.info(msg)
+            send_progress(f"⚠️ {msg}")
+            return f"No pude cerrar {original_name}."
+
+        # 5) Ejecutar taskkill sobre todos los procesos detectados
+        errors = []
+        closed = []
+
+        for exe_name in to_kill:
+            cmd = f'taskkill /IM "{exe_name}" /F'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info(f"Aplicación {exe_name} cerrada exitosamente")
+                closed.append(exe_name)
+            else:
+                err = result.stderr.strip() or "Error desconocido"
+                logger.error(f"Error al cerrar {exe_name}: {err}")
+                errors.append(f"{exe_name}: {err}")
+
+        if closed:
+            if len(closed) == 1:
+                msg = f"{original_name} cerrado exitosamente ({closed[0]})."
+            else:
+                msg = f"Se cerraron procesos relacionados con {original_name}: {', '.join(closed)}."
+            send_progress(f"✅ {msg}")
+            return msg
+
+        # Si no se cerró nada pero sí hubo matches → hubo errores con taskkill
+        if errors:
+            msg = f"No pude cerrar {original_name}. Detalle: {'; '.join(errors)}"
+            send_progress(f"⚠️ {msg}")
+            return f"No pude cerrar {original_name}."
+
+        # Último fallback por seguridad
+        msg = f"No pude cerrar {original_name}."
+        send_progress(f"⚠️ {msg}")
+        return msg
+
+    except Exception as e:
+        logger.error(f"Excepción al cerrar {app_name}: {str(e)}")
+        return f"Error al cerrar {app_name}: {e}"
+
   
   
 def try_web_fallback(app_name, progress_callback=None):      
