@@ -992,7 +992,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         yield response  
         return  
       
-    # 3. Comandos directos (TODOS los casos de _process_user_input)  
+    # 3. Comandos directos (mismos patrones que _process_user_input)  
     direct_command_patterns = [  
         ("apaga la computadora", "apaga el sistema"),  
         ("reinicia la computadora", "reinicia el sistema"),  
@@ -1025,11 +1025,17 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 if user_input.startswith(prefix):  
                     is_direct_command = True  
                     break  
-      
-    if is_direct_command:  
-        result = _process_user_input(user_input, save_to_memory, username)  
-        yield result  
-        return  
+
+    # ⚠️ IMPORTANTE:
+    # Por defecto NO ejecutamos comandos locales en el servidor.
+    # Solo si RON_ALLOW_SERVER_COMMANDS=1 se usará la ruta directa
+    # que llama a _process_user_input (y por tanto a run_command en server).
+    allow_server_cmds = os.getenv("RON_ALLOW_SERVER_COMMANDS", "0") == "1"
+    if is_direct_command and allow_server_cmds:
+        # Usamos el input original (no lowercased) y pasamos task_manager
+        result = _process_user_input(original_input, save_to_memory, username, task_manager=task_manager)
+        yield result if isinstance(result, str) else str(result)
+        return
         
     # === Conversación con OpenAI (CON STREAMING REAL) ===  
       
@@ -1096,14 +1102,14 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             response_data = json.loads(corrected)    
                 
             # SOLO parsear comandos, NO ejecutarlos  
-            # Los comandos se retornan al cliente para ejecución local  
+            # Los comandos se retornan (vía SSE) al cliente para ejecución local  
             commands_to_execute = response_data.get("commands", []) or []    
             if commands_to_execute:  
                 logger.info(f"Comandos generados (NO ejecutados): {len(commands_to_execute)}")  
         except:    
             # Si no es JSON válido, usar el texto completo como respuesta    
             pass
-            
+                        
         # Guardar en memoria    
         if save_to_memory:    
             _append_user_conv(username, original_input, full_response, source="voice")    
@@ -1121,7 +1127,9 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
     except Exception as e:    
         logger.error(f"Error con OpenAI streaming: {e}")    
         yield "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
-  
+
+
+
   
 # Wrapper público para streaming  
 def responder_a_usuario_streaming(user_input: str, username: str = "default"):  
