@@ -910,7 +910,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=900,
-            temperature=0.7,
+            temperature=0.2,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
         ron_response = parse_and_execute_commands_dynamic(  
@@ -1079,7 +1079,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             model="gpt-5-chat-latest",    
             messages=mensajes,    
             max_tokens=900,    
-            temperature=0.7,    
+            temperature=0.2,    
             stream=True  # SIN response_format para streaming real  
         )    
             
