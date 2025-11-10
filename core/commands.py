@@ -808,182 +808,150 @@ def set_volume(level, progress_callback=None):
 
 
 
-def create_file(file_path, content="", progress_callback=None):        
-    """Crea un archivo con contenido opcional"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:        
-        # NUEVO: Limpiar símbolos <> si el modelo los generó incorrectamente    
-        file_path = file_path.replace('<ESCRITORIO>', 'escritorio')    
-        file_path = file_path.replace('<DOCUMENTOS>', 'documentos')    
-        file_path = file_path.replace('<DESCARGAS>', 'descargas')    
-        file_path = file_path.replace('<IMAGENES>', 'imagenes')    
-        file_path = file_path.replace('<MUSICA>', 'musica')    
-        file_path = file_path.replace('<VIDEOS>', 'videos')    
-            
-        send_progress(f"📝 Creando archivo: {file_path}")  
-        logger.info(f"Creando archivo: {file_path}")        
-            
-        # Expandir ruta    
-        expanded_path = os.path.expandvars(os.path.expanduser(file_path))    
-            
-        # Si es un nombre de ubicación estándar, resolverlo    
-        if "/" in file_path or "\\" in file_path:    
-            parts = file_path.split("/") if "/" in file_path else file_path.split("\\")    
-            first_part = parts[0].lower()    
-                
-            standard_locations = {    
-                "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),    
-                "documentos": os.path.join(os.path.expanduser("~"), "Documents"),    
-                "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),    
-                "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),    
-                "musica": os.path.join(os.path.expanduser("~"), "Music"),    
-                "videos": os.path.join(os.path.expanduser("~"), "Videos"),    
-            }    
-                
-            if first_part in standard_locations:    
-                # Reemplazar primera parte con ruta real    
-                parts[0] = standard_locations[first_part]    
-                expanded_path = os.path.join(*parts)    
-          
-        send_progress("📁 Creando directorio padre si es necesario...")  
-        # Crear directorio padre si no existe        
-        os.makedirs(os.path.dirname(expanded_path), exist_ok=True)        
-          
-        send_progress("✍️ Escribiendo contenido del archivo...")  
-        with open(expanded_path, 'w', encoding='utf-8') as f:        
-            f.write(content)        
-          
-        send_progress(f"✅ Archivo creado exitosamente: {expanded_path}")  
-        return f"Archivo creado: {expanded_path}"        
-                
-    except Exception as e:        
-        logger.error(f"Error creando archivo: {str(e)}")        
-        return f"Error creando archivo: {e}"  
-  
-  
-def create_folder(folder_path, progress_callback=None):        
-    """Crea una carpeta"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:        
-        # NUEVO: Limpiar símbolos <> si el modelo los generó incorrectamente    
-        folder_path = folder_path.replace('<ESCRITORIO>', 'escritorio')    
-        folder_path = folder_path.replace('<DOCUMENTOS>', 'documentos')    
-        folder_path = folder_path.replace('<DESCARGAS>', 'descargas')    
-        folder_path = folder_path.replace('<IMAGENES>', 'imagenes')    
-        folder_path = folder_path.replace('<MUSICA>', 'musica')    
-        folder_path = folder_path.replace('<VIDEOS>', 'videos')    
-            
-        send_progress(f"📁 Creando carpeta: {folder_path}")  
-        logger.info(f"Creando carpeta: {folder_path}")        
-            
-        # Expandir ruta    
-        expanded_path = os.path.expandvars(os.path.expanduser(folder_path))    
-            
-        # Si es un nombre de ubicación estándar, resolverlo    
-        if "/" in folder_path or "\\" in folder_path:    
-            parts = folder_path.split("/") if "/" in folder_path else folder_path.split("\\")    
-            first_part = parts[0].lower()    
-                
-            standard_locations = {    
-                "escritorio": os.path.join(os.path.expanduser("~"), "Desktop"),    
-                "documentos": os.path.join(os.path.expanduser("~"), "Documents"),    
-                "descargas": os.path.join(os.path.expanduser("~"), "Downloads"),    
-                "imagenes": os.path.join(os.path.expanduser("~"), "Pictures"),    
-                "musica": os.path.join(os.path.expanduser("~"), "Music"),    
-                "videos": os.path.join(os.path.expanduser("~"), "Videos"),    
-            }    
-                
-            if first_part in standard_locations:    
-                # Reemplazar primera parte con ruta real    
-                parts[0] = standard_locations[first_part]    
-                expanded_path = os.path.join(*parts)    
-          
-        send_progress("🔨 Creando estructura de directorios...")  
-        os.makedirs(expanded_path, exist_ok=True)        
-        send_progress(f"✅ Carpeta creada exitosamente: {expanded_path}")  
-        return f"Carpeta creada: {expanded_path}"        
-                
-    except Exception as e:        
-        logger.error(f"Error creando carpeta: {str(e)}")        
-        return f"Error creando carpeta: {e}"    
-      
-def move_file(source, destination, progress_callback=None):
-    """Mueve un archivo de origen a destino"""
+def create_file(file_path, content="", progress_callback=None):
+    """Crea un archivo con contenido opcional, soportando alias tipo 'escritorio', 'documentos', etc."""
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        expanded_source = os.path.expandvars(os.path.expanduser(source))
-        expanded_dest = os.path.expandvars(os.path.expanduser(destination))
+        if not file_path:
+            msg = "Falta 'file_path' para crear el archivo"
+            send_progress(f"⚠️ {msg}")
+            return msg
 
-        send_progress(f"📦 Moviendo archivo de {expanded_source} a {expanded_dest}")
-        logger.info(f"Moviendo archivo de {expanded_source} a {expanded_dest}")
+        # Normalizar y resolver ubicaciones estándar
+        resolved_path = _resolve_standard_path(file_path)
 
+        send_progress(f"📝 Creando archivo: {resolved_path}")
+        logger.info(f"Creando archivo: {resolved_path}")
+
+        parent = os.path.dirname(resolved_path)
+        if parent:
+            send_progress("📁 Creando directorio padre si es necesario...")
+            os.makedirs(parent, exist_ok=True)
+
+        send_progress("✍️ Escribiendo contenido del archivo...")
+        with open(resolved_path, "w", encoding="utf-8") as f:
+            f.write(content or "")
+
+        msg_ok = f"Archivo creado: {resolved_path}"
+        send_progress(f"✅ {msg_ok}")
+        return msg_ok
+
+    except Exception as e:
+        logger.error(f"Error creando archivo '{file_path}': {e}")
+        return f"Error creando archivo: {e}"
+  
+  
+def create_folder(folder_path, progress_callback=None):
+    """Crea una carpeta, soportando alias tipo 'escritorio', 'documentos', etc."""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        if not folder_path:
+            msg = "Falta 'folder_path' para crear la carpeta"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        resolved_path = _resolve_standard_path(folder_path)
+
+        send_progress(f"📁 Creando carpeta: {resolved_path}")
+        logger.info(f"Creando carpeta: {resolved_path}")
+
+        os.makedirs(resolved_path, exist_ok=True)
+
+        msg_ok = f"Carpeta creada: {resolved_path}"
+        send_progress(f"✅ {msg_ok}")
+        return msg_ok
+
+    except Exception as e:
+        logger.error(f"Error creando carpeta '{folder_path}': {e}")
+        return f"Error creando carpeta: {e}"
+
+      
+def move_file(source, destination, progress_callback=None):
+    """Mueve un archivo de origen a destino (soporta alias estándar en ambas rutas)."""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
         import shutil
 
-        if not os.path.exists(expanded_source):
-            msg = f"El archivo de origen no existe: {expanded_source}"
+        if not source or not destination:
+            msg = "Faltan 'source' o 'destination' para mover el archivo"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
+
+        src = _resolve_standard_path(source)
+        dst = _resolve_standard_path(destination)
+
+        send_progress(f"📦 Moviendo archivo de {src} a {dst}")
+        logger.info(f"Moviendo archivo de {src} a {dst}")
+
+        if not os.path.exists(src):
+            msg = f"El archivo de origen no existe: {src}"
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
         send_progress("📁 Verificando directorio destino...")
-        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
 
         send_progress("🚚 Moviendo archivo...")
-        shutil.move(expanded_source, expanded_dest)
+        shutil.move(src, dst)
 
         send_progress("✅ Archivo movido exitosamente")
-        return f"Archivo movido de {expanded_source} a {expanded_dest}"
+        return f"Archivo movido de {src} a {dst}"
 
     except Exception as e:
-        logger.error(f"Error moviendo archivo: {str(e)}")
+        logger.error(f"Error moviendo archivo de '{source}' a '{destination}': {e}")
         return {"ok": False, "error": f"Error moviendo archivo: {e}"}
 
       
 def copy_file(source, destination, progress_callback=None):
-    """Copia un archivo de origen a destino"""
+    """Copia un archivo de origen a destino (soporta alias estándar en ambas rutas)."""
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        expanded_source = os.path.expandvars(os.path.expanduser(source))
-        expanded_dest = os.path.expandvars(os.path.expanduser(destination))
-
-        send_progress(f"📋 Copiando archivo de {expanded_source} a {expanded_dest}")
-        logger.info(f"Copiando archivo de {expanded_source} a {expanded_dest}")
-
         import shutil
 
-        if not os.path.exists(expanded_source):
-            msg = f"El archivo de origen no existe: {expanded_source}"
+        if not source or not destination:
+            msg = "Faltan 'source' o 'destination' para copiar el archivo"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
+
+        src = _resolve_standard_path(source)
+        dst = _resolve_standard_path(destination)
+
+        send_progress(f"📋 Copiando archivo de {src} a {dst}")
+        logger.info(f"Copiando archivo de {src} a {dst}")
+
+        if not os.path.exists(src):
+            msg = f"El archivo de origen no existe: {src}"
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
         send_progress("📁 Verificando directorio destino...")
-        os.makedirs(os.path.dirname(expanded_dest), exist_ok=True)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
 
         send_progress("📄 Copiando archivo...")
-        shutil.copy2(expanded_source, expanded_dest)
+        shutil.copy2(src, dst)
 
         send_progress("✅ Archivo copiado exitosamente")
-        return f"Archivo copiado de {expanded_source} a {expanded_dest}"
+        return f"Archivo copiado de {src} a {dst}"
 
     except Exception as e:
-        logger.error(f"Error copiando archivo: {str(e)}")
+        logger.error(f"Error copiando archivo de '{source}' a '{destination}': {e}")
         return {"ok": False, "error": f"Error copiando archivo: {e}"}
-
   
   
 def create_shortcut(target, shortcut_path, progress_callback=None):  
@@ -1011,73 +979,91 @@ def create_shortcut(target, shortcut_path, progress_callback=None):
   
   
 def delete_file(file_path, progress_callback=None):
-    """Elimina un archivo"""
+    """
+    Elimina un archivo o carpeta.
+    Mantiene compatibilidad con el uso actual, pero ahora también soporta directorios.
+    """
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        expanded_path = os.path.expandvars(os.path.expanduser(file_path))
+        import shutil
 
-        if not os.path.exists(expanded_path):
-            msg = f"El archivo no existe: {expanded_path}"
+        if not file_path:
+            msg = "Falta 'file_path' para eliminar"
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
-        if not os.path.isfile(expanded_path):
-            msg = f"La ruta no es un archivo: {expanded_path}"
+        resolved = _resolve_standard_path(file_path)
+
+        if not os.path.exists(resolved):
+            msg = f"No existe la ruta: {resolved}"
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
-        os.remove(expanded_path)
+        if os.path.isfile(resolved):
+            send_progress(f"🗑️ Eliminando archivo: {resolved}")
+            os.remove(resolved)
+            msg_ok = f"Archivo eliminado: {resolved}"
+        else:
+            send_progress(f"🗑️ Eliminando carpeta: {resolved}")
+            shutil.rmtree(resolved, ignore_errors=True)
+            msg_ok = f"Carpeta eliminada: {resolved}"
 
-        send_progress("✅ Archivo eliminado exitosamente")
-        return f"Archivo eliminado: {expanded_path}"
+        send_progress(f"✅ {msg_ok}")
+        return msg_ok
 
     except Exception as e:
-        logger.error(f"Error eliminando archivo: {str(e)}")
-        return {"ok": False, "error": f"Error eliminando archivo: {e}"}
-
+        logger.error(f"Error eliminando '{file_path}': {e}")
+        return {"ok": False, "error": f"Error eliminando archivo/carpeta: {e}"}
   
   
-def list_files(directory_path, progress_callback=None):
-    """Lista archivos en un directorio (simple)."""
+def list_files(directory_path=None, progress_callback=None):
+    """Lista archivos en un directorio. Si no se pasa, usa el Escritorio como default."""
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        expanded = _resolve_standard_path(directory_path)
-        send_progress(f"📂 Listando archivos en: {expanded}")
-        logger.info(f"Listando archivos en: {expanded}")
+        # Default: Escritorio del usuario
+        if not directory_path:
+            base = os.path.join(os.path.expanduser("~"), "Desktop")
+            resolved = base
+        else:
+            resolved = _resolve_standard_path(directory_path)
 
-        if not os.path.isdir(expanded):
-            msg = f"La ruta no es un directorio válido: {expanded}"
+        send_progress(f"📂 Listando archivos en: {resolved}")
+        logger.info(f"Listando archivos en: {resolved}")
+
+        if not os.path.isdir(resolved):
+            msg = f"La ruta no es un directorio válido: {resolved}"
             send_progress(f"⚠️ {msg}")
             return msg
 
-        files = os.listdir(expanded)
-        send_progress(f"📊 Encontrados {len(files)} archivos")
+        files = os.listdir(resolved)
+        send_progress(f"📊 Encontrados {len(files)} elementos")
 
         if files:
-            file_list = "\n".join(files[:20])  # Limitar a 20 archivos
+            # Limitamos a 50 para no explotar la respuesta
+            file_list = "\n".join(files[:50])
             send_progress("✅ Lista generada")
-            return f"Archivos en {expanded}:\n{file_list}"
+            return f"Archivos en {resolved}:\n{file_list}"
         else:
             send_progress("⚠️ Directorio vacío")
-            return f"No hay archivos en {expanded}"
+            return f"No hay archivos en {resolved}"
 
     except Exception as e:
-        logger.error(f"Error listando archivos: {str(e)}")
+        logger.error(f"Error listando archivos: {e}")
         return f"Error listando archivos: {e}"
 
 
 def list_directory_detailed(directory=None, path=None, progress_callback=None):
     """
     Lista un directorio con detalles (tamaño y fecha) para cada entrada.
-    Soporta parámetros 'directory' o 'path'.
+    Soporta parámetros 'directory' o 'path'. Si ninguno se pasa, usa Escritorio.
     """
     def send_progress(msg):
         if progress_callback:
@@ -1086,27 +1072,26 @@ def list_directory_detailed(directory=None, path=None, progress_callback=None):
 
     try:
         target = directory or path
+
         if not target:
-            msg = "Falta 'directory' o 'path' para listar el directorio"
+            target = os.path.join(os.path.expanduser("~"), "Desktop")
+
+        resolved = _resolve_standard_path(target)
+        send_progress(f"📂 Listando (detallado) en: {resolved}")
+
+        if not os.path.isdir(resolved):
+            msg = f"La ruta no es un directorio válido: {resolved}"
             send_progress(f"⚠️ {msg}")
             return msg
 
-        expanded = _resolve_standard_path(target)
-        send_progress(f"📂 Listando (detallado) en: {expanded}")
-
-        if not os.path.isdir(expanded):
-            msg = f"La ruta no es un directorio válido: {expanded}"
-            send_progress(f"⚠️ {msg}")
-            return msg
-
-        entries = os.listdir(expanded)
+        entries = os.listdir(resolved)
         if not entries:
             send_progress("⚠️ Directorio vacío")
-            return f"No hay archivos en {expanded}"
+            return f"No hay archivos en {resolved}"
 
         lines = []
-        for name in entries[:50]:  # limitamos por si hay miles
-            full = os.path.join(expanded, name)
+        for name in entries[:50]:  # límite de seguridad
+            full = os.path.join(resolved, name)
             try:
                 stat = os.stat(full)
                 size_kb = stat.st_size / 1024.0
@@ -1117,12 +1102,12 @@ def list_directory_detailed(directory=None, path=None, progress_callback=None):
                 lines.append(f"❓ {name}")
 
         send_progress("✅ Lista detallada generada")
-        return f"Contenido de {expanded}:\n" + "\n".join(lines)
+        return f"Contenido de {resolved}:\n" + "\n".join(lines)
 
     except Exception as e:
         logger.error(f"Error listando directorio detallado: {e}")
         return f"Error listando directorio: {e}"
-  
+
 
 
 def read_file(file_path=None, path=None, max_chars=4000, progress_callback=None):
@@ -1142,36 +1127,36 @@ def read_file(file_path=None, path=None, max_chars=4000, progress_callback=None)
             send_progress(f"⚠️ {msg}")
             return msg
 
-        expanded = _resolve_standard_path(target)
+        resolved = _resolve_standard_path(target)
 
-        if not os.path.exists(expanded):
-            msg = f"El archivo no existe: {expanded}"
+        if not os.path.exists(resolved):
+            msg = f"El archivo no existe: {resolved}"
             send_progress(f"⚠️ {msg}")
             return msg
 
-        if not os.path.isfile(expanded):
-            msg = f"La ruta no es un archivo: {expanded}"
+        if not os.path.isfile(resolved):
+            msg = f"La ruta no es un archivo: {resolved}"
             send_progress(f"⚠️ {msg}")
             return msg
 
-        send_progress(f"📖 Leyendo archivo: {os.path.basename(expanded)}")
+        send_progress(f"📖 Leyendo archivo: {os.path.basename(resolved)}")
 
-        with open(expanded, "r", encoding="utf-8", errors="replace") as f:
+        with open(resolved, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         if len(content) > max_chars:
             preview = content[:max_chars]
             send_progress("📏 Contenido truncado para vista previa")
-            return f"Vista previa de {expanded} (truncado a {max_chars} caracteres):\n{preview}"
+            return f"Vista previa de {resolved} (truncado a {max_chars} caracteres):\n{preview}"
         else:
             send_progress("✅ Archivo leído completamente")
-            return f"Contenido de {expanded}:\n{content}"
+            return f"Contenido de {resolved}:\n{content}"
 
     except Exception as e:
         logger.error(f"Error leyendo archivo: {e}")
         return f"Error leyendo archivo: {e}"
 
-
+        
   
 def diagnose_system_performance(progress_callback=None):      
     """Diagnostica rendimiento del sistema"""  
