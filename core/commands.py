@@ -261,10 +261,23 @@ def restore_application_volumes(progress_callback=None):
         return {"ok": False, "error": str(e)}
 
 
-def search_file(name=None, filename=None, query=None, roots=None, max_depth=5, progress_callback=None):
+def search_file(
+    name=None,
+    filename=None,
+    query=None,
+    file_path=None,
+    path=None,
+    roots=None,
+    max_depth=5,
+    progress_callback=None,
+):
     """
     Busca un archivo por nombre en subcarpetas de rutas base.
+
+    Soporta:
     - name / filename / query: nombre a buscar (ej: 'notas.txt')
+    - file_path / path: ruta directa; si existe, se devuelve tal cual.
+      Si no existe, se usa solo el nombre base (basename) para la búsqueda.
     - roots: lista opcional de rutas base (str o lista de str).
              Si no se pasa, usa Escritorio, Documentos y Descargas.
     - max_depth: profundidad máxima de búsqueda relativa a cada root.
@@ -275,9 +288,29 @@ def search_file(name=None, filename=None, query=None, roots=None, max_depth=5, p
         logger.info(msg)
 
     try:
-        search_name = (filename or name or query or "").strip()
+        # 1) Si nos pasan file_path/path, intentamos resolverlo directamente
+        direct_target = file_path or path
+        if direct_target:
+            resolved_direct = _resolve_standard_path(direct_target)
+            if os.path.exists(resolved_direct):
+                msg = f"Encontré el archivo aquí:\n{resolved_direct}"
+                send_progress(f"✅ {msg}")
+                return msg
+            # Si no existe, usamos el basename como criterio de búsqueda
+            base_name = os.path.basename(resolved_direct)
+        else:
+            base_name = None
+
+        # 2) Determinar el nombre a buscar por nombre de archivo
+        search_name = (
+            (filename or "").strip()
+            or (name or "").strip()
+            or (query or "").strip()
+            or (base_name or "").strip()
+        )
+
         if not search_name:
-            msg = "Falta 'name' o 'filename' para buscar el archivo"
+            msg = "Falta 'name', 'filename' o 'file_path' para buscar el archivo"
             send_progress(f"⚠️ {msg}")
             return msg
 
@@ -286,7 +319,7 @@ def search_file(name=None, filename=None, query=None, roots=None, max_depth=5, p
 
         home = os.path.expanduser("~")
 
-        # Determinar raíces de búsqueda
+        # 3) Determinar raíces de búsqueda
         base_roots = []
         if roots:
             # Permitir pasar un string o una lista
@@ -339,10 +372,10 @@ def search_file(name=None, filename=None, query=None, roots=None, max_depth=5, p
             send_progress(f"⚠️ {msg}")
             return msg
 
-        # Construir respuesta
+        # 4) Construir respuesta amigable
         lines = [f"Encontré {len(results)} coincidencia(s) para '{search_name}':"]
-        for i, path in enumerate(results[:20], start=1):
-            lines.append(f"{i}. {path}")
+        for i, p in enumerate(results[:20], start=1):
+            lines.append(f"{i}. {p}")
 
         msg_ok = "\n".join(lines)
         send_progress("✅ Búsqueda de archivo completada")
@@ -353,13 +386,21 @@ def search_file(name=None, filename=None, query=None, roots=None, max_depth=5, p
         return f"Error al buscar el archivo: {e}"
 
 
-def append_to_file(file_path=None, path=None, text="", times=1, add_newline=True, progress_callback=None):
+def append_to_file(
+    file_path=None,
+    path=None,
+    text="",
+    times=1,
+    add_newline=True,
+    progress_callback=None,
+):
     """
     Agrega texto a un archivo de texto.
+
     Soporta:
-    - file_path o path
-    - text: el texto a agregar
-    - times: cuántas veces repetir el texto
+    - file_path o path (usa _resolve_standard_path para alias y {username})
+    - text: el texto a agregar (si viene vacío, por defecto usa 'hola')
+    - times: cuántas veces repetir el texto (acepta string estilo '20 veces')
     - add_newline: si se agrega salto de línea después de cada repetición
     """
     def send_progress(msg):
@@ -376,7 +417,11 @@ def append_to_file(file_path=None, path=None, text="", times=1, add_newline=True
 
         resolved = _resolve_standard_path(target)
 
-        # Normalizar times (puede venir como string)
+        # Texto por defecto si no se especifica nada
+        if text is None or text == "":
+            text = "hola"
+
+        # Normalizar times (puede venir como string tipo '20', '20 veces', etc.)
         try:
             if isinstance(times, str):
                 import re as _re
@@ -412,8 +457,37 @@ def append_to_file(file_path=None, path=None, text="", times=1, add_newline=True
         logger.error(f"Error appendiendo al archivo '{file_path or path}': {e}")
         return f"Error al modificar el archivo: {e}"
 
+def bulk_file_analysis(
+    pattern=None,
+    filename=None,
+    name=None,
+    file_path=None,
+    path=None,
+    roots=None,
+    max_depth=10,
+    progress_callback=None,
+    **kwargs,
+):
+    """
+    Comando genérico usado por tareas de fondo para localizar archivos.
 
+    Ahora actúa como un wrapper de search_file:
+    - Acepta pattern/filename/name para el nombre.
+    - Acepta file_path/path para rutas tipo 'escritorio/hola.txt' o con {username}.
+    """
+    # Unificamos la lógica delegando en search_file
+    search_name = (filename or pattern or name or "").strip() or None
 
+    return search_file(
+        name=search_name,
+        filename=search_name,
+        query=search_name,
+        file_path=file_path,
+        path=path,
+        roots=roots,
+        max_depth=max_depth,
+        progress_callback=progress_callback,
+    )
 
 
 
@@ -1742,6 +1816,7 @@ COMMANDS = {
     "read_file": read_file,
     "append_to_file": append_to_file,
     "search_file": search_file,  
+    "bulk_file_analysis": bulk_file_analysis,
       
     # ——— Utilidad      
     "get_weather": get_weather,    
