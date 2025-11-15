@@ -14,6 +14,7 @@ else:
 
 from core.commands import run_command  # tu función central
 
+
 def main():
     """
     Bridge súper simple:
@@ -65,31 +66,54 @@ def main():
 
     results = []
 
-    for item in commands:
-        action = (item.get("action") or "").strip()
-        params = item.get("params") or {}
+    # 🔐 Redirigir prints de run_command a stderr para que no ensucien stdout
+    real_stdout = sys.stdout
 
-        if not action:
-            continue
+    class _StdoutToStderr(io.TextIOBase):
+        def write(self, s):
+            try:
+                sys.stderr.write(str(s))
+                return len(s)
+            except Exception:
+                return 0
 
-        try:
-            res = run_command(action, params, ctx) or {}
-        except Exception as e:
-            traceback.print_exc(file=sys.stderr)
-            res = {
-                "ok": False,
-                "error": f"No se pudo ejecutar comando '{action}': {e}",
-            }
+        def flush(self):
+            try:
+                sys.stderr.flush()
+            except Exception:
+                pass
 
-        if not isinstance(res, dict):
-            res = {
-                "ok": False,
-                "error": f"Resultado inesperado desde run_command: {res!r}",
-            }
+    try:
+        sys.stdout = _StdoutToStderr()
 
-        # Forzar que siempre tengamos "action"
-        res["action"] = action
-        results.append(res)
+        for item in commands:
+            action = (item.get("action") or "").strip()
+            params = item.get("params") or {}
+
+            if not action:
+                continue
+
+            try:
+                res = run_command(action, params, ctx) or {}
+            except Exception as e:
+                traceback.print_exc(file=sys.stderr)
+                res = {
+                    "ok": False,
+                    "error": f"No se pudo ejecutar comando '{action}': {e}",
+                }
+
+            if not isinstance(res, dict):
+                res = {
+                    "ok": False,
+                    "error": f"Resultado inesperado desde run_command: {res!r}",
+                }
+
+            # Forzar que siempre tengamos "action"
+            res["action"] = action
+            results.append(res)
+    finally:
+        # restaurar stdout real para imprimir el JSON limpio
+        sys.stdout = real_stdout
 
     # IMPORTANTE: stdout SOLO lleva este JSON
     print(json.dumps(results, ensure_ascii=False))
