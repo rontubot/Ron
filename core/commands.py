@@ -1909,55 +1909,56 @@ def cmd_update_reminder(params, ctx):
     username = _username(ctx, params)
 
     reminder_id = params.get("id") or params.get("reminder_id")
-    title_query = (params.get("title_query") 
-                   or params.get("title") 
-                   or params.get("name") 
-                   or "").strip().lower()
+    title_query = (
+        params.get("title_query")
+        or params.get("title")
+        or params.get("name")
+        or params.get("activity")
+        or params.get("text")
+        or ""
+    ).strip().lower()
 
-    # Campos que sí se pueden actualizar
+    # Campos actualizables
     allowed_fields = {
-        "title","description","category","status",
-        "priority","due_date","due_time","tags"
+        "title", "description", "category", "status",
+        "priority", "due_date", "due_time", "tags",
     }
     fields = {k: v for k, v in params.items() if k in allowed_fields}
 
-    # 1) Si viene ID directo, lo usamos
+    # Si viene id, usarlo directo
     if reminder_id:
         updated = update_reminder(username, reminder_id, **fields)
         if updated:
             return {
                 "ok": True,
                 "message": f"Recordatorio actualizado (id: {reminder_id}).",
-                "reminder": updated
+                "reminder": updated,
             }
         return {
             "ok": False,
-            "error": "No se encontró un recordatorio con ese id."
+            "error": "No se encontró un recordatorio con ese id.",
         }
 
-    # 2) No vino ID → Intentamos actualizar por título
+    # Sin id → buscar por título aproximado
     if not title_query:
         return {
             "ok": False,
-            "error": "Falta 'id' o 'title' para actualizar el recordatorio."
+            "error": "Falta 'id' o 'title' para actualizar el recordatorio.",
         }
 
     items = list_reminders(username)
-
     if not items:
         return {
             "ok": False,
-            "error": "No tienes recordatorios guardados."
+            "error": "No tienes recordatorios guardados.",
         }
 
-    # Buscar coincidencias
     exact = None
     partials = []
 
     for item in items:
-        rid   = item.get("id") or item.get("_id")
+        rid = item.get("id") or item.get("_id")
         title = (item.get("title") or "").lower()
-
         if not rid:
             continue
 
@@ -1968,119 +1969,133 @@ def cmd_update_reminder(params, ctx):
         if title_query in title:
             partials.append((rid, item))
 
-    # Resolver cuál actualizar
     if exact:
         rid, item = exact
-
     elif len(partials) == 1:
         rid, item = partials[0]
-
     elif len(partials) > 1:
         return {
             "ok": False,
-            "error": "Hay varios recordatorios con un título similar. Sé más específico."
+            "error": "Hay varios recordatorios con un título similar; sé más específico.",
         }
-
     else:
         return {
             "ok": False,
-            "error": f"No encontré ningún recordatorio que coincida con '{title_query}'."
+            "error": f"No encontré ningún recordatorio que coincida con '{title_query}'.",
         }
 
-    # Actualizar
     updated = update_reminder(username, rid, **fields)
-
     if not updated:
         return {
             "ok": False,
-            "error": "No se pudo actualizar el recordatorio."
+            "error": "No se pudo actualizar el recordatorio.",
         }
 
     return {
         "ok": True,
         "message": f"Recordatorio '{updated.get('title')}' actualizado.",
-        "reminder": updated
+        "reminder": updated,
     }
- 
-    
+
     
       
-def cmd_remove_reminder(params, ctx):    
-    username = _username(ctx, params)    
+def cmd_remove_reminder(params, ctx):
+    """
+    Elimina un recordatorio por:
+    - id / reminder_id
+    - o por título aproximado: title, name, activity, text, title_query, etc.
+    """
+    username = _username(ctx, params)
 
-    reminder_id = params.get("id") or params.get("reminder_id")    
-    title_query = (params.get("title") or params.get("name") or "").strip().lower()
+    reminder_id = params.get("id") or params.get("reminder_id")
 
-    # 1) Si viene id directo, usamos eso
+    # Intentar sacar un texto de búsqueda lo más genérico posible
+    title_query = (
+        params.get("title_query")
+        or params.get("title")
+        or params.get("name")
+        or params.get("activity")
+        or params.get("text")
+        or ""
+    ).strip().lower()
+
+    # Si no hay id ni texto, intentamos con cualquier string que venga en params
+    if not reminder_id and not title_query:
+        for v in params.values():
+            if isinstance(v, str) and v.strip():
+                title_query = v.strip().lower()
+                break
+
+    # 1) Si viene ID directo, usarlo
     if reminder_id:
-        ok = remove_reminder_item(username, reminder_id)    
+        ok = remove_reminder_item(username, reminder_id)
         if ok:
             return {
                 "ok": True,
-                "message": f"Recordatorio eliminado (id: {reminder_id})."
+                "message": f"Recordatorio eliminado (id: {reminder_id}).",
             }
-        else:
-            return {
-                "ok": False,
-                "error": "No se encontró el recordatorio con ese id."
-            }
+        return {
+            "ok": False,
+            "error": "No se encontró un recordatorio con ese id.",
+        }
 
-    # 2) Si no hay id, pero viene un título → buscar el más parecido
+    # 2) No hay id → buscar por título aproximado
     if not title_query:
         return {
             "ok": False,
-            "error": "Falta 'id' o 'title' del recordatorio para eliminar."
+            "error": "Falta 'id' o 'title' del recordatorio para eliminar.",
         }
 
     items = list_reminders(username)
     if not items:
         return {
             "ok": False,
-            "error": "No tienes recordatorios para eliminar."
+            "error": "No tienes recordatorios guardados.",
         }
 
-    # Buscar coincidencias por título
-    exact_match = None
-    partial_matches = []
+    exact = None
+    partials = []
 
     for item in items:
-        rid   = item.get("id") or item.get("_id")
-        title = (item.get("title") or "").strip()
-        ltit  = title.lower()
-
+        rid = item.get("id") or item.get("_id")
+        title = (item.get("title") or "").lower()
         if not rid:
             continue
 
-        if ltit == title_query:
-            exact_match = (rid, title)
+        if title == title_query:
+            exact = (rid, item)
             break
-        if title_query in ltit:
-            partial_matches.append((rid, title))
 
-    target = None
-    if exact_match:
-        target = exact_match
-    elif len(partial_matches) == 1:
-        target = partial_matches[0]
+        if title_query in title:
+            partials.append((rid, item))
 
-    if not target:
+    # Resolver cuál borrar
+    if exact:
+        rid, item = exact
+    elif len(partials) == 1:
+        rid, item = partials[0]
+    elif len(partials) > 1:
         return {
             "ok": False,
-            "error": f"No se encontró un recordatorio que coincida claramente con '{title_query}'."
-        }
-
-    rid, rtitle = target
-    ok = remove_reminder_item(username, rid)
-    if ok:
-        return {
-            "ok": True,
-            "message": f"Recordatorio '{rtitle}' eliminado."
+            "error": "Hay varios recordatorios con un título similar; sé más específico.",
         }
     else:
         return {
             "ok": False,
-            "error": f"No se pudo eliminar el recordatorio '{rtitle}'."
+            "error": f"No encontré ningún recordatorio que coincida con '{title_query}'.",
         }
+
+    ok = remove_reminder_item(username, rid)
+    if not ok:
+        return {
+            "ok": False,
+            "error": "No se pudo eliminar el recordatorio.",
+        }
+
+    return {
+        "ok": True,
+        "message": f"Recordatorio '{item.get('title')}' eliminado.",
+    }
 
 
 COMMANDS = {      

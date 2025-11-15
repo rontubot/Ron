@@ -594,80 +594,81 @@ Asistente:
     return payload
 
 
-@app.post("/ron/stream")    
-async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):    
-    if authorization is None or not authorization.startswith("Bearer "):    
-        raise HTTPException(status_code=401, detail="Autenticación requerida")    
-    current_user = verify_jwt_token(authorization.split(" ", 1)[1])    
-    
-    body = await request.json()    
-    user_text = (body.get("text") or body.get("message") or "").strip()    
-    if not user_text:    
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")    
-    
-    async def event_generator():        
-        full_text = ""        
-        try:        
-            import asyncio        
-                    
-            # 1. Acumular todo el stream      
-            for chunk in responder_a_usuario_streaming(user_text, current_user):        
-                full_text += str(chunk or "")        
-                    
-            # 2. Parsear JSON completo (aunque venga mezclado con texto)
-            try:
-                # Intento directo
-                response_data = json.loads(full_text)
-            except json.JSONDecodeError:
-                response_data = {}
-                # Intento extra: buscar el primer '{' y el último '}' y parsear solo eso
-                try:
-                    start = full_text.find("{")
-                    end = full_text.rfind("}")
-                    if start != -1 and end != -1 and end > start:
-                        candidate = full_text[start:end + 1]
-                        response_data = json.loads(candidate)
-                except Exception:
-                    response_data = {}
+@app.post("/ron/stream")
+async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):
+    """
+    Versión streaming que REUTILIZA la misma lógica de /ron.
+    - Llama internamente a chat_with_ron (mismo modelo, mismos comandos).
+    - Luego trocea user_response en chunks y los envía como SSE.
+    - Al final manda un evento 'done' con los commands para Electron.
+    """
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
 
-            if response_data:
-                user_response_only = response_data.get("user_response", "") or ""
-                commands = response_data.get("commands", []) or []
-            else:
-                # Si no logramos sacar un JSON válido, usamos el texto crudo
-                user_response_only = full_text
-                commands = []
+    # Igual que en /ron, pero aquí solo validamos el token;
+    # el resto lo hace chat_with_ron internamente.
+    token = authorization.split(" ", 1)[1]
+    current_user = verify_jwt_token(token)
 
-                    
-            # 3. Sanitizar texto      
-            user_response_only = sanitize_user_response(user_response_only)        
-                    
-            # 4. Enviar chunks del texto      
-            for i in range(0, len(user_response_only), 3):        
-                chunk = user_response_only[i:i+3]        
-                yield f"data: {json.dumps({'type': 'chunk', 'chunk': chunk}, ensure_ascii=False)}\n\n"        
-                await asyncio.sleep(0.01)        
-                    
-            # 5. Guardar conversación      
-            try:        
-                add_to_memory(current_user, user_text, user_response_only)        
-            except Exception:        
-                pass        
-                
-            # 6. Evento final CON COMANDOS (para que Electron los ejecute)  
-            yield f"data: {json.dumps({'type': 'done', 'full_text': user_response_only, 'commands': commands}, ensure_ascii=False)}\n\n"        
-                
-        except Exception as e:        
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"    
-    
-    return StreamingResponse(    
-        event_generator(),    
-        media_type="text/event-stream",    
-        headers={    
-            "Cache-Control": "no-cache",    
-            "X-Accel-Buffering": "no",    
-        },    
+    body = await request.json()
+    user_text = (body.get("text") or body.get("message") or "").strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
+
+    async def event_generator():
+        import asyncio
+        try:
+            # 1) Construir el mismo payload que recibiría /ron
+            data_model = UserInput(
+                text=user_text,
+                message=user_text,
+                return_json=True,
+                source=body.get("source") or "desktop-stream",
+                username=body.get("username") or current_user,
+            )
+
+            # 2) Reutilizar la lógica completa de /ron
+            core_payload = chat_with_ron(data_model, authorization)
+
+            # Ya viene sanitizado dentro de chat_with_ron, pero por si acaso:
+            user_response_only = core_payload.get("user_response") or ""
+            user_response_only = sanitize_user_response(user_response_only) or ""
+
+            commands = core_payload.get("commands") or []
+
+            # 3) Enviar la respuesta como chunks
+            for i in range(0, len(user_response_only), 3):
+                chunk = user_response_only[i:i+3]
+                yield (
+                    "data: "
+                    + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)
+                    + "\n\n"
+                )
+                await asyncio.sleep(0.01)
+
+            # OJO: NO llamamos add_to_memory aquí, ya lo hizo chat_with_ron
+
+            # 4) Evento final con comandos para Electron
+            done_payload = {
+                "type": "done",
+                "full_text": user_response_only,
+                "commands": commands,
+            }
+            yield "data: " + json.dumps(done_payload, ensure_ascii=False) + "\n\n"
+
+        except Exception as e:
+            err_payload = {"type": "error", "error": str(e)}
+            yield "data: " + json.dumps(err_payload, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
+
   
 @app.get("/user/profile")      
 def get_user_profile(current_user: str = Depends(get_current_user)):      
