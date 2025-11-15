@@ -174,25 +174,28 @@ def get_nircmd_path():
     
 # FUNCIONES DE AUDIO CON SOPORTE DE PROGRESO  
     
-def get_audio_processes():      
-    """Enumera procesos que probablemente tengan audio activo (sin duplicados)"""      
-    audio_apps = set()  # CAMBIO: usar set para evitar duplicados    
-    common_audio_processes = [      
-        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',    
-        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',    
-        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe', 'youtube.exe',   
-        'netflix.exe', 'whatsapp.exe',   
-    ]      
-          
-    try:      
-        for proc in psutil.process_iter(['name']):      
-            proc_name = proc.info['name'].lower()      
-            if proc_name in common_audio_processes:      
-                audio_apps.add(proc.info['name'])  # CAMBIO: add en lugar de append    
-    except Exception as e:      
-        logger.error(f"Error enumerando procesos de audio: {e}")      
-          
-    return list(audio_apps)  # CAMBIO: convertir set a list  
+def get_audio_processes():
+    """Enumera procesos que probablemente tengan audio activo (sin duplicados)"""
+    audio_apps = set()
+    common_audio_processes = [
+        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',
+        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',
+        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe', 'youtube.exe',
+        'netflix.exe', 'whatsapp.exe',
+    ]
+
+    try:
+        for proc in psutil.process_iter(['name']):
+            pname = proc.info.get('name')
+            if not pname:
+                continue
+            if pname.lower() in common_audio_processes:
+                audio_apps.add(pname)
+    except Exception as e:
+        logger.error(f"Error enumerando procesos de audio: {e}")
+
+    return list(audio_apps)
+
       
 def duck_other_applications(progress_callback=None):      
     """Reduce volumen de apps conocidas al 20%"""  
@@ -274,43 +277,51 @@ def search_file(
     """
     Busca un archivo por nombre en subcarpetas de rutas base.
 
-    Soporta:
-    - name / filename / query: nombre a buscar (ej: 'notas.txt')
-    - file_path / path: ruta directa; si existe, se devuelve tal cual.
-      Si no existe, se usa solo el nombre base (basename) para la búsqueda.
-    - roots: lista opcional de rutas base (str o lista de str).
-             Si no se pasa, usa Escritorio, Documentos y Descargas.
-    - max_depth: profundidad máxima de búsqueda relativa a cada root.
+    Acepta:
+    - name / filename: nombre directo (ej: 'notas.txt')
+    - file_path / path: puede venir ruta o frase que lo contenga
+    - query: incluso una frase larga tipo:
+      "Buscar el archivo chat.txt en todas las carpetas principales..."
+
+    Si recibe una frase, intenta extraer el primer patrón tipo 'algo.ext'
+    con una regex y usa eso como nombre de archivo.
     """
+
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        # 1) Si nos pasan file_path/path, intentamos resolverlo directamente
-        direct_target = file_path or path
-        if direct_target:
-            resolved_direct = _resolve_standard_path(direct_target)
-            if os.path.exists(resolved_direct):
-                msg = f"Encontré el archivo aquí:\n{resolved_direct}"
-                send_progress(f"✅ {msg}")
-                return msg
-            # Si no existe, usamos el basename como criterio de búsqueda
-            base_name = os.path.basename(resolved_direct)
-        else:
-            base_name = None
-
-        # 2) Determinar el nombre a buscar por nombre de archivo
-        search_name = (
-            (filename or "").strip()
-            or (name or "").strip()
-            or (query or "").strip()
-            or (base_name or "").strip()
+        # 1) Unificamos todas las posibles entradas en un solo texto crudo
+        raw = (
+            filename
+            or name
+            or file_path
+            or path
+            or query
+            or ""
         )
+        raw = str(raw).strip()
 
+        if not raw:
+            msg = "Falta 'name', 'filename', 'file_path' o 'query' para buscar el archivo"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        # 2) Intentar extraer un nombre de archivo tipo algo.ext de una frase
+        #    (por ejemplo "Buscar el archivo chat.txt en todas las carpetas...")
+        candidate = os.path.basename(raw).strip(" '\"")
+
+        # Si el "candidate" parece muy frase o no tiene punto, buscamos con regex en el texto completo
+        if (" " in candidate and "." not in candidate) or len(candidate) > 60:
+            m = re.search(r"([A-Za-z0-9_\-]+\.[A-Za-z0-9]{1,6})", raw)
+            if m:
+                candidate = m.group(1)
+
+        search_name = candidate.strip()
         if not search_name:
-            msg = "Falta 'name', 'filename' o 'file_path' para buscar el archivo"
+            msg = "No pude extraer un nombre de archivo válido para buscar"
             send_progress(f"⚠️ {msg}")
             return msg
 
@@ -322,7 +333,6 @@ def search_file(
         # 3) Determinar raíces de búsqueda
         base_roots = []
         if roots:
-            # Permitir pasar un string o una lista
             if isinstance(roots, str):
                 roots = [roots]
             for r in roots:
@@ -332,6 +342,9 @@ def search_file(
                 os.path.join(home, "Desktop"),
                 os.path.join(home, "Documents"),
                 os.path.join(home, "Downloads"),
+                os.path.join(home, "Pictures"),
+                os.path.join(home, "Music"),
+                os.path.join(home, "Videos"),
             ]
 
         results = []
@@ -344,7 +357,6 @@ def search_file(
             base_depth = base.count(os.sep)
 
             for root, dirs, files in os.walk(base):
-                # Limitar profundidad
                 current_depth = root.count(os.sep)
                 if current_depth - base_depth > max_depth:
                     # No seguir bajando más profundo
@@ -353,26 +365,28 @@ def search_file(
 
                 for fname in files:
                     fname_lower = fname.lower()
-                    if search_name_lower == fname_lower or search_name_lower in fname_lower:
+                    # Coincidencia exacta o parcial
+                    if (
+                        search_name_lower == fname_lower
+                        or search_name_lower in fname_lower
+                    ):
                         full_path = os.path.join(root, fname)
                         results.append(full_path)
                         send_progress(f"✅ Encontrado: {full_path}")
-
-                        # Evitar listas enormes
-                        if len(results) >= 50:
+                        if len(results) >= 100:
                             send_progress("⚠️ Demasiados resultados, se truncará la lista")
                             break
-                if len(results) >= 50:
+                if len(results) >= 100:
                     break
-            if len(results) >= 50:
+            if len(results) >= 100:
                 break
 
         if not results:
-            msg = f"No encontré '{search_name}' en Escritorio, Documentos ni Descargas."
+            msg = f"No encontré '{search_name}' en las carpetas principales (Escritorio, Documentos, Descargas, etc.)."
             send_progress(f"⚠️ {msg}")
             return msg
 
-        # 4) Construir respuesta amigable
+        # 4) Construir respuesta
         lines = [f"Encontré {len(results)} coincidencia(s) para '{search_name}':"]
         for i, p in enumerate(results[:20], start=1):
             lines.append(f"{i}. {p}")
@@ -1022,36 +1036,42 @@ def suspend(progress_callback=None):
         return f"Error al suspender: {e}"  
   
   
-def set_volume(level, progress_callback=None):      
-    """Ajusta el volumen del sistema"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:      
-        send_progress(f"🔊 Ajustando volumen al {level}%...")  
-        logger.info(f"Ajustando volumen al {level}%")      
-              
-        # Convertir porcentaje a valor 0-100      
-        if isinstance(level, str):      
-            level = int(level.replace('%', ''))      
-              
-        # Usar pycaw (requiere pip install pycaw comtypes)      
-        from ctypes import cast, POINTER      
-        from comtypes import CLSCTX_ALL      
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume      
-              
-        devices = AudioUtilities.GetSpeakers()      
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)      
-        volume = cast(interface, POINTER(IAudioEndpointVolume))      
-        volume.SetMasterVolumeLevelScalar(level / 100, None)      
-              
-        send_progress(f"✅ Volumen ajustado al {level}%")  
-        return f"Volumen ajustado al {level}%"      
-              
-    except Exception as e:      
-        logger.error(f"Error ajustando volumen: {str(e)}")      
+def set_volume(level, progress_callback=None):
+    """Ajusta el volumen del sistema. Usa PyCAW si está disponible; si no, intenta fallback con nircmd."""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        send_progress(f"🔊 Ajustando volumen al {level}%...")
+        if isinstance(level, str):
+            level = int(level.replace('%', ''))
+        level = max(0, min(100, int(level)))
+
+        try:
+            # Intento con PyCAW
+            from ctypes import cast, POINTER
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume.SetMasterVolumeLevelScalar(level / 100.0, None)
+            send_progress(f"✅ Volumen ajustado al {level}%")
+            return f"Volumen ajustado al {level}%"
+        except Exception as e:
+            logger.warning(f"PyCAW no disponible, intento fallback con nircmd: {e}")
+
+            # Fallback con nircmd (acepta de 0 a 65535)
+            nircmd_path = get_nircmd_path()
+            scalar = int(65535 * (level / 100.0))
+            subprocess.run([nircmd_path, 'setsysvolume', str(scalar)], timeout=2)
+            send_progress(f"✅ Volumen ajustado al {level}% (fallback)")
+            return f"Volumen ajustado al {level}%"
+    except Exception as e:
+        logger.error(f"Error ajustando volumen: {str(e)}")
         return f"Error ajustando volumen: {e}"
 
 
@@ -1123,23 +1143,64 @@ def create_folder(folder_path, progress_callback=None):
 
       
 def move_file(source, destination, progress_callback=None):
-    """Mueve un archivo de origen a destino (soporta alias estándar en ambas rutas)."""
+    """
+    Mueve un archivo de origen a destino.
+
+    Soporta:
+    - Rutas normales: "escritorio/chat.txt"
+    - Comodines: "escritorio/*.py"  → mueve TODOS los .py
+    - Ambos extremos pasan por _resolve_standard_path
+    """
+    import shutil
+    import glob
+
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        import shutil
-
         if not source or not destination:
             msg = "Faltan 'source' o 'destination' para mover el archivo"
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
-        src = _resolve_standard_path(source)
+        # Resolver alias (escritorio, documentos, {username}, etc.)
+        raw_src = _resolve_standard_path(source)
         dst = _resolve_standard_path(destination)
 
+        has_wildcard = "*" in raw_src or "?" in raw_src
+
+        # Caso 1: comodín → mover varios archivos
+        if has_wildcard:
+            send_progress(f"📦 Moviendo archivos que coincidan con '{raw_src}' a '{dst}'")
+            logger.info(f"Moviendo archivos por patrón: {raw_src} -> {dst}")
+
+            matches = glob.glob(raw_src)
+            matches = [m for m in matches if os.path.isfile(m)]
+
+            if not matches:
+                msg = f"El archivo de origen no existe o no hay coincidencias: {raw_src}"
+                send_progress(f"⚠️ {msg}")
+                return {"ok": False, "error": msg}
+
+            # Asegurar que el destino sea un directorio
+            os.makedirs(dst, exist_ok=True)
+
+            moved = 0
+            for src_file in matches:
+                base = os.path.basename(src_file)
+                final_dest = os.path.join(dst, base)
+                send_progress(f"🚚 Moviendo {src_file} → {final_dest}")
+                shutil.move(src_file, final_dest)
+                moved += 1
+
+            msg_ok = f"Se movieron {moved} archivo(s) a {dst}"
+            send_progress(f"✅ {msg_ok}")
+            return msg_ok
+
+        # Caso 2: un solo archivo
+        src = raw_src
         send_progress(f"📦 Moviendo archivo de {src} a {dst}")
         logger.info(f"Moviendo archivo de {src} a {dst}")
 
@@ -1148,38 +1209,82 @@ def move_file(source, destination, progress_callback=None):
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
-        send_progress("📁 Verificando directorio destino...")
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        # Si destino es un directorio, asegurarlo; si no, aseguramos su parent
+        if os.path.isdir(dst) or dst.endswith(os.sep):
+            os.makedirs(dst, exist_ok=True)
+            final_dest = os.path.join(dst, os.path.basename(src))
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            final_dest = dst
 
-        send_progress("🚚 Moviendo archivo...")
-        shutil.move(src, dst)
+        send_progress(f"🚚 Moviendo archivo...")
+        shutil.move(src, final_dest)
 
         send_progress("✅ Archivo movido exitosamente")
-        return f"Archivo movido de {src} a {dst}"
+        return f"Archivo movido de {src} a {final_dest}"
 
     except Exception as e:
         logger.error(f"Error moviendo archivo de '{source}' a '{destination}': {e}")
         return {"ok": False, "error": f"Error moviendo archivo: {e}"}
 
+
       
 def copy_file(source, destination, progress_callback=None):
-    """Copia un archivo de origen a destino (soporta alias estándar en ambas rutas)."""
+    """
+    Copia archivo(s) de origen a destino.
+
+    Soporta:
+    - Rutas normales: "escritorio/chat.txt"
+    - Comodines: "escritorio/*.py"  → copia TODOS los .py al destino (que debe ser carpeta)
+    - Ambos extremos pasan por _resolve_standard_path
+    """
+    import shutil
+    import glob
+
     def send_progress(msg):
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        import shutil
-
         if not source or not destination:
-            msg = "Faltan 'source' o 'destination' para copiar el archivo"
+            msg = "Faltan 'source' o 'destination' para copiar"
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
-        src = _resolve_standard_path(source)
+        raw_src = _resolve_standard_path(source)
         dst = _resolve_standard_path(destination)
 
+        has_wildcard = "*" in raw_src or "?" in raw_src
+
+        # Caso 1: comodín → copiar varios archivos
+        if has_wildcard:
+            send_progress(f"📋 Copiando archivos que coincidan con '{raw_src}' a '{dst}'")
+            logger.info(f"Copiando por patrón: {raw_src} -> {dst}")
+
+            matches = glob.glob(raw_src)
+            matches = [m for m in matches if os.path.isfile(m)]
+            if not matches:
+                msg = f"No hay coincidencias para: {raw_src}"
+                send_progress(f"⚠️ {msg}")
+                return {"ok": False, "error": msg}
+
+            os.makedirs(dst, exist_ok=True)
+
+            copied = 0
+            for src_file in matches:
+                base = os.path.basename(src_file)
+                final_dest = os.path.join(dst, base)
+                send_progress(f"📄 Copiando {src_file} → {final_dest}")
+                shutil.copy2(src_file, final_dest)
+                copied += 1
+
+            msg_ok = f"Se copiaron {copied} archivo(s) a {dst}"
+            send_progress(f"✅ {msg_ok}")
+            return msg_ok
+
+        # Caso 2: un solo archivo
+        src = raw_src
         send_progress(f"📋 Copiando archivo de {src} a {dst}")
         logger.info(f"Copiando archivo de {src} a {dst}")
 
@@ -1188,42 +1293,65 @@ def copy_file(source, destination, progress_callback=None):
             send_progress(f"⚠️ {msg}")
             return {"ok": False, "error": msg}
 
-        send_progress("📁 Verificando directorio destino...")
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        # Si destino es carpeta, crearla y poner mismo nombre
+        if os.path.isdir(dst) or dst.endswith(os.sep):
+            os.makedirs(dst, exist_ok=True)
+            final_dest = os.path.join(dst, os.path.basename(src))
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            final_dest = dst
 
         send_progress("📄 Copiando archivo...")
-        shutil.copy2(src, dst)
+        shutil.copy2(src, final_dest)
 
         send_progress("✅ Archivo copiado exitosamente")
-        return f"Archivo copiado de {src} a {dst}"
+        return f"Archivo copiado de {src} a {final_dest}"
 
     except Exception as e:
         logger.error(f"Error copiando archivo de '{source}' a '{destination}': {e}")
         return {"ok": False, "error": f"Error copiando archivo: {e}"}
+
   
   
-def create_shortcut(target, shortcut_path, progress_callback=None):  
-    """Crea un acceso directo"""  
-    def send_progress(msg):  
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-      
-    try:  
-        send_progress(f"🔗 Creando acceso directo a {target}")  
-        logger.info(f"Creando acceso directo: {shortcut_path} -> {target}")  
-          
-        import win32com.client  
-        shell = win32com.client.Dispatch("WScript.Shell")  
-        shortcut = shell.CreateShortCut(shortcut_path)  
-        shortcut.Targetpath = target  
-        shortcut.save()  
-          
-        send_progress(f"✅ Acceso directo creado exitosamente")  
-        return f"Acceso directo creado: {shortcut_path}"  
-    except Exception as e:  
-        logger.error(f"Error creando acceso directo: {str(e)}")  
-        return f"Error creando acceso directo: {e}"  
+def create_shortcut(target_path=None, shortcut_path=None, description=None, icon_path=None, progress_callback=None):
+    """Crea un acceso directo (alineado con STRICT_JSON: usa target_path y shortcut_path)."""
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        if not target_path or not shortcut_path:
+            msg = "Faltan 'target_path' y/o 'shortcut_path' para crear el acceso directo"
+            send_progress(f"⚠️ {msg}")
+            return {"ok": False, "error": msg}
+
+        target_resolved = _resolve_standard_path(target_path)
+        shortcut_resolved = _resolve_standard_path(shortcut_path)
+
+        send_progress(f"🔗 Creando acceso directo a {target_resolved}")
+        logger.info(f"Creando acceso directo: {shortcut_resolved} -> {target_resolved}")
+
+        import os
+        os.makedirs(os.path.dirname(shortcut_resolved), exist_ok=True)
+
+        import win32com.client
+        shell = win32com.client.Dispatch("WScript.Shell")
+        scut = shell.CreateShortcut(shortcut_resolved)
+        scut.TargetPath = target_resolved                  # Nota: propiedad correcta con P mayúscula
+        scut.WorkingDirectory = os.path.dirname(target_resolved) or os.path.expanduser("~")
+        if description:
+            scut.Description = str(description)
+        if icon_path:
+            scut.IconLocation = _resolve_standard_path(icon_path)
+        scut.save()
+
+        send_progress("✅ Acceso directo creado exitosamente")
+        return f"Acceso directo creado: {shortcut_resolved}"
+    except Exception as e:
+        logger.error(f"Error creando acceso directo: {str(e)}")
+        return {"ok": False, "error": f"Error creando acceso directo: {e}"}
+
   
   
 def delete_file(file_path, progress_callback=None):
@@ -1308,10 +1436,10 @@ def list_files(directory_path=None, progress_callback=None):
         return f"Error listando archivos: {e}"
 
 
-def list_directory_detailed(directory=None, path=None, progress_callback=None):
+def list_directory_detailed(directory=None, path=None, directory_path=None, progress_callback=None):
     """
     Lista un directorio con detalles (tamaño y fecha) para cada entrada.
-    Soporta parámetros 'directory' o 'path'. Si ninguno se pasa, usa Escritorio.
+    Acepta 'directory', 'path' o 'directory_path'. Si ninguno se pasa, usa Escritorio.
     """
     def send_progress(msg):
         if progress_callback:
@@ -1319,8 +1447,7 @@ def list_directory_detailed(directory=None, path=None, progress_callback=None):
         logger.info(msg)
 
     try:
-        target = directory or path
-
+        target = directory or path or directory_path
         if not target:
             target = os.path.join(os.path.expanduser("~"), "Desktop")
 
@@ -1355,6 +1482,7 @@ def list_directory_detailed(directory=None, path=None, progress_callback=None):
     except Exception as e:
         logger.error(f"Error listando directorio detallado: {e}")
         return f"Error listando directorio: {e}"
+
 
 
 
