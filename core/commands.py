@@ -2099,6 +2099,42 @@ def cmd_remove_reminder(params, ctx):
     }
 
 
+def _parse_delay_from_text(default_seconds: int = 60, *texts) -> int:
+    """
+    Intenta extraer un tiempo (en segundos) a partir de texto tipo:
+      - '5 minutos'
+      - '30 segundos'
+      - '2 horas'
+    Devuelve default_seconds si no encuentra nada usable.
+    """
+    joined_parts = []
+    for t in texts:
+        if isinstance(t, str) and t.strip():
+            joined_parts.append(t.strip().lower())
+    joined = " ".join(joined_parts)
+
+    if not joined:
+        return default_seconds
+
+    # Ej: "en 5 minutos", "dentro de 30 segundos", "2 horas"
+    m = re.search(r"(\d+)\s*(segundo|segundos|seg|s|minuto|minutos|min|hora|horas|h)\b", joined)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+
+        if unit.startswith(("seg", "s")):
+            return max(1, n)
+        if unit.startswith(("min", "m")):
+            return max(1, n * 60)
+        if unit.startswith(("hora", "h")):
+            return max(1, n * 3600)
+
+    # Último fallback: si hay algún número suelto, interpretarlo como minutos
+    m2 = re.search(r"(\d+)", joined)
+    if m2:
+        return max(1, int(m2.group(1)) * 60)
+
+    return default_seconds
 
 
 def cmd_reminder_timer(params, ctx):
@@ -2106,10 +2142,9 @@ def cmd_reminder_timer(params, ctx):
     Tarea de cronómetro para recordatorios, pensada para usarse vía queue_local_task.
 
     params puede traer:
-      - delay_seconds: segundos exactos a esperar
+      - delay_seconds: segundos exactos a esperar (int o string)
       - delay / seconds / minutes / mins: sinónimos opcionales
-      - title / activity / text: texto del recordatorio
-      - description: detalle extra
+      - title / activity / text / description: texto del recordatorio
       - reminder_id / id: id del recordatorio (para marcarlo como done)
       - username: opcional (si no, se toma de ctx)
 
@@ -2128,69 +2163,7 @@ def cmd_reminder_timer(params, ctx):
         # Username unificado
         username = _username(ctx, params)
 
-        # ---- 1) Resolver delay en segundos ----
-        delay_seconds = params.get("delay_seconds")
-
-        # Sinónimo: seconds
-        if delay_seconds is None and "seconds" in params:
-            delay_seconds = params["seconds"]
-
-        # Sinónimo: delay
-        if delay_seconds is None and "delay" in params:
-            delay_seconds = params["delay"]
-
-        # Sinónimo: minutes / mins
-        if delay_seconds is None:
-            mins = params.get("minutes") or params.get("mins")
-            if mins is not None:
-                try:
-                    delay_seconds = int(mins) * 60
-                except Exception:
-                    delay_seconds = None
-
-        # Intento extra: si viene reminder_id y el recordatorio tiene due_date/due_time, calcular diferencia
-        reminder_id = params.get("reminder_id") or params.get("id")
-        if delay_seconds is None and reminder_id and username:
-            try:
-                items = list_reminders(username)
-                now = datetime.now()
-                for item in items:
-                    rid = item.get("id") or item.get("_id")
-                    if rid != reminder_id:
-                        continue
-                    due_d = item.get("due_date")
-                    due_t = item.get("due_time")
-                    if due_d and due_t:
-                        try:
-                            due_dt = datetime.fromisoformat(f"{due_d}T{due_t}")
-                        except Exception:
-                            # formato simple YYYY-MM-DD + HH:MM
-                            try:
-                                due_dt = datetime.strptime(
-                                    f"{due_d} {due_t}", "%Y-%m-%d %H:%M"
-                                )
-                            except Exception:
-                                continue
-                        delta = (due_dt - now).total_seconds()
-                        if delta > 1:
-                            delay_seconds = int(delta)
-                        break
-            except Exception as e:
-                logger.warning(f"No se pudo calcular delay desde el reminder_id {reminder_id}: {e}")
-
-        # Fallback final si no logramos nada
-        if delay_seconds is None:
-            delay = 60
-        else:
-            try:
-                delay = int(delay_seconds)
-            except Exception:
-                delay = 60
-
-        if delay < 1:
-            delay = 1
-
-        # ---- 2) Resolver texto del recordatorio ----
+        # ---------------- TEXTO DEL RECORDATORIO ----------------
         raw_title = (params.get("title") or "").strip()
         raw_activity = (params.get("activity") or "").strip()
         raw_text = (params.get("text") or "").strip()
@@ -2200,6 +2173,7 @@ def cmd_reminder_timer(params, ctx):
         text_base = raw_title or raw_activity or raw_text or description or ""
 
         # Si aun así está vacío, intentamos sacar título desde el recordatorio
+        reminder_id = params.get("reminder_id") or params.get("id")
         if not text_base and reminder_id and username:
             try:
                 items = list_reminders(username)
@@ -2216,7 +2190,106 @@ def cmd_reminder_timer(params, ctx):
         if not text_base:
             text_base = "tu recordatorio"
 
-        # ---- 3) Log y espera ----
+        # Limpieza típica: si viene algo tipo "Recordatorio en 5 minutos: mandar el informe"
+        low = text_base.lower()
+        if low.startswith("recordatorio") and ":" in text_base:
+            after = text_base.split(":", 1)[1].strip()
+            if after:
+                text_base = after
+
+        # ---------------- RESOLVER DELAY EN SEGUNDOS ----------------
+        delay = None
+
+        # 1) Campos explícitos tipo delay_seconds / seconds / delay
+        raw_delay = params.get("delay_seconds")
+        if raw_delay is None and "seconds" in params:
+            raw_delay = params["seconds"]
+        if raw_delay is None and "delay" in params:
+            raw_delay = params["delay"]
+
+        if raw_delay is not None:
+            if isinstance(raw_delay, (int, float)):
+                delay = int(raw_delay)
+            elif isinstance(raw_delay, str):
+                s = raw_delay.strip().lower()
+                if s.isdigit():
+                    delay = int(s)
+                else:
+                    # Intentar parsear "5 minutos", "30 segundos", etc.
+                    delay = _parse_delay_from_text(None, s)
+                    # Intentar formato ISO tipo PT5M, PT30S si sigue sin valor
+                    if delay is None:
+                        m = re.match(r"^pt(\d+)([smh])", s)
+                        if m:
+                            n = int(m.group(1))
+                            unit = m.group(2)
+                            if unit == "s":
+                                delay = n
+                            elif unit == "m":
+                                delay = n * 60
+                            elif unit == "h":
+                                delay = n * 3600
+
+        # 2) minutes / mins numéricos
+        if delay is None:
+            mins_val = params.get("minutes") or params.get("mins")
+            if mins_val is not None:
+                try:
+                    if isinstance(mins_val, str):
+                        # Puede venir "5", "5 minutos"
+                        m = re.search(r"\d+", mins_val)
+                        mins_int = int(m.group(0)) if m else 0
+                    else:
+                        mins_int = int(mins_val)
+                    if mins_int > 0:
+                        delay = mins_int * 60
+                except Exception:
+                    pass
+
+        # 3) Calcular desde due_date/due_time del recordatorio (si existe)
+        if delay is None and reminder_id and username:
+            try:
+                items = list_reminders(username)
+                now = datetime.now()
+                for item in items:
+                    rid = item.get("id") or item.get("_id")
+                    if rid != reminder_id:
+                        continue
+                    due_d = item.get("due_date")
+                    due_t = item.get("due_time")
+                    if due_d and due_t:
+                        try:
+                            due_dt = datetime.fromisoformat(f"{due_d}T{due_t}")
+                        except Exception:
+                            try:
+                                due_dt = datetime.strptime(
+                                    f"{due_d} {due_t}", "%Y-%m-%d %H:%M"
+                                )
+                            except Exception:
+                                continue
+                        delta = (due_dt - now).total_seconds()
+                        if delta > 1:
+                            delay = int(delta)
+                        break
+            except Exception as e:
+                logger.warning(f"No se pudo calcular delay desde el reminder_id {reminder_id}: {e}")
+
+        # 4) Último intento: deducirlo del texto libre (prompt original, etc.)
+        if delay is None:
+            delay = _parse_delay_from_text(
+                60,
+                text_base,
+                params.get("raw_text") or "",
+                params.get("original_prompt") or "",
+            )
+
+        # Normalización final
+        if delay is None:
+            delay = 60
+        if delay < 1:
+            delay = 1
+
+        # ---------------- ESPERA Y FIN ----------------
         if delay % 60 == 0:
             mins = delay // 60
             human = f"{mins} minuto{'s' if mins != 1 else ''}"
@@ -2225,17 +2298,16 @@ def cmd_reminder_timer(params, ctx):
 
         send_progress(f"⏱ Iniciando temporizador de {human} para el recordatorio '{text_base}'...")
 
-        # Espera bloqueante, pero esto corre en un proceso separado
+        # Espera bloqueante (esto corre en proceso separado de TaskManager)
         time.sleep(delay)
 
-        # ---- 4) Marcar recordatorio como done (opcional) ----
+        # Marcar recordatorio como done (opcional)
         if reminder_id and username:
             try:
                 update_reminder(username, reminder_id, status="done")
             except Exception as e:
                 logger.warning(f"No se pudo actualizar el estado del recordatorio {reminder_id}: {e}")
 
-        # ---- 5) Mensaje final ----
         final_msg = f"⏰ Te recuerdo: {text_base}"
 
         send_progress("✅ Temporizador completado, enviando recordatorio al usuario")
@@ -2256,6 +2328,16 @@ def cmd_reminder_timer(params, ctx):
 
 
 
+def reminder_timer(params, ctx):
+    """
+    Wrapper de compatibilidad para código antiguo.
+    Delegamos en cmd_reminder_timer.
+    """
+    return cmd_reminder_timer(params, ctx)
+
+
+
+
 COMMANDS = {      
     # ——— Recordatorios      
     "add_reminder": cmd_add_reminder,      
@@ -2264,6 +2346,7 @@ COMMANDS = {
     "remove_reminder": cmd_remove_reminder,    
     # temporizador de recordatorios
     "reminder_timer": cmd_reminder_timer,
+    "cmd_reminder_timer": cmd_reminder_timer,
       
     # Sinónimos (opcional)      
     "agregar_recordatorio": cmd_add_reminder,      

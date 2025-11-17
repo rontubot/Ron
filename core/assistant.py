@@ -87,7 +87,10 @@ IMPORTANTE:
 Rutas estándar de Windows:    
 - Escritorio: C:\\Users\\{username}\\Desktop    
 - Documentos: C:\\Users\\{username}\\Documents    
-- Descargas: C:\\Users\\{username}\\Downloads    
+- Descargas: C:\\Users\\{username}\\Downloads
+- Imagenes: C:\\Users\\{username}\\Pictures    
+- Music: C:\\Users\\{username}\\Music    
+- Videos: C:\\Users\\{username}\\Videos
   
 EJEMPLOS - YouTube:  
 Usuario: "reproduce Paulo Londra"  
