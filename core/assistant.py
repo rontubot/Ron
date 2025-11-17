@@ -71,13 +71,17 @@ IMPORTANTE:
   usa esa ruta como base).
 
 - Para queue_local_task:
-- ÚSALO cuando el usuario pida algo que pueda ejecutarse en segundo plano (por ejemplo: analizar un archivo de código, hacer un diagnóstico largo, revisar varios archivos, etc.), y no sea necesario bloquear la conversación.
+- ÚSALO cuando el usuario pida algo que pueda ejecutarse en segundo plano (por ejemplo: analizar un archivo de código, hacer un diagnóstico largo, revisar varios archivos, o programar un recordatorio futuro).
 - En params SIEMPRE incluye:
-- "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis")
-- "description": una frase corta pensada para el usuario, describiendo qué hará la tarea (ejemplo: "Analizar bot_voz.py (versión antigua) y dar feedback").
+- "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis", "reminder_timer")
+- "description": una frase corta pensada para el usuario, describiendo qué hará la tarea (ejemplo: "Recordatorio en 5 minutos: mandar el informe").
 - Si la tarea involucra archivos locales, incluye también:
 - "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
-- Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".    
+- Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".
+- Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), puedes además crear una tarea con "task_type": "reminder_timer" que reciba en "params" al menos:
+  - "delay_seconds": número de segundos hasta el recordatorio.
+  - "title": texto corto de lo que hay que recordar.
+  - "username": usuario actual.
 
 
 Rutas estándar de Windows:    
@@ -424,7 +428,7 @@ def parse_commands_only(gpt_response: str) -> dict:
         "search_youtube","open_application","close_application","search_google","get_weather",
         "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",
         "check_system_services","restart_critical_services","clean_temp_files","flush_dns",
-        "shutdown","restart","suspend"
+        "shutdown","restart","suspend","queue_local_task"
     }
 
     cmds = data.get("commands") or []
@@ -634,6 +638,75 @@ def handle_tool_call(llm_payload: dict, ctx: dict):
         logger.debug("No se pudo registrar la memoria de la herramienta", exc_info=True)
 
     return res
+
+
+def _extract_delay_from_activity(activity: str):
+    """
+    Intenta detectar patrones tipo:
+    - "en 5 minutos mandar el informe"
+    - "en 2 horas llamar a mamá"
+    Devuelve: (actividad_limpia, delay_seconds, descripcion_humana) o (actividad, None, None)
+    """
+    if not activity:
+        return activity, None, None
+
+    original = activity.strip()
+    lower = original.lower().strip()
+
+    # Patrón: "en 5 minutos ..." al inicio del texto
+    m = _re.match(
+        r"en\s+(\d+)\s+(segundo|segundos|minuto|minutos|hora|horas|día|dias|días)\b",
+        lower
+    )
+    if not m:
+        return original, None, None
+
+    try:
+        amount = int(m.group(1))
+    except ValueError:
+        return original, None, None
+
+    unit = m.group(2)
+    unit_norm = {
+        "segundo": "segundos",
+        "segundos": "segundos",
+        "minuto": "minutos",
+        "minutos": "minutos",
+        "hora": "horas",
+        "horas": "horas",
+        "día": "días",
+        "dias": "días",
+        "días": "días",
+    }.get(unit, None)
+
+    if not unit_norm or amount <= 0:
+        return original, None, None
+
+    seconds_per_unit = {
+        "segundos": 1,
+        "minutos": 60,
+        "horas": 3600,
+        "días": 86400,
+    }
+    delay_seconds = amount * seconds_per_unit[unit_norm]
+
+    # Recortar el prefijo "en 5 minutos" del texto original
+    prefix_len = len(m.group(0))
+    remainder = original[prefix_len:].lstrip(" ,.:;-")
+
+    # Limpiar conectores iniciales
+    for pref in ["que ", "para ", "para que "]:
+        if remainder.lower().startswith(pref):
+            remainder = remainder[len(pref):]
+
+    # Si quedó vacío, usamos el original como fallback (para no romper nada)
+    if not remainder:
+        remainder = original
+
+    human = f"{amount} {unit_norm}"
+    return remainder, delay_seconds, human
+
+
 
 
 ## =========================  
@@ -913,11 +986,36 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             if "recuérdame" in user_input
             else user_input.split("añade un recordatorio")[-1].strip()
         )
-        res = run_command("add_reminder", {"activity": activity}, {"username": username})
+
+        # 1) Intentar extraer un delay tipo "en 5 minutos..."
+        clean_activity = activity
+        delay_seconds = None
+        delay_human = None
+
+        if task_manager:
+            try:
+                clean_activity, delay_seconds, delay_human = _extract_delay_from_activity(activity)
+            except Exception as e:
+                logger.debug(f"Error extrayendo delay del recordatorio: {e}")
+
+        # 2) Crear el recordatorio en la memoria normal
+        res = run_command("add_reminder", {"activity": clean_activity}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+
+        # 3) Si tenemos TaskManager y un delay válido, programar el mensaje
+        if task_manager and delay_seconds and delay_seconds > 0:
+            try:
+                reminder_message = f"Te recuerdo: {clean_activity}"
+                task_manager.schedule_message(reminder_message, delay_seconds)
+                if delay_human:
+                    msg = f"{msg} También te avisaré en {delay_human}."
+            except Exception as e:
+                logger.error(f"Error programando recordatorio en TaskManager: {e}")
+
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
+
 
     if "qué recordatorios tengo" in user_input or "cuál es mi agenda" in user_input:
         res = run_command("get_reminders", {}, {"username": username})
