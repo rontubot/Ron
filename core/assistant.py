@@ -747,30 +747,31 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
         return text
 
     # === Nombre preferido del usuario (display_name) ===
-        try:  
-            mem_name = load_user_memory(username) or {}  
-            display_name = get_display_name(username)  
-          
-            if not display_name:  
-                # 1) Intentar extraer del texto actual  
-                possible = maybe_extract_name_from_text(original_input)  
-                if possible:  
-                    set_display_name(username, possible)  
-                    display_name = possible  
-                else:  
-                    # 2) Preguntar UNA sola vez  
-                    asked = (mem_name.get("profile", {}) or {}).get("asked_display_name_once")  
-                    if not asked:  
-                        mem_name.setdefault("profile", {})["asked_display_name_once"] = True  
-                        save_user_memory(username, mem_name)  
-                        prompt_name = (  
-                            "¿Cómo quieres que te llame? (por ejemplo: Me llamo Ana)\n"  
-                            "Puedo guardar esto para dirigirme a ti correctamente."  
-                        )  
-                        return _finalize_and_return(prompt_name)  
-        except Exception:  
-            # Si algo falla, seguimos sin bloquear el turno  
-            pass
+    try:
+        mem_name = load_user_memory(username) or {}
+        display_name = get_display_name(username)
+
+        if not display_name:
+            # 1) Intentar extraer del texto actual
+            possible = maybe_extract_name_from_text(original_input)
+            if possible:
+                set_display_name(username, possible)
+                display_name = possible
+            else:
+                # 2) Preguntar UNA sola vez
+                asked = (mem_name.get("profile", {}) or {}).get("asked_display_name_once")
+                if not asked:
+                    mem_name.setdefault("profile", {})["asked_display_name_once"] = True
+                    save_user_memory(username, mem_name)
+                    prompt_name = (
+                        "¿Cómo quieres que te llame? (por ejemplo: Me llamo Ana)\n"
+                        "Puedo guardar esto para dirigirme a ti correctamente."
+                    )
+                    return _finalize_and_return(prompt_name)
+    except Exception:
+        # Si algo falla, seguimos sin bloquear el turno
+        pass
+
 
     # ==== PERFIL: ventana + clasificador + contador + batch ====
     try:
@@ -1163,6 +1164,21 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                     is_direct_command = True  
                     break  
 
+    # 🔹 Detectar específicamente recordatorios tipo "recuérdame..." o "añade un recordatorio..."
+    is_reminder_cmd = ("recuérdame" in user_input) or ("añade un recordatorio" in user_input)
+
+    # 🔹 Para recordatorios SIEMPRE usamos la ruta completa (_process_user_input),
+    #     así se aplica _extract_delay_from_activity + TaskManager del servidor.
+    if is_reminder_cmd:
+        result = _process_user_input(
+            original_input,
+            save_to_memory=save_to_memory,
+            username=username,
+            task_manager=task_manager,
+        )
+        yield result if isinstance(result, str) else str(result)
+        return
+
     # ⚠️ IMPORTANTE:
     # Por defecto NO ejecutamos comandos locales en el servidor.
     # Solo si RON_ALLOW_SERVER_COMMANDS=1 se usará la ruta directa
@@ -1173,6 +1189,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         result = _process_user_input(original_input, save_to_memory, username, task_manager=task_manager)
         yield result if isinstance(result, str) else str(result)
         return
+
         
     # === Conversación con OpenAI (CON STREAMING REAL) ===  
       
