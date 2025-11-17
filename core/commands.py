@@ -2101,80 +2101,158 @@ def cmd_remove_reminder(params, ctx):
 
 
 
-def reminder_timer(
-    delay_seconds=None,
-    title: str = "",
-    description: str = "",
-    reminder_id: str | None = None,
-    username: str | None = None,
-    progress_callback=None,
-    **kwargs,
-):
+def cmd_reminder_timer(params, ctx):
     """
-    Tarea de cronómetro para recordatorios.
+    Tarea de cronómetro para recordatorios, pensada para usarse vía queue_local_task.
 
-    - delay_seconds: cuántos segundos esperar ANTES de avisar.
-      La idea es que la LLM ya mande este número (por ejemplo, 1200 para 20 minutos).
-    - title / description: texto del recordatorio (solo para mostrar).
-    - reminder_id: opcional, por si luego querés marcarlo como 'done'.
-    - username: opcional, por si quieres personalizar el mensaje.
+    params puede traer:
+      - delay_seconds: segundos exactos a esperar
+      - delay / seconds / minutes / mins: sinónimos opcionales
+      - title / activity / text: texto del recordatorio
+      - description: detalle extra
+      - reminder_id / id: id del recordatorio (para marcarlo como done)
+      - username: opcional (si no, se toma de ctx)
 
-    Esta función está pensada para ejecutarse como tarea en segundo plano
-    vía TaskManager (queue_local_task).
+    Devuelve un dict {ok, summary, message, error}.
     """
     def send_progress(msg: str):
+        progress_callback = ctx.get("progress_callback")
         if progress_callback:
             progress_callback(msg)
         logger.info(msg)
 
     try:
-        # Normalizar delay_seconds (puede venir string)
+        params = params or {}
+        ctx = ctx or {}
+
+        # Username unificado
+        username = _username(ctx, params)
+
+        # ---- 1) Resolver delay en segundos ----
+        delay_seconds = params.get("delay_seconds")
+
+        # Sinónimo: seconds
+        if delay_seconds is None and "seconds" in params:
+            delay_seconds = params["seconds"]
+
+        # Sinónimo: delay
+        if delay_seconds is None and "delay" in params:
+            delay_seconds = params["delay"]
+
+        # Sinónimo: minutes / mins
         if delay_seconds is None:
-            # fallback suave: 60 segundos
+            mins = params.get("minutes") or params.get("mins")
+            if mins is not None:
+                try:
+                    delay_seconds = int(mins) * 60
+                except Exception:
+                    delay_seconds = None
+
+        # Intento extra: si viene reminder_id y el recordatorio tiene due_date/due_time, calcular diferencia
+        reminder_id = params.get("reminder_id") or params.get("id")
+        if delay_seconds is None and reminder_id and username:
+            try:
+                items = list_reminders(username)
+                now = datetime.now()
+                for item in items:
+                    rid = item.get("id") or item.get("_id")
+                    if rid != reminder_id:
+                        continue
+                    due_d = item.get("due_date")
+                    due_t = item.get("due_time")
+                    if due_d and due_t:
+                        try:
+                            due_dt = datetime.fromisoformat(f"{due_d}T{due_t}")
+                        except Exception:
+                            # formato simple YYYY-MM-DD + HH:MM
+                            try:
+                                due_dt = datetime.strptime(
+                                    f"{due_d} {due_t}", "%Y-%m-%d %H:%M"
+                                )
+                            except Exception:
+                                continue
+                        delta = (due_dt - now).total_seconds()
+                        if delta > 1:
+                            delay_seconds = int(delta)
+                        break
+            except Exception as e:
+                logger.warning(f"No se pudo calcular delay desde el reminder_id {reminder_id}: {e}")
+
+        # Fallback final si no logramos nada
+        if delay_seconds is None:
             delay = 60
         else:
-            if isinstance(delay_seconds, str):
-                # intentar extraer el primer número de la cadena
-                m = re.search(r"\d+", delay_seconds)
-                if m:
-                    delay = int(m.group(0))
-                else:
-                    delay = 60
-            else:
+            try:
                 delay = int(delay_seconds)
+            except Exception:
+                delay = 60
 
         if delay < 1:
             delay = 1
 
-        # Mensaje de inicio
-        human = f"{delay} segundos"
+        # ---- 2) Resolver texto del recordatorio ----
+        raw_title = (params.get("title") or "").strip()
+        raw_activity = (params.get("activity") or "").strip()
+        raw_text = (params.get("text") or "").strip()
+        description = (params.get("description") or "").strip()
+
+        # Priorizamos: title > activity > text > description
+        text_base = raw_title or raw_activity or raw_text or description or ""
+
+        # Si aun así está vacío, intentamos sacar título desde el recordatorio
+        if not text_base and reminder_id and username:
+            try:
+                items = list_reminders(username)
+                for item in items:
+                    rid = item.get("id") or item.get("_id")
+                    if rid != reminder_id:
+                        continue
+                    text_base = (item.get("title") or item.get("description") or "").strip()
+                    if text_base:
+                        break
+            except Exception as e:
+                logger.warning(f"No se pudo obtener título desde el reminder_id {reminder_id}: {e}")
+
+        if not text_base:
+            text_base = "tu recordatorio"
+
+        # ---- 3) Log y espera ----
         if delay % 60 == 0:
             mins = delay // 60
             human = f"{mins} minuto{'s' if mins != 1 else ''}"
+        else:
+            human = f"{delay} segundos"
 
-        send_progress(f"⏱ Iniciando temporizador de {human} para el recordatorio '{title or description}'...")
+        send_progress(f"⏱ Iniciando temporizador de {human} para el recordatorio '{text_base}'...")
 
-        # Espera (bloqueante, pero esto va en una tarea aparte)
+        # Espera bloqueante, pero esto corre en un proceso separado
         time.sleep(delay)
 
-        # Opcional: podrías marcar el recordatorio como hecho aquí si tienes reminder_id
+        # ---- 4) Marcar recordatorio como done (opcional) ----
         if reminder_id and username:
             try:
-                # Marcar como 'done' de forma silenciosa
                 update_reminder(username, reminder_id, status="done")
             except Exception as e:
                 logger.warning(f"No se pudo actualizar el estado del recordatorio {reminder_id}: {e}")
 
-        # Mensaje final que verá el usuario en el chat
-        texto = title or description or "tu recordatorio"
-        final_msg = f"⏰ Te recuerdo: {texto}"
+        # ---- 5) Mensaje final ----
+        final_msg = f"⏰ Te recuerdo: {text_base}"
 
         send_progress("✅ Temporizador completado, enviando recordatorio al usuario")
-        return final_msg
+
+        return {
+            "ok": True,
+            "summary": final_msg,
+            "message": final_msg,
+            "error": "",
+        }
 
     except Exception as e:
-        logger.error(f"Error en reminder_timer: {e}")
-        return f"Error en el temporizador de recordatorio: {e}"
+        logger.error(f"Error en cmd_reminder_timer: {e}")
+        return {
+            "ok": False,
+            "error": f"Error en el temporizador de recordatorio: {e}",
+        }
 
 
 
@@ -2185,7 +2263,7 @@ COMMANDS = {
     "update_reminder": cmd_update_reminder,      
     "remove_reminder": cmd_remove_reminder,    
     # temporizador de recordatorios
-    "reminder_timer": reminder_timer,  
+    "reminder_timer": cmd_reminder_timer,
       
     # Sinónimos (opcional)      
     "agregar_recordatorio": cmd_add_reminder,      
