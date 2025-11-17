@@ -73,7 +73,7 @@ IMPORTANTE:
 - Para queue_local_task:
 - ÚSALO cuando el usuario pida algo que pueda ejecutarse en segundo plano (por ejemplo: analizar un archivo de código, hacer un diagnóstico largo, revisar varios archivos, o programar un recordatorio futuro).
 - En params SIEMPRE incluye:
-- "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis", "cmd_reminder_timer")
+- "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis", "reminder_timer")
 - "description": una frase corta pensada para el usuario, describiendo qué hará la tarea (ejemplo: "Recordatorio en 5 minutos: mandar el informe").
 - Si la tarea involucra archivos locales, incluye también:
 - "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
