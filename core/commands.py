@@ -8,6 +8,7 @@ import psutil
 import sys   
 import csv
 import io
+import time
 from config import WEATHER_API_KEY
 from datetime import datetime     
 from core.memory import (    
@@ -2098,12 +2099,93 @@ def cmd_remove_reminder(params, ctx):
     }
 
 
+
+
+def reminder_timer(
+    delay_seconds=None,
+    title: str = "",
+    description: str = "",
+    reminder_id: str | None = None,
+    username: str | None = None,
+    progress_callback=None,
+    **kwargs,
+):
+    """
+    Tarea de cronómetro para recordatorios.
+
+    - delay_seconds: cuántos segundos esperar ANTES de avisar.
+      La idea es que la LLM ya mande este número (por ejemplo, 1200 para 20 minutos).
+    - title / description: texto del recordatorio (solo para mostrar).
+    - reminder_id: opcional, por si luego querés marcarlo como 'done'.
+    - username: opcional, por si quieres personalizar el mensaje.
+
+    Esta función está pensada para ejecutarse como tarea en segundo plano
+    vía TaskManager (queue_local_task).
+    """
+    def send_progress(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        # Normalizar delay_seconds (puede venir string)
+        if delay_seconds is None:
+            # fallback suave: 60 segundos
+            delay = 60
+        else:
+            if isinstance(delay_seconds, str):
+                # intentar extraer el primer número de la cadena
+                m = re.search(r"\d+", delay_seconds)
+                if m:
+                    delay = int(m.group(0))
+                else:
+                    delay = 60
+            else:
+                delay = int(delay_seconds)
+
+        if delay < 1:
+            delay = 1
+
+        # Mensaje de inicio
+        human = f"{delay} segundos"
+        if delay % 60 == 0:
+            mins = delay // 60
+            human = f"{mins} minuto{'s' if mins != 1 else ''}"
+
+        send_progress(f"⏱ Iniciando temporizador de {human} para el recordatorio '{title or description}'...")
+
+        # Espera (bloqueante, pero esto va en una tarea aparte)
+        time.sleep(delay)
+
+        # Opcional: podrías marcar el recordatorio como hecho aquí si tienes reminder_id
+        if reminder_id and username:
+            try:
+                # Marcar como 'done' de forma silenciosa
+                update_reminder(username, reminder_id, status="done")
+            except Exception as e:
+                logger.warning(f"No se pudo actualizar el estado del recordatorio {reminder_id}: {e}")
+
+        # Mensaje final que verá el usuario en el chat
+        texto = title or description or "tu recordatorio"
+        final_msg = f"⏰ Te recuerdo: {texto}"
+
+        send_progress("✅ Temporizador completado, enviando recordatorio al usuario")
+        return final_msg
+
+    except Exception as e:
+        logger.error(f"Error en reminder_timer: {e}")
+        return f"Error en el temporizador de recordatorio: {e}"
+
+
+
 COMMANDS = {      
     # ——— Recordatorios      
     "add_reminder": cmd_add_reminder,      
     "get_reminders": cmd_get_reminders,      
     "update_reminder": cmd_update_reminder,      
-    "remove_reminder": cmd_remove_reminder,      
+    "remove_reminder": cmd_remove_reminder,    
+    # temporizador de recordatorios
+    "reminder_timer": reminder_timer,  
       
     # Sinónimos (opcional)      
     "agregar_recordatorio": cmd_add_reminder,      

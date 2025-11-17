@@ -101,6 +101,48 @@ class TaskManager:
         thread.start()  
         return task_id  
       
+    def run_command_background(
+        self,
+        task_id: str,
+        command_name: str,
+        params: Optional[Dict[str, Any]] = None,
+        username: Optional[str] = None,
+    ):
+        """
+        Ejecuta un comando de core.commands en segundo plano.
+
+        - Envía progress_callback al comando para que pueda ir mandando
+          mensajes al banco (self.send_message).
+        - Cuando el comando devuelve un 'message' o 'result' final, también
+          lo manda al usuario.
+        """
+        params = params or {}
+
+        # Import local para evitar ciclos de import
+        from core.commands import run_command
+
+        def target():
+            try:
+                ctx = {
+                    "username": username or "default",
+                    "progress_callback": self.send_message,  # <- aquí conectamos el progreso al banco de mensajes
+                }
+                result = run_command(command_name, params, ctx)
+
+                # Normalizamos el resultado para mandar el mensaje final
+                if isinstance(result, dict):
+                    msg = result.get("message") or result.get("result")
+                    if isinstance(msg, str) and msg.strip():
+                        self.send_message(str(msg))
+
+            except Exception as e:
+                logger.error(f"Error en comando {command_name}: {e}")
+                self.send_message(f"Error ejecutando comando '{command_name}': {e}")
+
+        return self.run_background_task(task_id, target)
+
+
+      
     def is_task_running(self, task_id: str) -> bool:  
         """Verifica si una tarea está en ejecución"""  
         return task_id in self.active_tasks and self.active_tasks[task_id].is_alive()  
