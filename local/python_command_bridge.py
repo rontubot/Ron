@@ -4,6 +4,19 @@ import io
 import os
 import traceback
 
+# 🔹 AÑADIDO: asegurar que se pueda importar core.*
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CORE_DIR = os.path.join(BASE_DIR, 'core')
+
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+if CORE_DIR not in sys.path:
+    sys.path.insert(0, CORE_DIR)
+
+from core.commands import run_command  # tu función central
+
+
 # Aseguramos UTF-8 en stdout/stderr
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -11,8 +24,6 @@ if hasattr(sys.stdout, "reconfigure"):
 else:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-from core.commands import run_command  # tu función central
 
 
 def main():
