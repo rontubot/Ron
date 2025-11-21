@@ -1234,16 +1234,12 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             if commands_to_send:    
                 logger.info(f"Comandos generados para enviar al cliente: {len(commands_to_send)}")  
                   
-                # 🔹 NUEVO: Enviar comandos como evento SSE  
-                # Formato: yield un string JSON con type="commands"  
-                commands_event = json.dumps({  
-                    "type": "commands",  
-                    "commands": commands_to_send  
-                }, ensure_ascii=False)  
-                yield f"\n__COMMANDS__:{commands_event}\n"  
+                # 🔹 NUEVO: Enviar comandos como evento especial  
+                commands_json = json.dumps({"commands": commands_to_send}, ensure_ascii=False)  
+                yield f"\n__COMMANDS__:{commands_json}"  
         except:      
             # Si no es JSON válido, usar el texto completo como respuesta      
-            pass  
+            pass
                           
         # Guardar en memoria      
         if save_to_memory:      
