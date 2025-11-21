@@ -597,10 +597,7 @@ Asistente:
 @app.post("/ron/stream")  
 async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):  
     """  
-    Versión streaming que usa _process_user_input_streaming directamente.  
-    - Genera chunks progresivos de texto  
-    - Detecta el formato especial __COMMANDS__: para extraer comandos  
-    - Envía evento 'done' con comandos al final  
+    Versión streaming que sanitiza correctamente la respuesta antes de enviarla.  
     """  
     if authorization is None or not authorization.startswith("Bearer "):  
         raise HTTPException(status_code=401, detail="Autenticación requerida")  
@@ -616,49 +613,51 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
     async def event_generator():  
         import asyncio  
         try:  
-            accumulated_text = ""  
-            commands_received = []  
+            # 1) Construir el payload  
+            data_model = UserInput(  
+                text=user_text,  
+                message=user_text,  
+                return_json=True,  
+                source=body.get("source") or "desktop-stream",  
+                username=body.get("username") or current_user,  
+            )  
+  
+            # 2) Obtener la respuesta completa de /ron  
+            core_payload = chat_with_ron(data_model, authorization)  
+  
+            # 3) Extraer y sanitizar SOLO el user_response  
+            user_response_only = core_payload.get("user_response") or ""  
               
-            # Llamar a la función streaming de assistant.py  
-            for chunk in responder_a_usuario_streaming(user_text, username=current_user):  
-                # Detectar formato especial de comandos  
-                if chunk.startswith("\n__COMMANDS__:"):  
-                    try:  
-                        commands_json = chunk[len("\n__COMMANDS__:"):]  
-                        commands_received = json.loads(commands_json)  
-                        logger.info(f"📥 Recibidos {len(commands_received)} comando(s) del streaming")  
-                    except Exception as e:  
-                        logger.error(f"Error parseando comandos del streaming: {e}")  
-                    continue  
-                  
-                # Enviar chunks de texto normales  
-                accumulated_text += chunk  
-                yield (  
-                    "data: "  
-                    + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)  
-                    + "\n\n"  
-                )  
-                await asyncio.sleep(0.01)  
+            # 🔹 CRÍTICO: Sanitizar para eliminar cualquier JSON residual  
+            user_response_only = sanitize_user_response(user_response_only)  
               
-            # Sanitizar el texto acumulado  
-            sanitized_text = sanitize_user_response(accumulated_text) or accumulated_text  
-              
-            # Guardar en memoria (si no se guardó ya en assistant.py)  
-            try:  
-                add_to_memory(current_user, user_text, sanitized_text)  
-            except Exception as e:  
-                logger.warning(f"No se pudo guardar en memoria: {e}")  
-              
-            # Evento final con comandos  
+            # 🔹 NUEVO: Eliminar cualquier JSON que pueda haber quedado  
+            import re  
+            user_response_only = re.sub(r'\{[\s\S]*?"user_response"[\s\S]*?"commands"[\s\S]*?\}', '', user_response_only)  
+            user_response_only = user_response_only.strip()  
+  
+            commands = core_payload.get("commands") or []  
+  
+            # 4) Enviar la respuesta como chunks (solo texto limpio)  
+            if user_response_only:  
+                for i in range(0, len(user_response_only), 3):  
+                    chunk = user_response_only[i:i+3]  
+                    yield (  
+                        "data: "  
+                        + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)  
+                        + "\n\n"  
+                    )  
+                    await asyncio.sleep(0.01)  
+  
+            # 5) Evento final con comandos  
             done_payload = {  
                 "type": "done",  
-                "full_text": sanitized_text,  
-                "commands": commands_received,  
+                "full_text": user_response_only,  
+                "commands": commands,  
             }  
             yield "data: " + json.dumps(done_payload, ensure_ascii=False) + "\n\n"  
   
         except Exception as e:  
-            logger.error(f"Error en streaming: {e}")  
             err_payload = {"type": "error", "error": str(e)}  
             yield "data: " + json.dumps(err_payload, ensure_ascii=False) + "\n\n"  
   
