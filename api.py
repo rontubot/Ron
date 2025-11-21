@@ -594,96 +594,82 @@ Asistente:
     return payload
 
 
-@app.post("/ron/stream")
-async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):
-    """
-    Versión streaming que REUTILIZA la misma lógica de /ron.
-    - Llama internamente a chat_with_ron (mismo modelo, mismos comandos).
-    - Luego trocea user_response en chunks y los envía como SSE.
-    - Al final manda un evento 'done' con los commands para Electron.
-    """
-    if authorization is None or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Autenticación requerida")
-
-    # Igual que en /ron, pero aquí solo validamos el token;
-    # el resto lo hace chat_with_ron internamente.
-    token = authorization.split(" ", 1)[1]
-    current_user = verify_jwt_token(token)
-
-    body = await request.json()
-    user_text = (body.get("text") or body.get("message") or "").strip()
-    if not user_text:
-        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
-
+@app.post("/ron/stream")  
+async def chat_with_ron_streaming(request: Request, authorization: str = Header(None)):  
+    """  
+    Versión streaming que usa _process_user_input_streaming directamente.  
+    - Genera chunks progresivos de texto  
+    - Detecta el formato especial __COMMANDS__: para extraer comandos  
+    - Envía evento 'done' con comandos al final  
+    """  
+    if authorization is None or not authorization.startswith("Bearer "):  
+        raise HTTPException(status_code=401, detail="Autenticación requerida")  
+  
+    token = authorization.split(" ", 1)[1]  
+    current_user = verify_jwt_token(token)  
+  
+    body = await request.json()  
+    user_text = (body.get("text") or body.get("message") or "").strip()  
+    if not user_text:  
+        raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")  
+  
     async def event_generator():  
         import asyncio  
         try:  
-            # 1) Construir el mismo payload que recibiría /ron  
-            data_model = UserInput(  
-                text=user_text,  
-                message=user_text,  
-                return_json=True,  
-                source=body.get("source") or "desktop-stream",  
-                username=body.get("username") or current_user,  
-            )  
-  
-            # 2) Usar la versión streaming directamente  
-            from core.assistant import _process_user_input_streaming  
+            accumulated_text = ""  
+            commands_received = []  
               
-            full_text_accumulated = ""  
-            commands_accumulated = []  
-              
-            # 3) Iterar sobre los chunks del generador  
-            for chunk in _process_user_input_streaming(  
-                user_text,   
-                save_to_memory=True,   
-                username=body.get("username") or current_user,  
-                task_manager=None  
-            ):  
-                # Detectar si es un evento de comandos  
+            # Llamar a la función streaming de assistant.py  
+            for chunk in responder_a_usuario_streaming(user_text, username=current_user):  
+                # Detectar formato especial de comandos  
                 if chunk.startswith("\n__COMMANDS__:"):  
                     try:  
-                        commands_json = chunk.split("__COMMANDS__:", 1)[1].strip()  
-                        commands_data = json.loads(commands_json)  
-                        commands_accumulated = commands_data.get("commands", [])  
-                        logger.info(f"Comandos recibidos del streaming: {len(commands_accumulated)}")  
+                        commands_json = chunk[len("\n__COMMANDS__:"):]  
+                        commands_received = json.loads(commands_json)  
+                        logger.info(f"📥 Recibidos {len(commands_received)} comando(s) del streaming")  
                     except Exception as e:  
                         logger.error(f"Error parseando comandos del streaming: {e}")  
                     continue  
                   
-                # Enviar chunk de texto normal  
-                full_text_accumulated += chunk  
+                # Enviar chunks de texto normales  
+                accumulated_text += chunk  
                 yield (  
                     "data: "  
                     + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)  
                     + "\n\n"  
                 )  
                 await asyncio.sleep(0.01)  
-  
-            # 4) Sanitizar la respuesta completa  
-            user_response_only = sanitize_user_response(full_text_accumulated) or ""  
-  
-            # 5) Evento final con comandos  
+              
+            # Sanitizar el texto acumulado  
+            sanitized_text = sanitize_user_response(accumulated_text) or accumulated_text  
+              
+            # Guardar en memoria (si no se guardó ya en assistant.py)  
+            try:  
+                add_to_memory(current_user, user_text, sanitized_text)  
+            except Exception as e:  
+                logger.warning(f"No se pudo guardar en memoria: {e}")  
+              
+            # Evento final con comandos  
             done_payload = {  
                 "type": "done",  
-                "full_text": user_response_only,  
-                "commands": commands_accumulated,  
+                "full_text": sanitized_text,  
+                "commands": commands_received,  
             }  
             yield "data: " + json.dumps(done_payload, ensure_ascii=False) + "\n\n"  
   
         except Exception as e:  
+            logger.error(f"Error en streaming: {e}")  
             err_payload = {"type": "error", "error": str(e)}  
-            yield "data: " + json.dumps(err_payload, ensure_ascii=False) + "\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+            yield "data: " + json.dumps(err_payload, ensure_ascii=False) + "\n\n"  
+  
+    return StreamingResponse(  
+        event_generator(),  
+        media_type="text/event-stream",  
+        headers={  
+            "Cache-Control": "no-cache",  
+            "X-Accel-Buffering": "no",  
+        },  
     )
-
   
 @app.get("/user/profile")      
 def get_user_profile(current_user: str = Depends(get_current_user)):      

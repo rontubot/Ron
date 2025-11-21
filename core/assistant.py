@@ -1222,7 +1222,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 # Enviar cada chunk inmediatamente  
                 yield content  
           
-        # Al final, intentar parsear comandos del texto completo      
+     # Al final, intentar parsear comandos del texto completo      
         commands_to_send = []  
         try:      
             # Intentar extraer JSON si el modelo lo generó      
@@ -1232,14 +1232,12 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             # Parsear comandos para enviarlos al cliente  
             commands_to_send = response_data.get("commands", []) or []      
             if commands_to_send:    
-                logger.info(f"Comandos generados para enviar al cliente: {len(commands_to_send)}")  
-                  
-                # 🔹 NUEVO: Enviar comandos como evento especial  
-                commands_json = json.dumps({"commands": commands_to_send}, ensure_ascii=False)  
-                yield f"\n__COMMANDS__:{commands_json}"  
-        except:      
-            # Si no es JSON válido, usar el texto completo como respuesta      
-            pass
+                logger.info(f"📤 Enviando {len(commands_to_send)} comando(s) al cliente")  
+                # Enviar comandos en formato especial que api.py pueda detectar  
+                yield f"\n__COMMANDS__:{json.dumps(commands_to_send, ensure_ascii=False)}\n"  
+        except Exception as e:      
+            logger.warning(f"No se pudieron parsear comandos del streaming: {e}")  
+            pass  
                           
         # Guardar en memoria      
         if save_to_memory:      
@@ -1259,8 +1257,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         logger.error(f"Error con OpenAI streaming: {e}")      
         yield "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
-
-
+        
   
 # Wrapper público para streaming  
 def responder_a_usuario_streaming(user_input: str, username: str = "default"):  
