@@ -1086,7 +1086,7 @@ def set_volume(level, progress_callback=None):
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
             devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None, None)
             volume = cast(interface, POINTER(IAudioEndpointVolume))
             volume.SetMasterVolumeLevelScalar(level / 100.0, None)
             send_progress(f"✅ Volumen ajustado al {level}%")
