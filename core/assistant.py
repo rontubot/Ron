@@ -427,11 +427,14 @@ def parse_commands_only(gpt_response: str) -> dict:
         # Devolver algo razonable aunque venga mal
         return {"user_response": gpt_response, "commands": []}
 
-    allowed = {
-        "search_youtube","open_application","close_application","search_google","get_weather",
-        "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",
-        "check_system_services","restart_critical_services","clean_temp_files","flush_dns",
-        "shutdown","restart","suspend","queue_local_task"
+    allowed = {  
+        "search_youtube","open_application","close_application","search_google","get_weather",  
+        "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",  
+        "check_system_services","restart_critical_services","clean_temp_files","flush_dns",  
+        "shutdown","restart","suspend","set_volume","create_file","create_folder",  
+        "move_file","copy_file","create_shortcut","delete_file","list_files",  
+        "read_file","analyze_file","list_directory_detailed","get_standard_path",  
+        "queue_local_task"  
     }
 
     cmds = data.get("commands") or []
@@ -1219,37 +1222,45 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 # Enviar cada chunk inmediatamente  
                 yield content  
           
-        # Al final, intentar parsear comandos del texto completo    
-        try:    
-            # Intentar extraer JSON si el modelo lo generó    
-            corrected = fix_common_json_errors(full_response)    
-            response_data = json.loads(corrected)    
-                
-            # SOLO parsear comandos, NO ejecutarlos  
-            # Los comandos se retornan (vía SSE) al cliente para ejecución local  
-            commands_to_execute = response_data.get("commands", []) or []    
-            if commands_to_execute:  
-                logger.info(f"Comandos generados (NO ejecutados): {len(commands_to_execute)}")  
-        except:    
-            # Si no es JSON válido, usar el texto completo como respuesta    
-            pass
-                        
-        # Guardar en memoria    
-        if save_to_memory:    
-            _append_user_conv(username, original_input, full_response, source="voice")    
-            
-        # Actualizar __recent_turns__    
-        try:    
-            mem_tmp = load_user_memory(username) or {}    
-            rt = (mem_tmp.get("__recent_turns__", []) or [])[-19:]    
-            rt.append({"hash": turn_hash, "ts": now, "response": full_response})    
-            mem_tmp["__recent_turns__"] = rt    
-            save_user_memory(username, mem_tmp)    
-        except:    
-            pass    
-                
-    except Exception as e:    
-        logger.error(f"Error con OpenAI streaming: {e}")    
+        # Al final, intentar parsear comandos del texto completo      
+        commands_to_send = []  
+        try:      
+            # Intentar extraer JSON si el modelo lo generó      
+            corrected = fix_common_json_errors(full_response)      
+            response_data = json.loads(corrected)      
+                  
+            # Parsear comandos para enviarlos al cliente  
+            commands_to_send = response_data.get("commands", []) or []      
+            if commands_to_send:    
+                logger.info(f"Comandos generados para enviar al cliente: {len(commands_to_send)}")  
+                  
+                # 🔹 NUEVO: Enviar comandos como evento SSE  
+                # Formato: yield un string JSON con type="commands"  
+                commands_event = json.dumps({  
+                    "type": "commands",  
+                    "commands": commands_to_send  
+                }, ensure_ascii=False)  
+                yield f"\n__COMMANDS__:{commands_event}\n"  
+        except:      
+            # Si no es JSON válido, usar el texto completo como respuesta      
+            pass  
+                          
+        # Guardar en memoria      
+        if save_to_memory:      
+            _append_user_conv(username, original_input, full_response, source="voice")      
+              
+        # Actualizar __recent_turns__      
+        try:      
+            mem_tmp = load_user_memory(username) or {}      
+            rt = (mem_tmp.get("__recent_turns__", []) or [])[-19:]      
+            rt.append({"hash": turn_hash, "ts": now, "response": full_response})      
+            mem_tmp["__recent_turns__"] = rt      
+            save_user_memory(username, mem_tmp)      
+        except:      
+            pass      
+                  
+    except Exception as e:      
+        logger.error(f"Error con OpenAI streaming: {e}")      
         yield "Disculpa, tuve un problema técnico. ¿Puedes repetir tu pregunta?"
 
 

@@ -615,49 +615,64 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
     if not user_text:
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
 
-    async def event_generator():
-        import asyncio
-        try:
-            # 1) Construir el mismo payload que recibiría /ron
-            data_model = UserInput(
-                text=user_text,
-                message=user_text,
-                return_json=True,
-                source=body.get("source") or "desktop-stream",
-                username=body.get("username") or current_user,
-            )
-
-            # 2) Reutilizar la lógica completa de /ron
-            core_payload = chat_with_ron(data_model, authorization)
-
-            # Ya viene sanitizado dentro de chat_with_ron, pero por si acaso:
-            user_response_only = core_payload.get("user_response") or ""
-            user_response_only = sanitize_user_response(user_response_only) or ""
-
-            commands = core_payload.get("commands") or []
-
-            # 3) Enviar la respuesta como chunks
-            for i in range(0, len(user_response_only), 3):
-                chunk = user_response_only[i:i+3]
-                yield (
-                    "data: "
-                    + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)
-                    + "\n\n"
-                )
-                await asyncio.sleep(0.01)
-
-            # OJO: NO llamamos add_to_memory aquí, ya lo hizo chat_with_ron
-
-            # 4) Evento final con comandos para Electron
-            done_payload = {
-                "type": "done",
-                "full_text": user_response_only,
-                "commands": commands,
-            }
-            yield "data: " + json.dumps(done_payload, ensure_ascii=False) + "\n\n"
-
-        except Exception as e:
-            err_payload = {"type": "error", "error": str(e)}
+    async def event_generator():  
+        import asyncio  
+        try:  
+            # 1) Construir el mismo payload que recibiría /ron  
+            data_model = UserInput(  
+                text=user_text,  
+                message=user_text,  
+                return_json=True,  
+                source=body.get("source") or "desktop-stream",  
+                username=body.get("username") or current_user,  
+            )  
+  
+            # 2) Usar la versión streaming directamente  
+            from core.assistant import _process_user_input_streaming  
+              
+            full_text_accumulated = ""  
+            commands_accumulated = []  
+              
+            # 3) Iterar sobre los chunks del generador  
+            for chunk in _process_user_input_streaming(  
+                user_text,   
+                save_to_memory=True,   
+                username=body.get("username") or current_user,  
+                task_manager=None  
+            ):  
+                # Detectar si es un evento de comandos  
+                if chunk.startswith("\n__COMMANDS__:"):  
+                    try:  
+                        commands_json = chunk.split("__COMMANDS__:", 1)[1].strip()  
+                        commands_data = json.loads(commands_json)  
+                        commands_accumulated = commands_data.get("commands", [])  
+                        logger.info(f"Comandos recibidos del streaming: {len(commands_accumulated)}")  
+                    except Exception as e:  
+                        logger.error(f"Error parseando comandos del streaming: {e}")  
+                    continue  
+                  
+                # Enviar chunk de texto normal  
+                full_text_accumulated += chunk  
+                yield (  
+                    "data: "  
+                    + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)  
+                    + "\n\n"  
+                )  
+                await asyncio.sleep(0.01)  
+  
+            # 4) Sanitizar la respuesta completa  
+            user_response_only = sanitize_user_response(full_text_accumulated) or ""  
+  
+            # 5) Evento final con comandos  
+            done_payload = {  
+                "type": "done",  
+                "full_text": user_response_only,  
+                "commands": commands_accumulated,  
+            }  
+            yield "data: " + json.dumps(done_payload, ensure_ascii=False) + "\n\n"  
+  
+        except Exception as e:  
+            err_payload = {"type": "error", "error": str(e)}  
             yield "data: " + json.dumps(err_payload, ensure_ascii=False) + "\n\n"
 
     return StreamingResponse(
