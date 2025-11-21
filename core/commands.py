@@ -157,6 +157,35 @@ def _resolve_standard_path(raw_path: str) -> str:
     # Fallback: interpretamos la ruta como relativa al home del usuario
     return os.path.join(home, expanded)
 
+def get_standard_path(path=None, directory=None, base=None, progress_callback=None):
+    """
+    Devuelve una ruta absoluta a partir de:
+    - un alias tipo "escritorio", "documentos", "descargas", etc.
+    - una ruta parcial como "escritorio/archivo.txt"
+    - o una ruta ya absoluta (solo se normaliza).
+
+    Este comando existe para alinear con lo que el prompt STRICT_JSON_SYSTEM
+    le dice al modelo: que puede usar "get_standard_path".
+    Internamente usa _resolve_standard_path, así que hereda todos sus alias.
+    """
+    def send_progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        raw = path or directory or base
+        if not raw:
+            msg = "Falta 'path' o 'directory' para resolver la ruta estándar"
+            send_progress(f"⚠️ {msg}")
+            return msg
+
+        resolved = _resolve_standard_path(str(raw))
+        send_progress(f"✅ Ruta resuelta: {resolved}")
+        return resolved
+    except Exception as e:
+        logger.error(f"Error en get_standard_path('{path or directory or base}'): {e}")
+        return f"Error al resolver la ruta: {e}"
 
 
 
@@ -2394,6 +2423,7 @@ COMMANDS = {
     "append_to_file": append_to_file,
     "search_file": search_file,  
     "bulk_file_analysis": bulk_file_analysis,
+    "get_standard_path": get_standard_path,
       
     # ——— Utilidad      
     "get_weather": get_weather,    
