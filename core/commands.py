@@ -204,34 +204,42 @@ def get_nircmd_path():
     
 # FUNCIONES DE AUDIO CON SOPORTE DE PROGRESO  
     
-def get_audio_processes():
-    """Enumera procesos que probablemente tengan audio activo (sin duplicados)"""
-    audio_apps = set()
-    common_audio_processes = [
-        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',
-        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',
-        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe', 'youtube.exe',
-        'netflix.exe', 'whatsapp.exe',
-    ]
-
-    # 🔹 NUEVO: Obtener el nombre del proceso actual de Python  
-    current_process_name = psutil.Process().name().lower()      
-
-    try:
-        for proc in psutil.process_iter(['name']):
-            pname = proc.info.get('name')
-            if not pname:
-                continue
-            # 🔹 CRÍTICO: Excluir el propio proceso Python  
-            if pname.lower() == current_process_name:  
-                continue                  
-            if pname.lower() in common_audio_processes:
-                audio_apps.add(pname)
-    except Exception as e:
-        logger.error(f"Error enumerando procesos de audio: {e}")
-
+def get_audio_processes():  
+    """Enumera procesos que probablemente tengan audio activo (sin duplicados)"""  
+    audio_apps = set()  
+    common_audio_processes = [  
+        'chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe',  
+        'spotify.exe', 'vlc.exe', 'wmplayer.exe', 'musicbee.exe',  
+        'discord.exe', 'teams.exe', 'zoom.exe', 'slack.exe', 'youtube.exe',  
+        'netflix.exe', 'whatsapp.exe',  
+    ]  
+      
+    # CRÍTICO: Excluir procesos de Ron para evitar bloqueo de volumen  
+    excluded_processes = {  
+        'python.exe',           # Ron 24/7 local  
+        'pythonw.exe',          # Python sin consola  
+        'ron assistant.exe',    # Electron launcher  
+        'ron-assistant.exe',    # Variante del nombre  
+    }  
+  
+    try:  
+        for proc in psutil.process_iter(['name']):  
+            pname = proc.info.get('name')  
+            if not pname:  
+                continue  
+              
+            pname_lower = pname.lower()  
+              
+            # Excluir procesos de Ron  
+            if pname_lower in excluded_processes:  
+                continue  
+                  
+            if pname_lower in common_audio_processes:  
+                audio_apps.add(pname)  
+    except Exception as e:  
+        logger.error(f"Error enumerando procesos de audio: {e}")  
+  
     return list(audio_apps)
-
       
 def duck_other_applications(progress_callback=None):      
     """Reduce volumen de apps conocidas al 20%"""  
