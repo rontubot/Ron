@@ -914,8 +914,7 @@ def search_learned_commands(task_description):
     """  
     Busca comandos previamente aprendidos para la tarea  
     """  
-    try:  
-        import json  
+    try:    
           
         with open("learned_commands.json", "r", encoding="utf-8") as f:  
             learned_db = json.load(f)  
@@ -1613,7 +1612,65 @@ def talk_to_ron(text):
             }          
                   
         # PRIORIDAD 1: Intentar procesamiento normal CON task_manager  
-        response = generate_response_with_user_memory(text, current_username, task_manager=task_manager)          
+        import requests  
+          
+        try:  
+            # Usar el mismo endpoint que el chat de texto  
+            api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")  
+            auth_token = os.getenv("RON_AUTH_TOKEN", "")  
+              
+            headers = {  
+                "Authorization": f"Bearer {auth_token}",  
+                "Content-Type": "application/json"  
+            }  
+              
+            payload = {  
+                "text": text,  
+                "username": current_username  
+            }  
+              
+            # Usar streaming para respuesta progresiva  
+            response_text = ""  
+            with requests.post(  
+                f"{api_url}/ron/stream",  
+                headers=headers,  
+                json=payload,  
+                stream=True,  
+                timeout=30  
+            ) as r:  
+                for line in r.iter_lines():  
+                    if line:  
+                        try:  
+                            data = json.loads(line.decode('utf-8').replace('data: ', ''))  
+                              
+                            # Acumular chunks de texto  
+                            if data.get('type') == 'chunk':  
+                                chunk = data.get('chunk', '')  
+                                response_text += chunk  
+                                # Opcional: hablar chunks progresivamente  
+                                # engine.say(chunk)  
+                                # engine.runAndWait()  
+                              
+                            # Comandos al final  
+                            elif data.get('type') == 'done':  
+                                commands = data.get('commands', [])  
+                                if commands:  
+                                    # Ejecutar comandos localmente  
+                                    for cmd in commands:  
+                                        action = cmd.get('action')  
+                                        params = cmd.get('params', {})  
+                                        run_command(action, params, {'username': current_username})  
+                                break  
+                                  
+                        except json.JSONDecodeError:  
+                            continue  
+              
+            response = response_text if response_text else "No pude procesar tu solicitud."  
+              
+        except Exception as e:  
+            print(f"❌ Error llamando al backend: {e}")  
+            # Fallback al procesamiento local si el backend falla  
+            response = generate_response_with_user_memory(text, current_username, task_manager=task_manager)       
                   
         # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma          
         if not response and requires_autonomous_execution(text):          
