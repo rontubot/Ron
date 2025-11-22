@@ -574,7 +574,7 @@ def safe_activation_response():
     listening_active = False
 
     try:
-        # duck_other_applications()
+        duck_other_applications()
         phrase = random.choice(activation_phrases)
         speak_tts(phrase)
         time.sleep(0.3)
@@ -660,7 +660,7 @@ if __name__ == "__main__":
       
     # Estado inicial  
     activado = False  
-    # restore_application_volumes()  
+    restore_application_volumes()  
       
     print("Estado inicial: Inactivo")  
       
@@ -688,7 +688,7 @@ if __name__ == "__main__":
                             if result.get("shutdown", False):  
                                 print("🔴 Ron desactivado por despedida")  
                                 activado = False  
-                                # restore_application_volumes()  
+                                restore_application_volumes()  
                                 break  
                               
                             if result.get("stay_active", False):  
