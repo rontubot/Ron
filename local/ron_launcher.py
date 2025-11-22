@@ -1670,29 +1670,37 @@ def talk_to_ron(text):
         except Exception as e:  
             print(f"❌ Error llamando al backend: {e}")  
             # Fallback al procesamiento local si el backend falla  
-            response = generate_response_with_user_memory(text, current_username, task_manager=task_manager)  
-
-
-        # NUEVO: Parsear comandos si vienen en el response  
-        if isinstance(response, str):  
-            try:  
-                # Intentar parsear JSON si el backend lo envió  
-                response_data = json.loads(response)  
-                user_text = response_data.get("user_response", response)  
-                commands = response_data.get("commands", [])  
-                  
-                # Ejecutar comandos localmente  
-                for cmd in commands:  
-                    action = cmd.get("action")  
-                    params = cmd.get("params", {})  
-                    if action:  
-                        from core.commands import run_command  
-                        run_command(action, params, {"username": current_username})  
-                  
-                response = user_text  
-            except (json.JSONDecodeError, KeyError):  
-                # No es JSON, usar como texto plano  
-                pass
+            
+            # PRIORIDAD 1: Intentar procesamiento normal CON task_manager    
+            response = generate_response_with_user_memory(text, current_username, task_manager=task_manager)            
+              
+            # NUEVO: Parsear comandos si vienen en el response    
+            if isinstance(response, str):    
+                try:    
+                    # Intentar parsear JSON si el backend lo envió    
+                    response_data = json.loads(response)    
+                    user_text = response_data.get("user_response", response)    
+                    commands = response_data.get("commands", [])    
+                        
+                    # Ejecutar comandos localmente    
+                    for cmd in commands:    
+                        action = cmd.get("action")    
+                        params = cmd.get("params", {})    
+                        if action:    
+                            from core.commands import run_command    
+                            run_command(action, params, {"username": current_username})    
+                        
+                    response = user_text    
+                except (json.JSONDecodeError, KeyError):    
+                    # No es JSON, usar como texto plano    
+                    pass  
+              
+            # CRÍTICO: Limpiar y hablar la respuesta  
+            cleaned_response = clean_text_for_tts(response)  
+            print(f"🤖 Ron: {cleaned_response}")  
+            engine.say(cleaned_response)  
+            engine.runAndWait()  
+            time.sleep(0.5)
 
         # PRIORIDAD 2: Solo si falla Y requiere investigación autónoma          
         if not response and requires_autonomous_execution(text):          
