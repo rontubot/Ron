@@ -214,12 +214,12 @@ def get_audio_processes():
         'netflix.exe', 'whatsapp.exe',  
     ]  
       
-    # CRÍTICO: Excluir procesos de Ron para evitar bloqueo de volumen  
-    excluded_processes = {  
-        'python.exe',           # Ron 24/7 local  
-        'pythonw.exe',          # Python sin consola  
-        'ron assistant.exe',    # Electron launcher  
-        'ron-assistant.exe',    # Variante del nombre  
+    # CRÍTICO: Excluir procesos de Ron para evitar bloqueo de volumen    
+    excluded_processes = {    
+        'python.exe',           # Ron 24/7 local    
+        'pythonw.exe',          # Python sin consola    
+        'ron assistant.exe',    # Electron launcher    
+        'ron-assistant.exe',    # Variante del nombre    
     }  
   
     try:  
@@ -228,12 +228,11 @@ def get_audio_processes():
             if not pname:  
                 continue  
               
+            # ✅ NUEVO: Verificar que NO esté en excluded_processes  
             pname_lower = pname.lower()  
-              
-            # Excluir procesos de Ron  
             if pname_lower in excluded_processes:  
-                continue  
-                  
+                continue  # Saltar procesos excluidos  
+              
             if pname_lower in common_audio_processes:  
                 audio_apps.add(pname)  
     except Exception as e:  
