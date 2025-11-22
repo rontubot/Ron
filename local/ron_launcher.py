@@ -374,17 +374,20 @@ def talk_to_ron(text):
             
         if is_farewell:      
             response_text = "Hasta luego. Que tengas un buen día."      
-            cleaned_response = clean_text_for_tts(response_text)      
-            print(f"🤖 Ron: {cleaned_response}")      
-              
-            # TTS con manejo de errores  
+            # Usar el engine global directamente, sin reinicialización  
             try:  
-                engine.say(cleaned_response)      
-                engine.runAndWait()      
-                time.sleep(0.5)  
-            except Exception as tts_error:  
-                print(f"⚠️ Error en TTS: {tts_error}")  
+                cleaned_response = clean_text_for_tts(response_text)  
+                print(f"🤖 Ron: {cleaned_response}")  
+                print(f"🔊 Intentando TTS con texto de {len(cleaned_response)} caracteres...")  
                   
+                engine.say(cleaned_response)  
+                engine.runAndWait()  
+                print("✅ TTS completado exitosamente")  
+                time.sleep(0.5)  
+                  
+            except Exception as tts_error:  
+                print(f"❌ Error en TTS: {tts_error}")  
+                # NO reinicializar engine aquí, solo reportar el error
             if current_username:      
                 add_to_memory(current_username, text, response_text)      
                   
