@@ -113,6 +113,7 @@ manual_recording_start_time = 0.0
 # Inicializar motor TTS  
 engine = pyttsx3.init()  
 engine.setProperty('rate', 185)  
+engine.setProperty('volume', 1.0)
 
 # --- TTS seguro en un solo punto ---
 _tts_lock = threading.Lock()
@@ -128,6 +129,9 @@ def speak_tts(raw_text: str):
 
     with _tts_lock:
         try:
+            # Asegurar siempre volumen al máximo por si algo lo cambió
+            engine.setProperty('volume', 1.0)
+            vol = engine.getProperty('volume')
             print(f"🤖 Ron: {cleaned}")
             print(f"🔊 TTS (len={len(cleaned)})...")
             # Por si quedó algo en cola:
@@ -570,7 +574,7 @@ def safe_activation_response():
     listening_active = False
 
     try:
-        duck_other_applications()
+        # duck_other_applications()
         phrase = random.choice(activation_phrases)
         speak_tts(phrase)
         time.sleep(0.3)
@@ -656,7 +660,7 @@ if __name__ == "__main__":
       
     # Estado inicial  
     activado = False  
-    restore_application_volumes()  
+    # restore_application_volumes()  
       
     print("Estado inicial: Inactivo")  
       
@@ -684,7 +688,7 @@ if __name__ == "__main__":
                             if result.get("shutdown", False):  
                                 print("🔴 Ron desactivado por despedida")  
                                 activado = False  
-                                restore_application_volumes()  
+                                # restore_application_volumes()  
                                 break  
                               
                             if result.get("stay_active", False):  
