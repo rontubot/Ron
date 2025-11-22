@@ -113,6 +113,36 @@ manual_recording_start_time = 0.0
 # Inicializar motor TTS  
 engine = pyttsx3.init()  
 engine.setProperty('rate', 185)  
+
+# --- TTS seguro en un solo punto ---
+_tts_lock = threading.Lock()
+
+def speak_tts(raw_text: str):
+    """
+    Habla texto usando el engine global de forma thread-safe.
+    NO toca speaking/listening_active, eso lo controla quien llame.
+    """
+    cleaned = clean_text_for_tts(raw_text or "")
+    if not cleaned:
+        return
+
+    with _tts_lock:
+        try:
+            print(f"🤖 Ron: {cleaned}")
+            print(f"🔊 TTS (len={len(cleaned)})...")
+            # Por si quedó algo en cola:
+            try:
+                engine.stop()
+            except Exception:
+                pass
+
+            engine.say(cleaned)
+            engine.runAndWait()
+            print("✅ TTS OK")
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"❌ Error en TTS: {e}")
+
   
 # Frases de activación  
 activation_phrases = [  
@@ -127,18 +157,17 @@ print("✅ Motor TTS inicializado")
 
 
 # ===== TaskManager Callback =====  
-def tts_callback(text: str):    
-    """Callback para que TaskManager envíe mensajes por TTS"""    
-    global speaking, listening_active    
-    speaking = True    
-    listening_active = False    
-    try:    
-        cleaned_text = clean_text_for_tts(text)    
-        engine.say(cleaned_text)    
-        engine.runAndWait()    
-    finally:    
-        speaking = False    
-        listening_active = True    
+def tts_callback(text: str):
+    """Callback para que TaskManager envíe mensajes por TTS"""
+    global speaking, listening_active
+    speaking = True
+    listening_active = False
+    try:
+        speak_tts(text)
+    finally:
+        speaking = False
+        listening_active = True
+ 
   
 # Inicializar TaskManager global    
 task_manager = TaskManager(tts_callback)    
@@ -347,76 +376,67 @@ def detect_ron_activation(text: str) -> bool:
   
 
 def talk_to_ron(text):      
+    """
+    Función principal que:
+    1. Envía el texto al backend de Railway vía streaming
+    2. Acumula la respuesta
+    3. Ejecuta comandos localmente
+    4. Habla la respuesta con TTS
     """      
-    Función principal que:      
-    1. Envía el texto al backend de Railway vía streaming      
-    2. Acumula la respuesta      
-    3. Ejecuta comandos localmente      
-    4. Habla la respuesta con TTS      
-    """      
-    global speaking, listening_active, activado      
-          
+    global speaking, listening_active, activado
+      
     speaking = True      
     listening_active = False      
     response_text = ""      
-          
+      
     try:      
-        # Verificar despedida ANTES de procesar      
-        try:    
-            from core.assistant import detect_farewell_patterns as core_detect    
-            is_farewell = core_detect(text)    
-        except ImportError:    
+        # Verificar despedida ANTES de procesar
+        try:
+            # Usamos la función global detect_farewell_patterns definida abajo
+            is_farewell = detect_farewell_patterns(text)
+        except Exception:
             farewell_keywords = [      
                 "adiós", "adios", "chao", "chau", "hasta luego",      
                 "nos vemos", "bye", "hasta pronto", "me voy"      
             ]      
-            is_farewell = any(keyword in text.lower() for keyword in farewell_keywords)    
-            
+            is_farewell = any(keyword in (text or "").lower() for keyword in farewell_keywords)
+        
         if is_farewell:      
-            response_text = "Hasta luego. Que tengas un buen día."      
-            # Usar el engine global directamente, sin reinicialización  
-            try:  
-                cleaned_response = clean_text_for_tts(response_text)  
-                print(f"🤖 Ron: {cleaned_response}")  
-                print(f"🔊 Intentando TTS con texto de {len(cleaned_response)} caracteres...")  
-                  
-                engine.say(cleaned_response)  
-                engine.runAndWait()  
-                print("✅ TTS completado exitosamente")  
-                time.sleep(0.5)  
-                  
-            except Exception as tts_error:  
-                print(f"❌ Error en TTS: {tts_error}")  
-                # NO reinicializar engine aquí, solo reportar el error
+            response_text = "Hasta luego. Que tengas un buen día."
+            try:
+                speak_tts(response_text)
+            except Exception as tts_error:
+                print(f"❌ Error en TTS (despedida): {tts_error}")
+            
             if current_username:      
                 add_to_memory(current_username, text, response_text)      
-                  
+              
             return {      
                 "shutdown": False,      
                 "stay_active": False,      
                 "response": response_text      
             }      
-              
+          
         # Configurar API      
         api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")      
         auth_token = os.getenv("RON_AUTH_TOKEN", "")      
-              
+          
         headers = {      
             "Authorization": f"Bearer {auth_token}",      
             "Content-Type": "application/json"      
         }      
-              
+          
         payload = {      
             "text": text,      
             "username": current_username or "default"      
         }      
-          
+      
         print(f"📡 Enviando al backend: {text[:50]}...")  
-              
+          
         # Llamar al backend con streaming      
         commands_to_execute = []      
-              
-        with requests.post(      
+          
+        with requests.post(
             f"{api_url}/ron/stream",      
             headers=headers,      
             json=payload,      
@@ -426,49 +446,49 @@ def talk_to_ron(text):
             for line in r.iter_lines():      
                 if not line:      
                     continue    
-                        
+                    
                 try:      
                     line_str = line.decode('utf-8', errors='ignore').strip()    
-                        
+                    
                     if not line_str or line_str.startswith(':'):    
                         continue    
-                            
+                        
                     if line_str.startswith('data: '):      
                         line_str = line_str[6:]      
                     else:    
                         continue    
-                              
+                          
                     data = json.loads(line_str)      
-                              
+                          
                     if data.get('type') == 'chunk':      
                         chunk = data.get('chunk', '')      
                         response_text += chunk      
-                              
+                          
                     elif data.get('type') == 'done':      
                         full_text = data.get('full_text', '')      
                         if full_text and not response_text:      
                             response_text = full_text      
-                                  
+                          
                         commands_to_execute = data.get('commands', [])      
                         break      
-                              
+                          
                     elif data.get('type') == 'error':      
                         error_msg = data.get('error', 'Error desconocido')      
                         print(f"❌ Error del backend: {error_msg}")      
                         response_text = "Ocurrió un error procesando tu solicitud."      
                         break      
-                          
+                      
                 except json.JSONDecodeError as e:      
                     print(f"⚠️ Error parseando JSON: {e}, línea: {line_str[:100]}")    
                     continue      
-          
+      
         print(f"📥 Respuesta recibida del backend: {response_text[:100]}...")  
-              
+          
         # Si no hay respuesta, usar mensaje por defecto      
         if not response_text:      
             response_text = "No pude procesar tu solicitud."      
             print("⚠️ Backend no devolvió texto, usando mensaje por defecto")  
-              
+          
         # Ejecutar comandos localmente      
         if commands_to_execute:      
             print(f"🔧 Ejecutando {len(commands_to_execute)} comando(s)...")      
@@ -481,103 +501,81 @@ def talk_to_ron(text):
                         run_command(action, params, ctx)      
                     except Exception as e:      
                         print(f"❌ Error ejecutando comando {action}: {e}")      
-              
- 
-        # CRÍTICO: Limpiar y hablar la respuesta CON DEBUGGING    
-        cleaned_response = clean_text_for_tts(response_text)        
-        print(f"🤖 Ron: {cleaned_response}")        
-        print(f"🔊 Intentando TTS con texto de {len(cleaned_response)} caracteres...")    
-            
-        # TTS usando el engine global directamente  
-        try:      
-            engine.say(cleaned_response)          
-            engine.runAndWait()          
-            print("✅ TTS completado exitosamente")      
-            time.sleep(0.5)      
-        except Exception as tts_error:      
-            print(f"❌ Error en TTS: {tts_error}")
-
+      
+        # Hablar la respuesta (TTS centralizado)
+        speak_tts(response_text)
+  
         # Guardar en memoria      
         if current_username:      
             add_to_memory(current_username, text, response_text)      
-              
+          
         # Determinar si debe mantenerse activo      
         stay_active = should_stay_active(text, response_text)      
-              
+          
         return {      
             "shutdown": False,      
             "stay_active": stay_active,      
             "response": response_text      
         }      
-          
+      
     except requests.exceptions.Timeout:      
         print("❌ Timeout al conectar con el backend")      
         error_response = "El servidor tardó demasiado en responder. Intenta de nuevo."      
-        cleaned_error = clean_text_for_tts(error_response)      
-        print(f"🤖 Ron: {cleaned_error}")      
+        print(f"🤖 Ron: {clean_text_for_tts(error_response)}")      
           
-        try:  
-            engine.say(cleaned_error)      
-            engine.runAndWait()  
-        except Exception as tts_error:  
+        try:
+            speak_tts(error_response)
+        except Exception as tts_error:
             print(f"⚠️ Error en TTS de timeout: {tts_error}")  
-              
-        return {"shutdown": False, "stay_active": True, "response": error_response}      
           
+        return {"shutdown": False, "stay_active": True, "response": error_response}      
+      
     except requests.exceptions.ConnectionError:      
         print("❌ No se pudo conectar con el backend")      
         error_response = "No puedo conectarme al servidor. Verifica tu conexión."      
-        cleaned_error = clean_text_for_tts(error_response)      
-        print(f"🤖 Ron: {cleaned_error}")      
+        print(f"🤖 Ron: {clean_text_for_tts(error_response)}")      
           
-        try:  
-            engine.say(cleaned_error)      
-            engine.runAndWait()  
-        except Exception as tts_error:  
+        try:
+            speak_tts(error_response)
+        except Exception as tts_error:
             print(f"⚠️ Error en TTS de conexión: {tts_error}")  
-              
-        return {"shutdown": False, "stay_active": True, "response": error_response}      
           
+        return {"shutdown": False, "stay_active": True, "response": error_response}      
+      
     except Exception as e:      
         print(f"❌ Error en talk_to_ron: {e}")      
         import traceback    
         traceback.print_exc()    
         error_response = "Ocurrió un error procesando tu solicitud. ¿Puedes intentar de nuevo?"      
-        cleaned_error = clean_text_for_tts(error_response)      
-        print(f"🤖 Ron: {cleaned_error}")      
+        print(f"🤖 Ron: {clean_text_for_tts(error_response)}")      
           
-        try:  
-            engine.say(cleaned_error)      
-            engine.runAndWait()  
-        except Exception as tts_error:  
+        try:
+            speak_tts(error_response)
+        except Exception as tts_error:
             print(f"⚠️ Error en TTS de excepción: {tts_error}")  
-              
-        return {"shutdown": False, "stay_active": True, "response": error_response}      
           
+        return {"shutdown": False, "stay_active": True, "response": error_response}      
+      
     finally:      
         speaking = False      
         listening_active = True
+
   
   
-def safe_activation_response():  
-    """Respuesta de activación con TTS"""  
-    global speaking, listening_active  
-      
-    speaking = True  
-    listening_active = False  
-      
-    try:  
-        # Ducking de audio para mejor claridad  
-        duck_other_applications()  
-          
-        # Seleccionar frase aleatoria  
-        phrase = random.choice(activation_phrases)  
-        print(f"🤖 Ron: {phrase}")  
-        engine.say(phrase)  
-        engine.runAndWait()  
-        time.sleep(0.5)  
-    finally:  
-        speaking = False  
+def safe_activation_response():
+    """Respuesta de activación con TTS"""
+    global speaking, listening_active
+
+    speaking = True
+    listening_active = False
+
+    try:
+        duck_other_applications()
+        phrase = random.choice(activation_phrases)
+        speak_tts(phrase)
+        time.sleep(0.3)
+    finally:
+        speaking = False
         listening_active = True
 
 

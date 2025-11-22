@@ -219,7 +219,8 @@ def get_audio_processes():
         'python.exe',           # Ron 24/7 local    
         'pythonw.exe',          # Python sin consola    
         'ron assistant.exe',    # Electron launcher    
-        'ron-assistant.exe',    # Variante del nombre    
+        'ron-assistant.exe',    # Variante del nombre
+        'python3.exe',            
     }  
   
     try:  
@@ -232,7 +233,7 @@ def get_audio_processes():
             pname_lower = pname.lower()  
             if pname_lower in excluded_processes:  
                 continue  # Saltar procesos excluidos  
-              
+
             if pname_lower in common_audio_processes:  
                 audio_apps.add(pname)  
     except Exception as e:  
