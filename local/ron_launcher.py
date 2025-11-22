@@ -484,25 +484,25 @@ def talk_to_ron(text):
         print(f"🤖 Ron: {cleaned_response}")      
         print(f"🔊 Intentando TTS con texto de {len(cleaned_response)} caracteres...")  
           
-        # TTS con manejo de errores y reinicio si falla  
-        try:  
-            engine.say(cleaned_response)      
-            engine.runAndWait()      
-            print("✅ TTS completado exitosamente")  
-            time.sleep(0.5)  
-        except Exception as tts_error:  
-            print(f"❌ Error en TTS: {tts_error}")  
-            # Intentar reinicializar el motor TTS  
-            try:  
-                global engine  
-                engine = pyttsx3.init()  
-                engine.setProperty('rate', 185)  
-                engine.say(cleaned_response)  
-                engine.runAndWait()  
-                print("✅ TTS completado después de reinicializar motor")  
-            except Exception as retry_error:  
-                print(f"❌ Error en TTS después de reintentar: {retry_error}")  
-              
+        # TTS con manejo de errores y reinicio si falla    
+        try:    
+            engine.say(cleaned_response)        
+            engine.runAndWait()        
+            print("✅ TTS completado exitosamente")    
+            time.sleep(0.5)    
+        except Exception as tts_error:    
+            print(f"❌ Error en TTS: {tts_error}")    
+            # Intentar reinicializar el motor TTS    
+            try:    
+                # Reinicializar sin declarar global  
+                engine = pyttsx3.init()    
+                engine.setProperty('rate', 185)    
+                engine.say(cleaned_response)    
+                engine.runAndWait()    
+                print("✅ TTS completado después de reinicializar motor")    
+            except Exception as retry_error:    
+                print(f"❌ Error en TTS después de reintentar: {retry_error}")
+                
         # Guardar en memoria      
         if current_username:      
             add_to_memory(current_username, text, response_text)      
