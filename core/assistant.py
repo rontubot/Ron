@@ -700,7 +700,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
   
     # si el mismo hash fue procesado en los últimos 8s, devolvemos la misma respuesta sin repetir nada  
     for item in reversed(recent_turns[-10:]):  # mira los últimos 10  
-        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 8:  
+        if item.get("hash") == turn_hash and (now - float(item.get("ts", 0))) < 60:  
             cached_resp = item.get("response")  
             if cached_resp:  
                 return cached_resp  

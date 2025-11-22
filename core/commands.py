@@ -214,11 +214,17 @@ def get_audio_processes():
         'netflix.exe', 'whatsapp.exe',
     ]
 
+    # 🔹 NUEVO: Obtener el nombre del proceso actual de Python  
+    current_process_name = psutil.Process().name().lower()      
+
     try:
         for proc in psutil.process_iter(['name']):
             pname = proc.info.get('name')
             if not pname:
                 continue
+            # 🔹 CRÍTICO: Excluir el propio proceso Python  
+            if pname.lower() == current_process_name:  
+                continue                  
             if pname.lower() in common_audio_processes:
                 audio_apps.add(pname)
     except Exception as e:
