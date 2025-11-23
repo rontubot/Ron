@@ -29,6 +29,27 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)      
     
 
+
+def fix_python_volume(level: float = 1.0):
+    """
+    Fuerza el volumen de python.exe en Windows (0.0–1.0).
+    Se apoya en get_nircmd_path para resolver la ruta correcta.
+    """
+    try:
+        level = max(0.0, min(1.0, float(level)))
+        nircmd_path = get_nircmd_path()
+        subprocess.run(
+            [nircmd_path, "setappvolume", "python.exe", str(level)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2,
+        )
+    except Exception as e:
+        logger.error(f"Error ajustando volumen de Python: {e}")
+
+
+
+
 def _call_ron_api_feedback(prompt: str, username: str = "local-task") -> str:
     """
     Llama al backend de Ron (/ron) para generar un feedback en lenguaje natural

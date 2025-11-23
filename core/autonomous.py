@@ -2,68 +2,86 @@
 core/autonomous.py  
 Sistema autónomo de investigación y ejecución de comandos de Windows  
 """  
-  
 import json  
 import re  
 import subprocess  
 import time  
 from datetime import datetime  
 from typing import Dict, List, Optional, Any  
+
+from openai import OpenAI
+import os
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
   
   
-def research_system_commands(task_description: str, username: str) -> Optional[Dict]:  
-    """Investiga qué comandos del sistema son necesarios para cualquier tarea"""  
-    from core.assistant import generate_response_no_memory  
-      
-    research_prompt = f"""  
-    El usuario quiere: {task_description}  
-      
-    Como experto en Windows, determina los comandos exactos necesarios.  
-      
-    Responde SOLO con JSON válido (sin backticks):  
-    {{  
-        "task_analysis": "descripción de qué harás",  
-        "commands": [  
-            {{"type": "cmd|powershell|python", "command": "comando_exacto", "description": "qué hace", "safe": true}}  
-        ]  
-    }}  
-      
-    Comandos disponibles:  
-    - Volumen: nircmd setsysvolume [0-65535]  
-    - Archivos: copy, move, del, mkdir, echo "texto" > archivo.txt  
-    - Aplicaciones: start "app", taskkill /f /im "proceso.exe"  
-    - Sistema: shutdown /s /t 0, ipconfig /flushdns  
-    - PowerShell: Set-Volume, New-Item, Get-Process, etc.  
-    - Python: cualquier script Python válido  
-      
-    IMPORTANTE:  
-    - Solo comandos seguros (safe: true)  
-    - Comandos reales que funcionen en Windows  
-    - Si no sabes cómo hacer algo, marca safe: false  
-    """  
-      
-    try:  
-        response = generate_response_no_memory(research_prompt, username)  
-        parsed = parse_research_response(response)  
-          
-        if parsed and parsed.get("commands"):  
-            # Validar seguridad de cada comando  
-            safe_commands = []  
-            for cmd in parsed["commands"]:  
-                is_safe, reason = validate_command_safety(cmd.get("command", ""), cmd.get("type", "cmd"))  
-                if is_safe or cmd.get("safe", False):  
-                    safe_commands.append(cmd)  
-                else:  
-                    print(f"⚠️ Comando rechazado por seguridad: {cmd.get('command')} - {reason}")  
-              
-            if safe_commands:  
-                parsed["commands"] = safe_commands  
-                return parsed  
-          
-        return None  
-    except Exception as e:  
-        print(f"❌ Error en investigación: {e}")  
-        return None  
+def research_system_commands(task_description: str, username: str) -> Optional[Dict]:
+    """Investiga qué comandos del sistema son necesarios para cualquier tarea usando OpenAI directo."""
+    research_prompt = f"""
+El usuario quiere: {task_description}
+
+Como experto en Windows, determina los comandos exactos necesarios.
+
+Responde SOLO con JSON válido (sin backticks):
+{{
+    "task_analysis": "descripción de qué harás",
+    "commands": [
+        {{"type": "cmd|powershell|python", "command": "comando_exacto", "description": "qué hace", "safe": true}}
+    ]
+}}
+
+Comandos disponibles:
+- Volumen: nircmd setsysvolume [0-65535]
+- Archivos: copy, move, del, mkdir, echo "texto" > archivo.txt
+- Aplicaciones: start "app", taskkill /f /im "proceso.exe"
+- Sistema: shutdown /s /t 0, ipconfig /flushdns
+- PowerShell: Set-Volume, New-Item, Get-Process, etc.
+- Python: cualquier script Python válido
+
+IMPORTANTE:
+- Solo comandos seguros (safe: true)
+- Comandos reales que funcionen en Windows
+- Si no sabes cómo hacer algo, marca safe: false
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-5-chat-latest",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Actúas como un experto en administración de Windows y solo respondes JSON.",
+                },
+                {"role": "user", "content": research_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            max_tokens=800,
+        )
+        content = resp.choices[0].message.content
+        parsed = json.loads(content)
+
+        if parsed and parsed.get("commands"):
+            # Validar seguridad de cada comando
+            safe_commands = []
+            for cmd in parsed["commands"]:
+                is_safe, reason = validate_command_safety(
+                    cmd.get("command", ""), cmd.get("type", "cmd")
+                )
+                if is_safe or cmd.get("safe", False):
+                    safe_commands.append(cmd)
+                else:
+                    print(f"⚠️ Comando rechazado por seguridad: {cmd.get('command')} - {reason}")
+
+            if safe_commands:
+                parsed["commands"] = safe_commands
+                return parsed
+
+        return None
+    except Exception as e:
+        print(f"❌ Error en investigación: {e}")
+        return None
+
   
   
 def parse_research_response(response: Any) -> Optional[Dict]:  

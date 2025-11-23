@@ -26,6 +26,9 @@ from core.memory import (
     set_display_name,
     maybe_extract_name_from_text,
 )
+
+from core.autonomous import requires_autonomous_execution, autonomous_command_execution
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -1011,9 +1014,27 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
 
+    # --- Modo autónomo: tareas complejas de sistema ---
+    try:
+        allow_auto = os.getenv("RON_ALLOW_AUTONOMOUS", "0") == "1"
+    except Exception:
+        allow_auto = False
+
+    if allow_auto and requires_autonomous_execution(original_input):
+        auto_result = autonomous_command_execution(original_input, username)
+
+        # Si el plan se ejecutó bien, devolvemos su resumen y NO pasamos por el LLM normal
+        if auto_result.get("success"):
+            summary = auto_result.get("summary") or "He ejecutado un plan de comandos para esa tarea."
+            if save_to_memory:
+                _append_user_conv(username, original_input, summary, source="voice")
+            return _finalize_and_return(summary)
+        # Si NO tiene éxito, dejamos que siga el flujo normal abajo (LLM)
+
     # --- Conversación con OpenAI (rama final) ---
     mensajes = construir_historial_usuario_openai(username)
     mensajes.append({"role": "user", "content": original_input})
+
 
     try:
         respuesta = client.chat.completions.create(
@@ -1259,13 +1280,10 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
 
         
   
-# Wrapper público para streaming  
-def responder_a_usuario_streaming(user_input: str, username: str = "default"):  
-    """Para clientes que soporten streaming - genera chunks progresivamente"""  
-    return _process_user_input_streaming(user_input, save_to_memory=False, username=username)
 
 
 
+        
 # ================
 # WRAPPERS PÚBLICOS
 # ================
