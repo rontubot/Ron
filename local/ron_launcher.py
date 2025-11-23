@@ -118,6 +118,9 @@ engine.setProperty('volume', 1.0)
 # --- TTS seguro en un solo punto ---
 _tts_lock = threading.Lock()
 
+# --- TTS seguro en un solo punto ---
+_tts_lock = threading.Lock()
+
 def speak_tts(raw_text: str):
     """
     Habla texto usando el engine global de forma thread-safe.
@@ -129,12 +132,23 @@ def speak_tts(raw_text: str):
 
     with _tts_lock:
         try:
-            # Asegurar siempre volumen al máximo por si algo lo cambió
+            # DEBUG: ver cómo está el engine antes y después
+            try:
+                vol_before = engine.getProperty('volume')
+                rate_before = engine.getProperty('rate')
+                print(f"[TTS] Antes -> volume={vol_before}, rate={rate_before}")
+            except Exception:
+                pass
+
             engine.setProperty('volume', 1.0)
+            engine.setProperty('rate', 185)
             vol = engine.getProperty('volume')
+            rate = engine.getProperty('rate')
+            print(f"[TTS] Después -> volume={vol}, rate={rate}")
+
             print(f"🤖 Ron: {cleaned}")
             print(f"🔊 TTS (len={len(cleaned)})...")
-            # Por si quedó algo en cola:
+
             try:
                 engine.stop()
             except Exception:
@@ -146,18 +160,6 @@ def speak_tts(raw_text: str):
             time.sleep(0.2)
         except Exception as e:
             print(f"❌ Error en TTS: {e}")
-
-  
-# Frases de activación  
-activation_phrases = [  
-    "Dime",  
-    "¿Qué necesitas?",  
-    "Estoy aquí",  
-    "Te escucho",  
-    "¿En qué puedo ayudarte?"  
-]  
-  
-print("✅ Motor TTS inicializado")
 
 
 # ===== TaskManager Callback =====  
@@ -509,9 +511,10 @@ def talk_to_ron(text):
         # Hablar la respuesta (TTS centralizado)
         speak_tts(response_text)
   
-        # Guardar en memoria      
-        if current_username:      
-            add_to_memory(current_username, text, response_text)      
+        # 👉 Por defecto NO guarda nada; solo si explícitamente se lo habilita
+        if current_username and os.getenv("RON_DISABLE_LOCAL_MEMORY", "1") != "1":
+            add_to_memory(current_username, text, response_text)
+
           
         # Determinar si debe mantenerse activo      
         stay_active = should_stay_active(text, response_text)      
