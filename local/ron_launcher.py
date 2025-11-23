@@ -27,6 +27,16 @@ from core.memory import add_to_memory, get_display_name, set_display_name
 # CRÍTICO: Agregar detect_farewell_patterns al import  
 from core.assistant import generate_response_with_user_memory, generate_response_no_memory as core_generate_response, detect_farewell_patterns  
   
+
+activation_phrases = [
+    "Te escucho.",
+    "Sí, estoy aquí. ¿Qué necesitas?",
+    "Aquí estoy, dime.",
+    "Te escucho, ¿qué necesitas que haga?"
+]
+
+
+
 # Función de limpieza de texto para TTS  
 def clean_text_for_tts(text: str) -> str:      
     """Elimina caracteres especiales, emoticonos y markdown para TTS"""      
