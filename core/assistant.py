@@ -397,9 +397,23 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
         # Si ya se procesó en background, saltar  
         if task_manager and action in background_actions:  
             continue  
-  
+
+        # 🔒 Protección: NO dejar que la LLM toque el volumen del sistema
+        # si el usuario no dijo nada sobre volumen/sonido.
+        if action == "set_volume":
+            last_text = ((ctx or {}).get("last_user_text") or "").lower()
+            volume_keywords = [
+                "volumen", "volume", "sonido", "sube el volumen", "baja el volumen",
+                "más fuerte", "más bajo", "silencio", "siléncialo", "mutea",
+                "desmutea", "apaga el sonido", "prende el sonido"
+            ]
+            if not any(k in last_text for k in volume_keywords):
+                logger.info("[LLM commands] Ignorando set_volume porque el usuario no lo pidió explícitamente.")
+                continue
+
         if action == "search_youtube":  
             params.setdefault("play_video", True)  
+
   
         if async_execute:  
             import threading  
