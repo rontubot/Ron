@@ -119,56 +119,45 @@ listening_active = True
 manual_recording = False  
 manual_recording_buffer = []  
 manual_recording_start_time = 0.0  
+
+
+# --- TTS seguro en un solo punto ---
+_tts_lock = threading.Lock()
+
+# --- TTS seguro en un solo punto ---
+_tts_lock = threading.Lock()
+
+def speak_tts(raw_text: str):  
+    """  
+    Habla texto usando un motor TTS nuevo cada vez.  
+    Esto evita problemas de estado corrupto en pyttsx3.  
+    """  
+    cleaned = clean_text_for_tts(raw_text or "")  
+    if not cleaned:  
+        return  
   
-# Inicializar motor TTS  
-engine = pyttsx3.init()  
-engine.setProperty('rate', 185)  
-engine.setProperty('volume', 1.0)
-
-# --- TTS seguro en un solo punto ---
-_tts_lock = threading.Lock()
-
-# --- TTS seguro en un solo punto ---
-_tts_lock = threading.Lock()
-
-def speak_tts(raw_text: str):
-    """
-    Habla texto usando el engine global de forma thread-safe.
-    NO toca speaking/listening_active, eso lo controla quien llame.
-    """
-    cleaned = clean_text_for_tts(raw_text or "")
-    if not cleaned:
-        return
-
-    with _tts_lock:
-        try:
-            # DEBUG: ver cómo está el engine antes y después
-            try:
-                vol_before = engine.getProperty('volume')
-                rate_before = engine.getProperty('rate')
-                print(f"[TTS] Antes -> volume={vol_before}, rate={rate_before}")
-            except Exception:
-                pass
-
-            engine.setProperty('volume', 1.0)
-            engine.setProperty('rate', 185)
-            vol = engine.getProperty('volume')
-            rate = engine.getProperty('rate')
-            print(f"[TTS] Después -> volume={vol}, rate={rate}")
-
-            print(f"🤖 Ron: {cleaned}")
-            print(f"🔊 TTS (len={len(cleaned)})...")
-
-            try:
-                engine.stop()
-            except Exception:
-                pass
-
-            engine.say(cleaned)
-            engine.runAndWait()
-            print("✅ TTS OK")
-            time.sleep(0.2)
-        except Exception as e:
+    with _tts_lock:  
+        try:  
+            # Crear motor nuevo cada vez  
+            local_engine = pyttsx3.init()  
+            local_engine.setProperty('rate', 185)  
+            local_engine.setProperty('volume', 1.0)  
+              
+            print(f"🤖 Ron: {cleaned}")  
+            print(f"🔊 TTS (len={len(cleaned)})...")  
+  
+            local_engine.say(cleaned)  
+            local_engine.runAndWait()  
+              
+            # Limpiar el motor  
+            try:  
+                local_engine.stop()  
+            except Exception:  
+                pass  
+              
+            print("✅ TTS OK")  
+            time.sleep(0.2)  
+        except Exception as e:  
             print(f"❌ Error en TTS: {e}")
 
 
