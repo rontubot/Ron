@@ -143,8 +143,8 @@ def speak_tts(raw_text: str):
             local_engine.setProperty('rate', 185)  
             local_engine.setProperty('volume', 1.0)  
               
-            print(f"🤖 Ron: {cleaned}")  
-            print(f"🔊 TTS (len={len(cleaned)})...")  
+            # print(f"🤖 Ron: {cleaned}")  
+            # print(f"🔊 TTS (len={len(cleaned)})...")  
   
             local_engine.say(cleaned)  
             local_engine.runAndWait()  
@@ -155,10 +155,10 @@ def speak_tts(raw_text: str):
             except Exception:  
                 pass  
               
-            print("✅ TTS OK")  
+            # print("✅ TTS OK")  
             time.sleep(0.2)  
         except Exception as e:  
-            print(f"❌ Error en TTS: {e}")
+            # print(f"❌ Error en TTS: {e}")
 
 
 # ===== TaskManager Callback =====  
