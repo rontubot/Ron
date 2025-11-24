@@ -157,8 +157,9 @@ def speak_tts(raw_text: str):
               
             # print("✅ TTS OK")  
             time.sleep(0.2)  
-        except Exception as e:  
-            # print(f"❌ Error en TTS: {e}")
+        except Exception as e:    
+            print(f"❌ Error en TTS: {e}")  
+            pass  # Continuar después del error  
 
 
 # ===== TaskManager Callback =====  
