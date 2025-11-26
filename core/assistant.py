@@ -134,7 +134,7 @@ def run_turn_classifier(client, model, last_message: str, profile_snapshot: dict
                   {"role":"user","content": u}],
         response_format={"type":"json_object"},
         temperature=0.2,
-        max_tokens=2000,
+        max_tokens=10000,
     )
     return json.loads(resp.choices[0].message.content)
 
@@ -155,7 +155,7 @@ def run_batch_profiler(client, model, recent_window: list) -> dict:
                   {"role":"user","content": u}],
         response_format={"type":"json_object"},
         temperature=0.2,
-        max_tokens=2000,
+        max_tokens=10000,
     )
     return json.loads(resp.choices[0].message.content)
 
@@ -1057,7 +1057,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             model="gpt-5-chat-latest",
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=2000,
+            max_tokens=10000,
             temperature=0.2,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
@@ -1242,7 +1242,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         respuesta = client.chat.completions.create(    
             model="gpt-5-chat-latest",    
             messages=mensajes,    
-            max_tokens=2000,
+            max_tokens=10000,
             temperature=0.2,    
             stream=True  # SIN response_format para streaming real  
         )    
