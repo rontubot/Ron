@@ -1,4 +1,4 @@
-import os      
+﻿import os      
 import subprocess      
 import webbrowser      
 import requests      
@@ -254,7 +254,7 @@ def get_audio_processes():
             pname_lower = pname.lower()  
             if pname_lower in excluded_processes:  
                 continue  # Saltar procesos excluidos  
-
+            
             if pname_lower in common_audio_processes:  
                 audio_apps.add(pname)  
     except Exception as e:  
@@ -926,6 +926,7 @@ def close_application(app_name, progress_callback=None):
     except Exception as e:
         logger.error(f"Excepción al cerrar {app_name}: {str(e)}")
         return f"Error al cerrar {app_name}: {e}"
+
 
   
   
@@ -1845,7 +1846,7 @@ def check_disk_space(progress_callback=None):
     except Exception as e:      
         logger.error(f"Error verificando espacio en disco: {str(e)}")      
         return f"Error al verificar espacio en disco: {e}"      
-      
+
 def system_file_check(progress_callback=None):      
     """Ejecuta verificación de archivos del sistema"""  
     def send_progress(msg):  
@@ -1920,10 +1921,41 @@ def cmd_add_reminder(params, ctx):
         due_date=due_date,    
         due_time=due_time,    
         tags=tags,    
-    )    
-    return {"ok": True, "reminder": item}    
-    
-  
+    )
+
+    # 🔹 Si tiene fecha/hora programada, crear tarea en Electron TaskManager
+    if due_date and due_time:
+        try:
+            from datetime import datetime
+            due_dt = datetime.fromisoformat(f"{due_date}T{due_time}")
+            due_at = due_dt.isoformat()
+            
+            return {
+                "ok": True,
+                "reminder": item,
+                "commands": [
+                    {
+                        "action": "queue_local_task",
+                        "params": {
+                            "task_type": "reminder_timer",
+                            "description": f"Recordatorio: {title}",
+                            "params": {
+                                "title": title,
+                                "delay_seconds": 0,
+                                "reminder_id": item.get("id"),
+                            },
+                            "due_at": due_at,
+                            "category": category,
+                        }
+                    }
+                ]
+            }
+        except Exception as e:
+            logger.warning(f"No se pudo crear tarea programada: {e}")
+
+    return {"ok": True, "reminder": item}
+
+
 def cmd_get_reminders(params, ctx):    
     username = _username(ctx, params)    
     category = params.get("category")    
@@ -2348,19 +2380,32 @@ def cmd_reminder_timer(params, ctx):
             )
 
         # Normalización final
-        if delay is None:
-            delay = 60
-        if delay < 1:
-            delay = 1
+        # Si el delay es muy grande (> 60s), delegamos a Electron TaskManager
+        if delay > 60:
+            due_at = (datetime.now() + timedelta(seconds=delay)).isoformat()
+            send_progress(f"📅 Programando recordatorio para dentro de {delay // 60} minutos...")
+            return {
+                "ok": True,
+                "summary": f"Recordatorio programado para dentro de {delay // 60} minutos.",
+                "commands": [
+                    {
+                        "action": "queue_local_task",
+                        "params": {
+                            "task_type": "reminder_timer",
+                            "description": f"Recordatorio: {text_base}",
+                            "params": {
+                                "title": text_base,
+                                "delay_seconds": 0, # Ya no esperamos aquí
+                                "reminder_id": reminder_id
+                            },
+                            "due_at": due_at,
+                            "category": params.get("category", "General")
+                        }
+                    }
+                ]
+            }
 
-        # ---------------- ESPERA Y FIN ----------------
-        if delay % 60 == 0:
-            mins = delay // 60
-            human = f"{mins} minuto{'s' if mins != 1 else ''}"
-        else:
-            human = f"{delay} segundos"
-
-        send_progress(f"⏱ Iniciando temporizador de {human} para el recordatorio '{text_base}'...")
+        send_progress(f"⏱ Iniciando temporizador de {delay}s para el recordatorio '{text_base}'...")
 
         # Espera bloqueante (esto corre en proceso separado de TaskManager)
         time.sleep(delay)
