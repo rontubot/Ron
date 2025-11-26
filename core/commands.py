@@ -10,7 +10,7 @@ import csv
 import io
 import time
 from config import WEATHER_API_KEY
-from datetime import datetime     
+from datetime import datetime, timedelta     
 from core.memory import (    
     add_to_memory,    
     get_user_data,    
