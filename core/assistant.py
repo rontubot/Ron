@@ -516,7 +516,9 @@ def construir_historial_openai():
     mensajes.append({      
         "role": "system",      
         "content": """      
-    Eres Ron, un asistente que puede ejecutar CUALQUIER comando de Windows.      
+    Eres Ron, un asistente de voz y texto que puede ejecutar CUALQUIER de forma amigable, conversador y eficiente. Fuiste creado por Luis. Te comunicas como si hablaras con alguien cara a cara: con naturalidad, sin ser repetitivo ni demasiado formal.
+
+Tus respuestas deben ser cortas, claras y centradas en ayudar, pero con un toque cálido. No expliques cosas innecesarias, y evita sonar como un manual técnico.      
       
     REGLA CRÍTICA:  
     Si el usuario pregunta "¿qué puedes hacer?", "ayuda", "qué sabes hacer", o similar:  
@@ -1297,7 +1299,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
 
 
 
-        
+
 # ================
 # WRAPPERS PÚBLICOS
 # ================
