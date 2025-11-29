@@ -1,9 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Response, Request, UploadFile, File
 from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse, StreamingResponse
-
 import os, json, base64, traceback, re, logging
 import jwt, bcrypt
 from datetime import datetime, timedelta
@@ -20,7 +19,8 @@ from core.memory import (
 
 from core.assistant import (
     generate_response_no_memory, parse_commands_only,
-    construir_historial_usuario_openai, responder_a_usuario_streaming
+    construir_historial_usuario_openai, responder_a_usuario_streaming,
+    parse_and_execute_commands_dynamic
 )
 
 
@@ -141,7 +141,7 @@ def sanitize_user_response(text: str) -> str:
     text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`  
       
     # 6. Eliminar emojis  
-    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄]+', '', text)  
+    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄🎤📨🤖]+', '', text)  
 
     # 7. Normalizar espacios múltiples  
     text = re.sub(r'\s{2,}', ' ', text)
@@ -204,7 +204,7 @@ class UserInput(BaseModel):
 class UserCredentials(BaseModel):      
     username: str      
     password: str      
-      
+    
 class UserRegister(BaseModel):      
     username: str      
     password: str      
@@ -583,7 +583,54 @@ Asistente:
             "ron": user_response,  # alias de compat
         }
 
-    # --- 11) Respuesta normalizada (SIEMPRE JSON) ---
+    # --- 11) NUEVO: Ejecutar comandos si vienen del móvil ---
+    source = data.source or "unknown"
+    if source == "mobile" and commands:
+        print(f"📱 Ejecutando {len(commands)} comandos desde móvil...")
+        
+        # Importar aquí para evitar ciclos si no está arriba
+        from core.commands import run_command
+        
+        extra_responses = []
+        
+        for cmd in commands:
+            action = cmd.get("action")
+            if action:
+                try:
+                    # Ejecutar comando directamente para capturar el resultado
+                    print(f"▶️ Ejecutando acción: {action}")
+                    res = run_command(action, cmd.get("params", {}), ctx={"username": current_user})
+                    
+                    # Extraer mensaje de resultado
+                    cmd_result = res.get("message") or res.get("result") or ""
+                    if cmd_result:
+                        extra_responses.append(cmd_result)
+                        print(f"✅ Resultado: {cmd_result[:50]}...")
+                    else:
+                        print(f"✅ Comando ejecutado (sin resultado visible)")
+                        
+                except Exception as e:
+                    print(f"❌ Error ejecutando comando {action}: {e}")
+                    traceback.print_exc()
+                    extra_responses.append(f"Error al ejecutar {action}: {str(e)}")
+
+        # Si hubo resultados de comandos, agregarlos a la respuesta del usuario
+        if extra_responses:
+            # Unir con saltos de línea limpios
+            additional_text = "\n".join(extra_responses)
+            if user_response:
+                user_response += "\n\n" + additional_text
+            else:
+                user_response = additional_text
+                
+            # Actualizar memoria con la respuesta completa
+            try:
+                # Actualizamos la memoria para incluir el resultado de los comandos
+                add_to_memory(current_user, user_text, user_response)
+            except Exception:
+                pass
+
+    # --- 12) Respuesta normalizada (SIEMPRE JSON) ---
     payload = {
         "user_response": user_response,
         "commands": commands,
@@ -718,3 +765,39 @@ def memory_status(current_user: str = Depends(get_current_user)):
         }      
     except Exception as e:      
         return {"status": "error", "message": str(e)}
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...), authorization: str = Header(None)):
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    
+    # Verify token
+    token = authorization.split(" ", 1)[1]
+    verify_jwt_token(token)
+
+    temp_filename = f"temp_{file.filename}"
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Save temp file
+        with open(temp_filename, "wb") as buffer:
+            buffer.write(await file.read())
+            
+        # Transcribe
+        with open(temp_filename, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+            
+        # Cleanup
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        
+        return {"text": transcript.text}
+        
+    except Exception as e:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        print(f"Transcription error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
