@@ -10,11 +10,11 @@ from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
 
-
 from core.memory import (
     load_memory, add_to_memory, save_memory,
     load_user_memory, save_user_memory,
     load_users_from_github, save_users_to_github,
+    add_reminder_item, list_reminders, update_reminder, remove_reminder_item
 )
 
 from core.assistant import (
@@ -22,10 +22,6 @@ from core.assistant import (
     construir_historial_usuario_openai, responder_a_usuario_streaming,
     parse_and_execute_commands_dynamic
 )
-
-
-# NUEVO: Limpiar markdown y emojis 
-
 MD_BLOCK = re.compile(r"```.+?```", re.DOTALL)                # bloque ```code```
 MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)   # ### heading
 MD_BOLD = re.compile(r"\*\*(.*?)\*\*")
@@ -801,3 +797,57 @@ async def transcribe_audio(file: UploadFile = File(...), authorization: str = He
             os.remove(temp_filename)
         print(f"Transcription error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Endpoints de Recordatorios (REST) ---
+
+class ReminderModel(BaseModel):
+    title: str
+    description: str | None = None
+    category: str | None = "inbox"
+    status: str | None = "todo"
+    priority: str | None = "normal"
+    due_date: str | None = None
+    due_time: str | None = None
+
+class ReminderUpdateModel(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    category: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    due_date: str | None = None
+    due_time: str | None = None
+
+@app.get("/reminders")
+def get_reminders_endpoint(current_user: str = Depends(get_current_user)):
+    return list_reminders(current_user)
+
+@app.post("/reminders")
+def create_reminder_endpoint(reminder: ReminderModel, current_user: str = Depends(get_current_user)):
+    # Mapear campos opcionales
+    return add_reminder_item(
+        username=current_user,
+        title=reminder.title,
+        description=reminder.description or "",
+        category=reminder.category or "inbox",
+        status=reminder.status or "todo",
+        priority=reminder.priority or "normal",
+        due_date=reminder.due_date,
+        due_time=reminder.due_time
+    )
+
+@app.put("/reminders/{reminder_id}")
+def update_reminder_endpoint(reminder_id: str, reminder: ReminderUpdateModel, current_user: str = Depends(get_current_user)):
+    # Filtrar campos no nulos
+    update_data = {k: v for k, v in reminder.dict().items() if v is not None}
+    updated = update_reminder(current_user, reminder_id, **update_data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    return updated
+
+@app.delete("/reminders/{reminder_id}")
+def delete_reminder_endpoint(reminder_id: str, current_user: str = Depends(get_current_user)):
+    success = remove_reminder_item(current_user, reminder_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    return {"status": "deleted", "id": reminder_id}
