@@ -1054,7 +1054,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
 
     try:
         respuesta = client.chat.completions.create(
-            model="gpt-5-chat-latest",
+            model="gpt-5.1",
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=10000,
@@ -1240,7 +1240,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
     try:    
         # STREAMING SIN response_format (para recibir texto progresivo)  
         respuesta = client.chat.completions.create(    
-            model="gpt-5-chat-latest",    
+            model="gpt-5.1",    
             messages=mensajes,    
             max_tokens=10000,
             temperature=0.2,    
