@@ -3,7 +3,14 @@ import pyttsx3
 import json          
 import subprocess          
 import sys          
-import os          
+import os
+
+# 🔹 CRUCIAL: Agregar el directorio del script al sys.path
+# Esto permite importar 'core' cuando Python embebido ejecuta este script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+          
 import logging          
 import threading          
 import queue          
