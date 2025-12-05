@@ -113,6 +113,38 @@ def _reminders_file(username: str) -> str:
 
 
 def _load_reminders(username: str) -> list[dict]:
+    """
+    Carga recordatorios desde GitHub (primaria) con fallback a local.
+    Esto asegura que los recordatorios estén sincronizados entre dispositivos.
+    """
+    username = (username or "default").strip() or "default"
+    
+    # 🔹 Intentar cargar desde GitHub primero
+    token = get_github_token()
+    if token:
+        try:
+            file_path = f"reminders/{username}.json"
+            url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"
+            headers = {
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3.raw"
+            }
+            
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                data = json.loads(r.content)
+                if isinstance(data, list):
+                    log.info(f"✅ Recordatorios cargados desde GitHub para {username}")
+                    return data
+            elif r.status_code == 404:
+                # Archivo no existe en GitHub, retornar vacío
+                log.info(f"📝 No hay recordatorios en GitHub para {username}")
+                return []
+        except Exception as e:
+            log.warning(f"⚠️ Error cargando recordatorios desde GitHub para {username}: {e}")
+            # Continuar con fallback local
+    
+    # 🔹 Fallback: cargar desde archivo local
     path = _reminders_file(username)
     try:
         if not os.path.exists(path):
@@ -120,6 +152,7 @@ def _load_reminders(username: str) -> list[dict]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, list):
+            log.info(f"✅ Recordatorios cargados desde archivo local para {username}")
             return data
         return []
     except Exception as e:
@@ -128,14 +161,59 @@ def _load_reminders(username: str) -> list[dict]:
 
 
 def _save_reminders(username: str, items: list[dict]) -> bool:
+    """
+    Guarda recordatorios en GitHub (primaria) y local (backup).
+    Esto mantiene los recordatorios sincronizados entre dispositivos.
+    """
+    username = (username or "default").strip() or "default"
+    success_github = False
+    success_local = False
+    
+    # 🔹 Guardar en GitHub primero
+    token = get_github_token()
+    if token:
+        try:
+            file_path = f"reminders/{username}.json"
+            url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}"
+            
+            headers = {"Authorization": f"token {token}"}
+            
+            # Obtener SHA del archivo existente
+            existing_file = requests.get(url, headers=headers, timeout=10)
+            sha = existing_file.json().get("sha") if existing_file.status_code == 200 else None
+            
+            # Preparar datos
+            content = base64.b64encode(json.dumps(items, ensure_ascii=False, indent=2).encode()).decode()
+            data = {
+                "message": f"Actualizar recordatorios de {username}",
+                "content": content,
+                "branch": "main"
+            }
+            if sha:
+                data["sha"] = sha
+            
+            # Subir a GitHub
+            response = requests.put(url, json=data, headers=headers, timeout=15)
+            if response.status_code in [200, 201]:
+                log.info(f"✅ Recordatorios guardados en GitHub para {username}")
+                success_github = True
+            else:
+                log.warning(f"⚠️ Error guardando en GitHub: {response.status_code}")
+        except Exception as e:
+            log.warning(f"⚠️ Error guardando recordatorios en GitHub para {username}: {e}")
+    
+    # 🔹 Guardar copia local como backup
     path = _reminders_file(username)
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(items, f, ensure_ascii=False, indent=2)
-        return True
+        log.info(f"✅ Recordatorios guardados localmente para {username}")
+        success_local = True
     except Exception as e:
         log.warning(f"⚠️ No se pudieron guardar recordatorios en {path}: {e}")
-        return False
+    
+    # Retornar True si al menos uno tuvo éxito
+    return success_github or success_local
 
 
 # Compat: API antigua que devolvía un doc con 'reminders'
