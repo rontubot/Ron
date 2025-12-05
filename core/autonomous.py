@@ -9,10 +9,22 @@ import time
 from datetime import datetime  
 from typing import Dict, List, Optional, Any  
 
-from openai import OpenAI
 import os
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# 🔹 Hacer el cliente OpenAI lazy-loaded para que Ron 24/7 pueda iniciar sin API key
+# Solo se crea cuando realmente se necesita para features autónomas
+_openai_client = None
+
+def _get_openai_client():
+    """Obtiene el cliente OpenAI, creándolo solo cuando se necesita"""
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY no configurada - features autónomas deshabilitadas")
+        _openai_client = OpenAI(api_key=api_key)
+    return _openai_client
   
   
 def research_system_commands(task_description: str, username: str) -> Optional[Dict]:
@@ -45,6 +57,7 @@ IMPORTANTE:
 """
 
     try:
+        client = _get_openai_client()  # Lazy load del cliente OpenAI
         resp = client.chat.completions.create(
             model="gpt-5-chat-latest",
             messages=[
