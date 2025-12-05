@@ -1,5 +1,4 @@
 import os
-from openai import OpenAI
 import json
 import logging
 from datetime import datetime
@@ -32,7 +31,20 @@ from core.autonomous import requires_autonomous_execution, autonomous_command_ex
 from dotenv import load_dotenv
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+#🔹 Lazy-load del cliente OpenAI para evitar crash sin API key
+_openai_client = None
+
+def _get_openai_client():
+    """Obtiene el cliente OpenAI, creándolo solo cuando se necesita"""
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY no configurada")
+        _openai_client = OpenAI(api_key=api_key)
+    return _openai_client
 
 # Configurar logging para debugging
 logging.basicConfig(level=logging.INFO)
@@ -126,7 +138,7 @@ CLASSIFIER_SYSTEM = (
 " No inventes campos ni copies el texto completo del usuario."
 )
 
-def run_turn_classifier(client, model, last_message: str, profile_snapshot: dict) -> dict:
+def run_turn_classifier(_get_openai_client, model, last_message: str, profile_snapshot: dict) -> dict:
     u = json.dumps({"last_message": last_message, "profile_snapshot": profile_snapshot}, ensure_ascii=False)
     resp = client.chat.completions.create(
         model=model,
@@ -146,7 +158,7 @@ BATCH_SYSTEM = (
 "interests:[hasta 5 temas snake_case], dos:[hasta 3], donts:[hasta 3]}."
 )
 
-def run_batch_profiler(client, model, recent_window: list) -> dict:
+def run_batch_profiler(_get_openai_client, model, recent_window: list) -> dict:
     import json
     u = json.dumps({"messages": recent_window}, ensure_ascii=False)
     resp = client.chat.completions.create(
@@ -781,7 +793,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
                 "donts": prof.get("donts", []),
             }
             try:
-                cls = run_turn_classifier(client, "gpt-5-chat-latest", original_input, snapshot)
+                cls = run_turn_classifier(_get_openai_client(), "gpt-5-chat-latest", original_input, snapshot)
                 ops = cls.get("ops") if isinstance(cls, dict) else None
                 if ops:
                     apply_ops(prof, ops, confidence_threshold=0.65)
@@ -793,7 +805,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)
             if do_batch:
                 try:
-                    batch = run_batch_profiler(client, "gpt-5-chat-latest", prof["recent_window"])
+                    batch = run_batch_profiler(_get_openai_client(), "gpt-5-chat-latest", prof["recent_window"])
                     apply_batch_result(prof, batch)
                 except Exception as _e:
                     logger.debug(f"Batch profiler falló (no crítico): {_e}")
@@ -1215,7 +1227,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 "donts": prof.get("donts", []),  
             }  
             try:  
-                cls = run_turn_classifier(client, "gpt-5-chat-latest", original_input, snapshot)  
+                cls = run_turn_classifier(_get_openai_client(), "gpt-5-chat-latest", original_input, snapshot)  
                 ops = cls.get("ops") if isinstance(cls, dict) else None  
                 if ops:  
                     apply_ops(prof, ops, confidence_threshold=0.65)  
@@ -1225,7 +1237,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)  
             if do_batch:  
                 try:  
-                    batch = run_batch_profiler(client, "gpt-5-chat-latest", prof["recent_window"])  
+                    batch = run_batch_profiler(_get_openai_client(), "gpt-5-chat-latest", prof["recent_window"])  
                     apply_batch_result(prof, batch)  
                 except Exception:  
                     pass  
