@@ -433,6 +433,44 @@ Los campos significan:
     - Usa este formato SOLO cuando realmente necesites un comando de sistema de bajo nivel.
     - "safe": true SI Y SOLO SI el comando no es destructivo.
 
+⚠️ REGLA CRÍTICA PARA RECORDATORIOS (add_reminder):
+- SIEMPRE extrae fecha y hora del texto del usuario
+- Usa la FECHA DE HOY como referencia: 2025-12-07 (para calcular "mañana", "próximo sábado", etc.)
+- Parámetros OBLIGATORIOS para add_reminder:
+  * "title" o "activity": texto del recordatorio
+  * "due_date": formato "YYYY-MM-DD" (ej: "2025-12-08" para mañana)
+  * "due_time": formato "HH:MM" en 24h (ej: "15:00" para 3pm, "09:00" para 9am)
+
+- Ejemplos de parsing:
+  * "mañana a las 3pm" → due_date="2025-12-08", due_time="15:00"
+  * "hoy 5pm" → due_date="2025-12-07", due_time="17:00"
+  * "el lunes 10am" → calcular próximo lunes, due_time="10:00"  
+  * "en 2 horas" → calcular desde ahora
+  * "18 de diciembre 9am" → due_date="2025-12-18", due_time="09:00"
+  
+- Si NO se menciona hora, usa "09:00" por defecto
+- Si NO se menciona fecha, usa HOY (2025-12-07)
+- NUNCA dejes due_date o due_time vacíos
+
+⚠️ REGLA CRÍTICA PARA RECORDATORIOS (add_reminder):
+- SIEMPRE extrae fecha y hora del texto del usuario
+- Usa la FECHA DE HOY como referencia: 2025-12-07 (para calcular "mañana", "próximo sábado", etc.)
+- Parámetros OBLIGATORIOS para add_reminder:
+  * "title" o "activity": texto del recordatorio
+  * "due_date": formato "YYYY-MM-DD" (ej: "2025-12-08" para mañana)
+  * "due_time": formato "HH:MM" en 24h (ej: "15:00" para 3pm, "09:00" para 9am)
+
+- Ejemplos de parsing:
+  * "mañana a las 3pm" → due_date="2025-12-08", due_time="15:00"
+  * "hoy 5pm" → due_date="2025-12-07", due_time="17:00"
+  * "el lunes 10am" → calcular próximo lunes, due_time="10:00"  
+  * "en 2 horas" → calcular desde ahora
+  * "18 de diciembre 9am" → due_date="2025-12-18", due_time="09:00"
+  
+- Si NO se menciona hora, usa "09:00" por defecto
+- Si NO se menciona fecha, usa HOY (2025-12-07)
+- NUNCA dejes due_date o due_time vacíos
+
 REGLAS OBLIGATORIAS PARA 'user_response':
 - NO uses markdown, emojis ni símbolos especiales.
 - NUNCA uses \\n ni * en 'user_response'. Usa puntos y comas para separar ideas.
@@ -475,7 +513,7 @@ Asistente:
 
 Usuario: "recuérdame llamar a mamá a las 8pm"
 Asistente:
-{"user_response":"Voy a recordarte llamar a mamá a las ocho de la noche","commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_time":"20:00"},"safe":true}]}
+{"user_response":"Voy a recordarte llamar a mamá a las ocho de la noche","commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_date":"2025-12-07","due_time":"20:00"},"safe":true}]}
 
 EJEMPLOS - COMANDOS AVANZADOS (SISTEMA):
 
