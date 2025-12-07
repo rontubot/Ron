@@ -9,9 +9,20 @@ import sys
 import json
 from datetime import datetime
 
-# Add parent directory to path to import core modules
+# Add search paths for core modules
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+
+# Check where 'core' is located
+if os.path.exists(os.path.join(current_dir, 'core')):
+    # Production: check_reminders.py is valid sibling of core/
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+elif os.path.exists(os.path.join(parent_dir, 'core')):
+    # Development: local/check_reminders.py waiting for ../core
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
 
 from core.memory import list_reminders, update_reminder
 
