@@ -64,6 +64,11 @@ SOLO puedes usar estas acciones en 'commands':
  "read_file","analyze_file","list_directory_detailed","get_standard_path",
  "queue_local_task"].
     
+REGLAS DE FORMATO DE TEXTO (user_response):
+- NUNCA uses punto y coma (;), usa coma (,) o punto (.) seguido de MAYÚSCULA.
+- Habla natural.
+
+    
 IMPORTANTE:     
 - Para create_file usa SIEMPRE:
   - "file_path": ruta COMPLETA (ej: "C:\\Users\\{username}\\Desktop\\archivo.txt")

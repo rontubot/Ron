@@ -66,8 +66,26 @@ class TaskManager:
                 logger.error(f"Error en scheduler: {e}")  
       
     def send_message(self, message: str):  
-        """Encola un mensaje para ser enviado por TTS"""  
-        self.message_queue.put(message)  
+        """Encola un mensaje para ser enviado por TTS y opcionalmente lo guarda en memoria si es relevante"""  
+        self.message_queue.put(message)
+        
+        # Persistencia automática de notificaciones importantes
+        try:
+            # Detectar mensajes de éxito, creación de archivos, errores clave
+            if any(icon in message for icon in ["✅", "📁", "✍️", "❌", "⚠️"]):
+                from core.memory import add_to_memory
+                # Usamos un username genérico 'default' o intentamos inferirlo si pudiéramos
+                # Dado que TaskManager es global, usamos 'default' o un mecanismo mejor si existiera.
+                # Para ser seguros, guardamos en 'default' y el frontend carga de ahí si coincide.
+                # MEJOR: TaskManager no sabe el usuario. 
+                # Pero en la mayoría de casos commands.py pasa el username en ctx.
+                # Si no tenemos username, esto podría ir a un log global.
+                # Como fallback, intentamos 'default' que suele ser el usuario principal en modo single-user.
+                add_to_memory("default", "Notificación del Sistema", message)
+        except ImportError:
+            pass # Evitar ciclos si memory no está lista
+        except Exception as e:
+            logger.error(f"Error persistiendo mensaje de tarea: {e}")  
       
     def schedule_message(self, message: str, delay_seconds: int, callback: Optional[Callable] = None):  
         """Programa un mensaje para ser enviado después de un delay"""  
