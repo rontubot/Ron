@@ -2018,7 +2018,7 @@ def cmd_update_reminder(params, ctx):
     # Campos actualizables
     allowed_fields = {
         "title", "description", "category", "status",
-        "priority", "due_date", "due_time", "tags",
+        "priority", "due_date", "due_time", "tags", "position",
     }
     fields = {k: v for k, v in params.items() if k in allowed_fields}
 

@@ -289,12 +289,17 @@ def list_reminders(
 
     # Orden por fecha y prioridad (opcional)
     def _key(r: dict):
+        # 0. Posición manual (si existe)
+        pos = r.get("position", 999999999)
+        # 1. Fecha de vencimiento
         dd = r.get("due_date") or "9999-12-31"
+        # 2. Hora
         tt = r.get("due_time") or "23:59"
+        # 3. Prioridad
         prio = {"urgent": 0, "high": 1, "normal": 2, "low": 3}.get(
             (r.get("priority") or "normal").lower(), 2
         )
-        return (dd, tt, prio)
+        return (pos, dd, tt, prio)
 
     return sorted(items, key=_key)
 
@@ -303,7 +308,7 @@ def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
 
-    allowed = {"title","description","category","status","priority","due_date","due_time","tags"}
+    allowed = {"title","description","category","status","priority","due_date","due_time","tags","position"}
     updated_item = None
 
     for idx, r in enumerate(items):
