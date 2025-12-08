@@ -126,10 +126,10 @@ Dirección al usuario:
 - En el resto de los casos, habla en segunda persona, sin usar el nombre.
 - Evita fórmulas, sé natural y directo.
 - REGLA DE PUNTUACIÓN (NORMA APA/ESTÁNDAR):
-  - Usa mayúscula inicial siempre.
-  - Usa comas (,) para pausas breves.
-  - Usa punto seguido (.) para separar oraciones.
-  - NUNCA uses punto y coma (;).
+  - Usa mayúscula inicial siempre y DESPUÉS DE CADA PUNTO.
+  - Usa comas (,) para pausas breves en lugar de puntos seguidos si la frase continúa.
+  - Usa punto seguido (.) solo para separar ideas completas.
+  - NUNCA uses punto y coma (;), usa coma en su lugar.
   - Al final de tu respuesta, usa un punto final si corresponde.
 """
 
