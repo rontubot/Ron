@@ -125,7 +125,12 @@ Dirección al usuario:
 - Usa el nombre solo en estos casos: (1) cuando necesites confirmar algo importante, (2) si hay ambigüedad o varias personas.
 - En el resto de los casos, habla en segunda persona, sin usar el nombre.
 - Evita fórmulas, sé natural y directo.
-- NO USES PUNTO Y COMA (;). Usa puntos seguidos o comas. Habla como una persona normal.
+- REGLA DE PUNTUACIÓN (NORMA APA/ESTÁNDAR):
+  - Usa mayúscula inicial siempre.
+  - Usa comas (,) para pausas breves.
+  - Usa punto seguido (.) para separar oraciones.
+  - NUNCA uses punto y coma (;).
+  - Al final de tu respuesta, usa un punto final si corresponde.
 """
 
 
@@ -395,12 +400,21 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
                     cmd_params['progress_callback'] = task_manager.send_message  
                     res = run_command(cmd_action, cmd_params, ctx or {})  
                     result_msg = res.get("message") or res.get("result") or "Completado"  
-                    task_manager.send_message(f"✅ {result_msg}")  
-                  
+                    final_msg = f"✅ {result_msg}"
+                    task_manager.send_message(final_msg)
+                    
+                    # Persist background task result to memory
+                    try:
+                        u_name = (ctx or {}).get("username") or "default"
+                        _append_user_conv(u_name, f"Ejecutar {cmd_action} en segundo plano", final_msg, source="task")
+                    except Exception as e:
+                        logger.error(f"Error guardando memoria de tarea background: {e}")
+
                 task_manager.run_background_task(f"{action}_{time.time()}", execute_with_progress)  
                 continue
   
     # Ejecutar comandos devueltos por la LLM (flujo normal)  
+    execution_outputs = []
     for command in commands_to_execute:  
         action = (command.get("action") or "").strip()  
         params = command.get("params", {}) or {}  
@@ -437,9 +451,18 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
         else:  
             res = run_command(action, params, ctx or {})  
             if not res.get("ok", True):  
-                logger.warning(f"Comando '{action}' falló: {res.get('error')}")  
+                logger.warning(f"Comando '{action}' falló: {res.get('error')}")
+            
+            # Capturar resultado para historial
+            msg = res.get("message") or res.get("result")
+            if msg:
+                execution_outputs.append(str(msg))
   
-    return user_response if user_response else "Procesando tu solicitud..."
+    final_response = user_response if user_response else "Procesando tu solicitud..."
+    if execution_outputs:
+        final_response += "\n" + "\n".join(execution_outputs)
+
+    return final_response
 
 
 
@@ -595,6 +618,8 @@ def construir_historial_usuario_openai(username: str):
 
     # Tu system base y el STRICT_JSON_SYSTEM
     mensajes.append({"role": "system", "content": STRICT_JSON_SYSTEM})
+    # Estilo y personalidad (incluye prohibición de ";")
+    mensajes.append({"role": "system", "content": STYLE_GUIDE})
     mensajes.append({
         "role": "system",
         "content": (
