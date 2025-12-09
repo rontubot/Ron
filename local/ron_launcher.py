@@ -120,7 +120,7 @@ class TTSWorker(threading.Thread):
                 if interruption_event.is_set():
                     with tts_queue.mutex:
                         tts_queue.queue.clear()
-                    print("🚫 TTS Queue cleared due to interruption")
+                    print("🚫 Cola TTS limpiada por interrupción")
                     continue
 
                 if not text:
@@ -131,7 +131,7 @@ class TTSWorker(threading.Thread):
                 speaking = False
                 
             except Exception as e:
-                print(f"❌ TTS Worker Error: {e}")
+                print(f"❌ Error en TTS Worker: {e}")
                 speaking = False
 
     def _speak(self, text):
@@ -146,22 +146,15 @@ class TTSWorker(threading.Thread):
             engine.setProperty('rate', 190) # Slightly faster rate
             engine.setProperty('volume', 1.0)
             
-            # Using a new engine instance allows us to 'stop' it by discarding this instance
-            # or letting it finish strictly this sentence.
-            # Real capability to stop mid-sentence requires comtypes plumbing which is unstable.
-            # We rely on short sentences.
-            
             cleaned = clean_text_for_tts(text)
             if not cleaned: return
 
-            # print(f"🔊 Speaking: {cleaned[:30]}...")
             engine.say(cleaned)
             engine.runAndWait()
             
             if engine._inLoop:
                 engine.endLoop()
         except Exception as e:
-            # print(f"⚠️ TTS Error: {e}")
             pass
 
 # Start TTS Worker
@@ -195,7 +188,7 @@ def setup_streaming_recognition():
             r.adjust_for_ambient_noise(source, duration=1)
         return r, m
     except Exception as e:
-        print(f"❌ Mic Error: {e}")
+        print(f"❌ Error de Micrófono: {e}")
         sys.exit(1)
 
 def stream_audio_recognition(recognizer, microphone, q):
@@ -209,25 +202,17 @@ def stream_audio_recognition(recognizer, microphone, q):
         try:
             # 1. Check for BARGE-IN (Interruption)
             if speaking:
-                # We need to detect if this audio is actually speech and not noise
-                # recognizer.energy_threshold already filters silence, but let's be aggressive
                 if interruption_event.is_set():
                     return # Already interrupted
                 
-                # Check energy manually if needed, but 'audio' object presence implies threshold crossed
-                # Let's verify it's speech by trying to recognize it QUICKLY
-                # Or just trust the VAD (simpler and faster)
-                
-                print("🛑 BARGE-IN DETECTED! Stopping output.")
+                print("🛑 ¡INTERRUPCIÓN DETECTADA! Deteniendo audio.")
                 stop_speaking()
-                # We do NOT return here, we proceed to recognize what the user said
-                # so we can process it as the new command.
 
             # 2. Recognize text
             text = recognizer.recognize_google(audio, language="es").lower().strip()
             
             if text:
-                print(f"👂 Heard: {text}")
+                print(f"👂 Escuchado: {text}")
                 q.put((text, time.time()))
 
         except sr.UnknownValueError:
@@ -235,7 +220,7 @@ def stream_audio_recognition(recognizer, microphone, q):
         except sr.RequestError:
             pass
         except Exception as e:
-            print(f"⚠️ Listener Error: {e}")
+            print(f"⚠️ Error en Listener: {e}")
 
     return recognizer.listen_in_background(microphone, callback, phrase_time_limit=5)
 
@@ -261,24 +246,17 @@ def buffer_speech_sentences(text_stream):
         # If we have complete sentences (pairs of text + punctuation)
         if len(parts) > 1:
             # Reconstruct sentences: ["Hola", ".", "Como", "?", "estas"] -> "Hola.", "Como?"
-            # We treat the last part as incomplete buffer unless it's empty
             
             # parts[-1] is the incomplete part (or empty string if ends with punctuation)
             to_process = parts[:-1]
             new_buffer = parts[-1]
             
-            # Join text+punctuation
-            # chunks: 'Hola', '.', 'Como', '?', ...
             i = 0
             while i < len(to_process) - 1:
                sentence = to_process[i] + to_process[i+1]
                if sentence.strip():
                    yield sentence.strip()
                i += 2
-            
-            # If there was an orphan part (odd number of splits), add to buffer?
-            # actually re.split keeps the delimiter if captured.
-            # "Hello. World" -> ["Hello", ".", " World"]
             
             buffer = new_buffer
 
@@ -303,7 +281,7 @@ def process_interaction(user_text):
     full_response = ""
     commands_to_exec = []
     
-    print(f"📡 Requesting: {user_text[:30]}...")
+    print(f"📡 Solicitando: {user_text[:30]}...")
 
     try:
         # Use a session for persistent connection
@@ -327,7 +305,7 @@ def process_interaction(user_text):
             # Feed chunks to sentence splitter -> TTS Queue
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if interruption_event.is_set():
-                    print("🛑 Response stream cancelled.")
+                    print("🛑 Stream de respuesta cancelado.")
                     break
                     
                 # print(f"📝 Queuing: {sentence[:30]}")
@@ -335,7 +313,7 @@ def process_interaction(user_text):
                 full_response += " " + sentence
 
     except Exception as e:
-        print(f"❌ Backend Error: {e}")
+        print(f"❌ Error de Backend: {e}")
         speak_async("Hubo un error de conexión.")
         return False # Should not stay active
 
@@ -362,7 +340,7 @@ def detect_ron_activation(text):
     return any(w in ALLOWED_WAKE_WORDS for w in tokens)
 
 if __name__ == "__main__":
-    print("🟢 Ron 24/7 v2.0 (Streaming & Barge-In) Ready.")
+    print("🟢 Ron 24/7 v2.0 (Streaming & Barge-In) Listo.")
     
     # Init TaskManager just for TTS callback compatibility
     task_manager = TaskManager(lambda t: speak_async(t))
@@ -370,7 +348,7 @@ if __name__ == "__main__":
     recognizer, microphone = setup_streaming_recognition()
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
     
-    print("👂 Listening...")
+    print("👂 Escuchando...")
     
     try:
         while True:
@@ -384,7 +362,7 @@ if __name__ == "__main__":
                 # 2. Wake Word Logic
                 if not activado:
                     if detect_ron_activation(text):
-                        print("✅ Wake word detected!")
+                        print("✅ Palabra clave detectada!")
                         interruption_event.clear() # Reset any latent flag
                         stop_speaking() # Silence anything
                         speak_async(random.choice(activation_phrases))
@@ -405,13 +383,13 @@ if __name__ == "__main__":
                     
                     stay_active = process_interaction(text)
                     if not stay_active:
-                        print("💤 Deactivating.")
+                        print("💤 Desactivando.")
                         activado = False
 
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"❌ Loop Error: {e}")
+                print(f"❌ Error en Loop: {e}")
                 
     finally:
         stop_listening(wait_for_stop=False)
