@@ -102,18 +102,27 @@ class SpeechBuffer:
         self.max_seconds = max_seconds
         self.lock = threading.Lock()
 
+    def _normalize(self, text):
+        """Removes accents and non-alphanumeric chars for comparison"""
+        if not text: return ""
+        # Remove accents
+        text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
+        # Keep only alphanumeric and spaces
+        text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
+        return text.lower().strip()
+
     def add(self, text):
         with self.lock:
             # Clean text for comparison
-            clean = text.lower().strip()
+            clean = self._normalize(text)
             self.buffer.append((clean, time.time()))
             self._cleanup()
 
-    def is_echo(self, recognized_text, threshold=0.8):
+    def is_echo(self, recognized_text, threshold=0.6): # 🔹 TUNED: Lowered threshold from 0.8
         """
         Returns True if recognized_text is likely an echo of something Ron just said.
         """
-        rec_clean = recognized_text.lower().strip()
+        rec_clean = self._normalize(recognized_text)
         if not rec_clean:
             return False
 
@@ -126,7 +135,7 @@ class SpeechBuffer:
             for (spoken_text, _) in self.buffer:
                 # 1. Direct containment (if recognized is a substring of spoken or vice versa)
                 # Helps when mic picks up partial sentences.
-                if len(rec_clean) > 10 and rec_clean in spoken_text:
+                if len(rec_clean) > 8 and rec_clean in spoken_text: # 🔹 TUNED: Lowered len check
                     return True
                 
                 # 2. Fuzzy Matching
