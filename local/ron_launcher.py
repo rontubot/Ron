@@ -70,7 +70,18 @@ activation_phrases = [
     "Sí, estoy aquí.",
     "Dime.",
     "Aquí estoy."
+    "Dime.",
+    "Aquí estoy."
 ]
+
+# 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
+STOP_KEYWORDS = {
+    # Wake Words
+    "ron", "rom", "rron", "oye ron", "hola ron",
+    # Stop Commands
+    "silencio", "cállate", "callate", "stop", "para", "detente", "basta", 
+    "espera", "escucha", "oye", "momento", "pausa"
+}
 
 # =========================================================================================
 # GLOBAL STATE
@@ -351,7 +362,26 @@ def stream_audio_recognition(recognizer, microphone, q):
                 if interruption_event.is_set():
                     return 
                 
-                # 🔹 ECHO CHECK: Is this just me talking?
+                # 🔹 STRICT BARGE-IN CHECK
+                # Solo interrumpir si menciona "Ron" o una palabra de parada
+                # Esto filtra letras de canciones o ruido de fondo
+                text_lower = text.lower()
+                is_valid_interruption = False
+                
+                # 1. Check Stop Keywords / Wake Words
+                if any(k in text_lower for k in STOP_KEYWORDS):
+                    is_valid_interruption = True
+                
+                # 2. Check Wake Words (Global list)
+                if not is_valid_interruption:
+                     if any(w in text_lower for w in ALLOWED_WAKE_WORDS):
+                         is_valid_interruption = True
+
+                if not is_valid_interruption:
+                    print(f"🎵 Ruido/Música ignorado durante habla: '{text}'")
+                    return
+
+                # 🔹 ECHO CHECK: Is this just me talking? (Secondary check)
                 if speech_buffer.is_echo(text):
                     print(f"🔇 Echo ignorado: '{text}'")
                     return
