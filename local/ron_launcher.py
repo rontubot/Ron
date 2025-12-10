@@ -17,6 +17,7 @@ import unicodedata
 import re
 import requests
 
+
 # 🔹 Add current script dir to path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
@@ -31,6 +32,7 @@ from core.commands import (
 )
 from core.memory import add_to_memory, get_display_name, set_display_name
 from core.assistant import detect_farewell_patterns
+import difflib  # For fuzzy matching (Echo Cancellation)
 
 # =========================================================================================
 # CONFIGURATION & LOGGING
@@ -86,7 +88,60 @@ manual_recording = False
 manual_buffer = []
 
 # Buffers
-conversation_buffer = []
+# =========================================================================================
+# ECHO CANCELLATION (Speech Buffer)
+# =========================================================================================
+
+class SpeechBuffer:
+    """
+    Tracks recently spoken text to detect if the microphone is hearing Ron's own voice (Echo).
+    Entries expire after a few seconds.
+    """
+    def __init__(self, max_seconds=10.0):
+        self.buffer = []  # List of (text, timestamp)
+        self.max_seconds = max_seconds
+        self.lock = threading.Lock()
+
+    def add(self, text):
+        with self.lock:
+            # Clean text for comparison
+            clean = text.lower().strip()
+            self.buffer.append((clean, time.time()))
+            self._cleanup()
+
+    def is_echo(self, recognized_text, threshold=0.8):
+        """
+        Returns True if recognized_text is likely an echo of something Ron just said.
+        """
+        rec_clean = recognized_text.lower().strip()
+        if not rec_clean:
+            return False
+
+        with self.lock:
+            self._cleanup()
+            if not self.buffer:
+                return False
+            
+            # Check against all recent phrases
+            for (spoken_text, _) in self.buffer:
+                # 1. Direct containment (if recognized is a substring of spoken or vice versa)
+                # Helps when mic picks up partial sentences.
+                if len(rec_clean) > 10 and rec_clean in spoken_text:
+                    return True
+                
+                # 2. Fuzzy Matching
+                ratio = difflib.SequenceMatcher(None, rec_clean, spoken_text).ratio()
+                if ratio >= threshold:
+                    return True
+            
+        return False
+
+    def _cleanup(self):
+        now = time.time()
+        # Keep only items within the window
+        self.buffer = [item for item in self.buffer if (now - item[1]) < self.max_seconds]
+
+speech_buffer = SpeechBuffer()
 
 # =========================================================================================
 # TTS ENGINE & WORKER
@@ -128,6 +183,10 @@ class TTSWorker(threading.Thread):
                     continue
 
                 speaking = True
+                
+                # 🔹 Record what we are about to say to the Echo Buffer
+                speech_buffer.add(text)
+                
                 self._speak(text)
                 speaking = False
                 
@@ -283,6 +342,11 @@ def stream_audio_recognition(recognizer, microphone, q):
                 if interruption_event.is_set():
                     return 
                 
+                # 🔹 ECHO CHECK: Is this just me talking?
+                if speech_buffer.is_echo(text):
+                    print(f"🔇 Echo ignorado: '{text}'")
+                    return
+
                 print(f"🛑 ¡INTERRUPCIÓN VALIDADA! ('{text}')")
                 stop_speaking()
 
@@ -457,6 +521,14 @@ if __name__ == "__main__":
                         greeting = random.choice(activation_phrases)
                         # print(f"🤖 Ron: {greeting}")
                         speak_async(greeting)
+                        
+                        # 🔹 LOGGING: Registrar el saludo en la memoria del usuario
+                        # Esto hace que aparezca en el chat
+                        try:
+                            # User said "Ron" (text) -> Ron said greeting
+                            add_to_memory(current_username or "default", text, greeting, source="voice")
+                        except Exception as log_err:
+                            print(f"⚠️ Error logueando saludo: {log_err}")
                         
                         activado = True
                         last_interaction = time.time()
