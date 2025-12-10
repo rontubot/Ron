@@ -349,6 +349,11 @@ def stream_audio_recognition(recognizer, microphone, q):
 
                 print(f"🛑 ¡INTERRUPCIÓN VALIDADA! ('{text}')")
                 stop_speaking()
+                
+                # 🔹 FIX: Force active state so the main loop processes this text
+                # even if we were technically "inactive" (finishing a turn)
+                global activado
+                activado = True
 
             # Pass text to main loop
             print(f"👂 Escuchado: {text}")
