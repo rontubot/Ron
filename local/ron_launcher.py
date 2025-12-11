@@ -16,7 +16,8 @@ import socket
 import unicodedata
 import re
 import requests
-
+import wave
+import difflib
 
 # 🔹 Add current script dir to path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -31,19 +32,11 @@ from core.commands import (
     restore_application_volumes
 )
 from core.memory import add_to_memory, get_display_name, set_display_name
-from core.assistant import detect_farewell_patterns
-import difflib  # For fuzzy matching (Echo Cancellation)
 
 # =========================================================================================
 # CONFIGURATION & LOGGING
 # =========================================================================================
 
-# Logging setup
-logging.getLogger('urllib3').setLevel(logging.WARNING)
-logging.getLogger('httpcore').setLevel(logging.WARNING)
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('openai').setLevel(logging.WARNING)
-logging.getLogger('comtypes').setLevel(logging.WARNING)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 # Ensure UTF-8 output
@@ -62,32 +55,22 @@ control_enabled = True
 
 # Constants
 SILENCE_TIMEOUT_SEC = 1.2
-MAX_BUFFER_TIME_SEC = 30.0
 ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn", "ram"}
-
-activation_phrases = [
-    "Te escucho.",
-    "Sí, estoy aquí.",
-    "Dime.",
-    "Aquí estoy."
-    "Dime.",
-    "Aquí estoy."
-]
 
 # 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
 STOP_KEYWORDS = {
     # Wake Words
     "ron", "rom", "rron", "oye ron", "hola ron",
     # Stop Commands
-    # Stop Commands
     "silencio", "cállate", "callate", "stop", "detente", "basta", 
     "espera", "momento", "pausa", "parar"
 }
 
+activation_phrases = ["Te escucho.", "Sí, estoy aquí.", "Dime.", "Aquí estoy."]
+
 # =========================================================================================
 # GLOBAL STATE
 # =========================================================================================
-# Synchronization primitives
 interruption_event = threading.Event()
 tts_queue = queue.Queue()
 audio_queue = queue.Queue()
@@ -96,71 +79,53 @@ audio_queue = queue.Queue()
 speaking = False
 listening_active = True
 activado = False
+
+# MANUAL RECORDING STATE
 manual_recording = False
-manual_buffer = []
+manual_audio_buffer = []  # List of small audio chunks
+manual_recording_lock = threading.Lock()
 
-# Buffers
 # =========================================================================================
-# ECHO CANCELLATION (Speech Buffer)
+# ECHO CANCELLATION BUFFER
 # =========================================================================================
-
 class SpeechBuffer:
-    """
-    Tracks recently spoken text to detect if the microphone is hearing Ron's own voice (Echo).
-    Entries expire after a few seconds.
-    """
-    def __init__(self, max_seconds=20.0): # 🔹 TUNED: Increased retention time
-        self.buffer = []  # List of (text, timestamp)
+    def __init__(self, max_seconds=15.0):
+        self.buffer = []
         self.max_seconds = max_seconds
         self.lock = threading.Lock()
 
-    def _normalize(self, text):
-        """Removes accents and non-alphanumeric chars for comparison"""
-        if not text: return ""
-        # Remove accents
-        text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
-        # Keep only alphanumeric and spaces
-        text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
-        return text.lower().strip()
-
     def add(self, text):
         with self.lock:
-            # Clean text for comparison
-            clean = self._normalize(text)
-            self.buffer.append((clean, time.time()))
+            # Normalize text to remove accents and punctuation
+            norm = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
+            norm = re.sub(r'[^a-zA-Z0-9\s]', '', norm).lower().strip()
+            self.buffer.append((norm, time.time()))
             self._cleanup()
 
-    def is_echo(self, recognized_text, threshold=0.6): # 🔹 TUNED: Lowered threshold from 0.8
-        """
-        Returns True if recognized_text is likely an echo of something Ron just said.
-        """
-        rec_clean = self._normalize(recognized_text)
-        if not rec_clean:
-            return False
+    def is_echo(self, recognized_text):
+        norm_rec = unicodedata.normalize('NFKD', recognized_text).encode('ASCII', 'ignore').decode('utf-8')
+        norm_rec = re.sub(r'[^a-zA-Z0-9\s]', '', norm_rec).lower().strip()
+        
+        if not norm_rec: return False
 
         with self.lock:
             self._cleanup()
-            if not self.buffer:
-                return False
-            
-            # Check against all recent phrases
-            for (spoken_text, _) in self.buffer:
-                # 1. Direct containment (if recognized is a substring of spoken or vice versa)
-                # Helps when mic picks up partial sentences.
-                if len(rec_clean) > 8 and rec_clean in spoken_text: # 🔹 TUNED: Lowered len check
-                    return True
+            for (history_text, _) in self.buffer:
+                # 1. Exact or Substring Match (Strong Echo)
+                if norm_rec in history_text or history_text in norm_rec:
+                    # Only if length is significant to avoid "si" matching "simbolo"
+                    if len(norm_rec) > 4: 
+                        return True
                 
-                # 2. Fuzzy Matching
-                ratio = difflib.SequenceMatcher(None, rec_clean, spoken_text).ratio()
-                if ratio >= threshold:
+                # 2. Fuzzy Match
+                ratio = difflib.SequenceMatcher(None, norm_rec, history_text).ratio()
+                if ratio > 0.6: # 60% similarity is enough to be suspicious
                     return True
-            
         return False
 
     def _cleanup(self):
         now = time.time()
-        # Keep only items within the window
-        self.buffer = [item for item in self.buffer if (now - item[1]) < self.max_seconds]
+        self.buffer = [x for x in self.buffer if (now - x[1]) < self.max_seconds]
 
 speech_buffer = SpeechBuffer()
 
@@ -169,264 +134,226 @@ speech_buffer = SpeechBuffer()
 # =========================================================================================
 
 def clean_text_for_tts(text: str) -> str:
-    """Cleans text for better TTS pronunciation"""
     text = text.replace('\\n', ' ').replace('\n', ' ')
-    text = re.sub(r'[*_`#]', '', text) # Remove markdown chars
-    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑🧀-🫿]+', '', text) # Remove emojis
+    text = re.sub(r'[*_`#]', '', text)
+    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑🧀-🫿]+', '', text)
     return text.strip()
 
 class TTSWorker(threading.Thread):
-    """
-    Dedicated thread for TTS. Consumes sentences from tts_queue.
-    Checks interruption_event before speaking each sentence.
-    """
     def __init__(self):
         super().__init__(daemon=True)
-        self.engine = None
-        self._lock = threading.Lock()
 
     def run(self):
         global speaking
         while True:
             try:
-                # Get sentence (blocking)
                 text = tts_queue.get()
                 
-                # Check interruption BEFORE speaking
                 if interruption_event.is_set():
-                    # Clear queue if interrupted
-                    with tts_queue.mutex:
-                        tts_queue.queue.clear()
-                    print("🚫 Cola TTS limpiada por interrupción")
+                    with tts_queue.mutex: tts_queue.queue.clear()
+                    print("🚫 Cola TTS limpiada")
                     continue
 
-                if not text:
-                    continue
+                if not text: continue
 
                 speaking = True
-                
-                # 🔹 Record what we are about to say to the Echo Buffer
+                # Log to echo buffer
                 speech_buffer.add(text)
                 
                 self._speak(text)
                 speaking = False
                 
             except Exception as e:
-                print(f"❌ Error en TTS Worker: {e}")
+                print(f"❌ Error TTS: {e}")
                 speaking = False
 
     def _speak(self, text):
-        """Initializes a new engine instance for each phrase to avoid state corruption (pyttsx3 limitation)"""
+        if interruption_event.is_set(): return
         try:
-            # Last second check
-            if interruption_event.is_set():
-                return
-
             import pyttsx3
             engine = pyttsx3.init()
-            engine.setProperty('rate', 190) # Slightly faster rate
+            engine.setProperty('rate', 190)
             engine.setProperty('volume', 1.0)
-            
             cleaned = clean_text_for_tts(text)
-            if not cleaned: return
-
             engine.say(cleaned)
             engine.runAndWait()
-            
-            if engine._inLoop:
-                engine.endLoop()
-        except Exception as e:
-            pass
+            if engine._inLoop: engine.endLoop()
+        except: pass
 
-# Start TTS Worker
 tts_worker = TTSWorker()
 tts_worker.start()
 
 def speak_async(text: str):
-    """Enqueues text for TTS"""
-    if not text: return
-    # If interrupted, don't queue
-    if interruption_event.is_set():
-        return
+    if not text or interruption_event.is_set(): return
     tts_queue.put(text)
 
 def stop_speaking():
-    """Signals interruption"""
     interruption_event.set()
-    # Clear queue immediately
     with tts_queue.mutex:
         tts_queue.queue.clear()
-    
-# =========================================================================================
-# CONTROL SERVER (Restored & Fixed)
-# =========================================================================================
 
+# =========================================================================================
+# CONTROL SERVER (Audio Recording & Status)
+# =========================================================================================
 def handle_external_control():    
-    """Maneja comandos de control desde Electron via Socket"""    
     def control_server():    
-        global listening_active, speaking, control_enabled   
+        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer
         try:    
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)    
             server.bind(('127.0.0.1', args.control_port))    
             server.listen(5)    
-            print(f"🎛️ Servidor de control escuchando en puerto {args.control_port}", flush=True)    
+            print(f"🎛️ Servidor de control: {args.control_port}")    
   
             while control_enabled:    
                 try:    
                     client, _ = server.accept()
                     client.settimeout(2.0)
-                except Exception:    
-                    continue    
-  
-                try:    
                     data = client.recv(4096)    
-                    if not data:    
-                        client.close()  
-                        continue    
+                    if not data:
+                        client.close(); continue    
   
                     cmd = data.decode('utf-8', errors='ignore').strip().upper()  
   
                     if cmd == 'STATUS':    
-                        # Si está escuchando O hablando, está activo
                         state = b'ACTIVE' if (listening_active or speaking or activado) else b'INACTIVE'
                         client.sendall(state)    
   
                     elif cmd == 'START':
-                        # listening_active = True
                         client.sendall(b'OK')
 
                     elif cmd == 'STOP':
-                        # listening_active = False
                         stop_speaking()
                         client.sendall(b'OK')
-                        
-                    elif cmd.startswith('EXEC::'):
+                    
+                    # 🔹 MANUAL RECORDING COMMANDS
+                    elif cmd == 'START_RECORDING':
+                        print("🎙️ Iniciando grabación manual...")
+                        with manual_recording_lock:
+                            manual_recording = True
+                            manual_audio_buffer = [] # Reset buffer
                         client.sendall(b'OK')
+                        
+                    elif cmd == 'STOP_RECORDING':
+                        print("🎙️ Deteniendo grabación manual...")
+                        filename = f"rec_{int(time.time())}.wav"
+                        filepath = os.path.join(os.getcwd(), 'temp', filename)
+                        os.makedirs(os.path.join(os.getcwd(), 'temp'), exist_ok=True)
+                        
+                        # Save WAV
+                        with manual_recording_lock:
+                            manual_recording = False
+                            frames = list(manual_audio_buffer) # Copy
+                        
+                        # Write wav
+                        # We assume standard mic settings: 16kHz, 16bit, Mono usually from SR
+                        try:
+                            wf = wave.open(filepath, 'wb')
+                            wf.setnchannels(1)
+                            wf.setsampwidth(2) # 16 bit
+                            wf.setframerate(16000) # Assuming SR defaults
+                            wf.writeframes(b''.join(frames))
+                            wf.close()
+                            
+                            # Transcribe logic should be handled by backend usually, 
+                            # but here we might return the path or text?
+                            # For Ron, usually the frontend just wants the Signal that recording stopped.
+                            # But wait, does the frontend expect the TEXT?
+                            # Usually Ron sends the audio to OpenAI Whisper handled in Backend.
+                            # Changing architecture: Let's assume we just return "RECORDED"
+                            client.sendall(f"RECORDED:{filepath}".encode('utf-8'))
+                        except Exception as e:
+                            print(f"❌ Error guardando WAV: {e}")
+                            client.sendall(b'ERROR')
 
                     else:
                         client.sendall(b'UNKNOWN')
-                    
                     client.close()
-
-                except Exception as e:    
-                    print(f"❌ Error en socket: {e}")
-                    try: client.close()
-                    except: pass
-
+                except: pass
         except Exception as e:    
             print(f"❌ Error fatal en control server: {e}")    
   
     threading.Thread(target=control_server, daemon=True).start()
 
 # =========================================================================================
-# VAD & LISTENER 
+# VAD & LISTENER (Aggressive Echo Logic)
 # =========================================================================================
-
 def setup_streaming_recognition():
     r = sr.Recognizer()
     r.pause_threshold = 0.8
-    r.dynamic_energy_threshold = False  # DESACTIVADO para evitar adaptación al ruido
-    r.energy_threshold = 400            # Umbral fijo más alto para filtrar ruido
+    r.dynamic_energy_threshold = False
+    r.energy_threshold = 400 
     try:
-        m = sr.Microphone()
+        m = sr.Microphone(sample_rate=16000) # Force 16k for WAV compatibility
         with m as source:
             r.adjust_for_ambient_noise(source, duration=0.5)
         return r, m
-    except Exception as e:
-        print(f"❌ Error de Micrófono: {e}")
+    except:
         sys.exit(1)
 
 def stream_audio_recognition(recognizer, microphone, q):
-    """
-    Background listener.
-    Updated Logic: Only interrupt IF valid text is recognized.
-    """
     def callback(recognizer, audio):
-        global speaking, interruption_event
+        global speaking, interruption_event, manual_recording, manual_audio_buffer
+
+        # 🔹 1. HANDLE MANUAL RECORDING
+        if manual_recording:
+            with manual_recording_lock:
+                manual_audio_buffer.append(audio.get_raw_data())
+            # Don't transcribe while manually recording for a note
+            return
 
         try:
-            # Recognize text FIRST (Filter noise)
+            # 🔹 2. RECOGNIZE TEXT (Filter noise)
             try:
                 text = recognizer.recognize_google(audio, language="es").lower().strip()
-            except sr.UnknownValueError:
-                return
-            except sr.RequestError:
-                return
+            except: return
 
-            if not text:
-                return
+            if not text: return
 
-            # Check for BARGE-IN (Interruption)
-            # Only if we are speaking AND the text is significant
+            # 🔹 3. "VIOLENT" ECHO ATTENUATION & INTERRUPTION LOGIC
             if speaking:
-                if interruption_event.is_set():
-                    return 
-                
-                # 🔹 STRICT BARGE-IN CHECK
-                # Solo interrumpir si menciona "Ron" o una palabra de parada
-                # Esto filtra letras de canciones o ruido de fondo
-                text_lower = text.lower()
-                is_valid_interruption = False
-                
-                # 1. Check Stop Keywords / Wake Words
-                matched_keyword = None
-                for k in STOP_KEYWORDS:
-                    if k in text_lower:
-                        is_valid_interruption = True
-                        matched_keyword = k
-                        break
-                
-                # 2. Check Wake Words (Global list)
-                if not is_valid_interruption:
-                     for w in ALLOWED_WAKE_WORDS:
-                        if w in text_lower:
-                             is_valid_interruption = True
-                             matched_keyword = w
-                             break
+                if interruption_event.is_set(): return 
 
-                if not is_valid_interruption:
-                    print(f"🎵 Ruido/Música ignorado durante habla: '{text}'")
-                    return
-                
-                print(f"🔍 Interrupción pot. válida por keyword: '{matched_keyword}'")
-
-                if not is_valid_interruption:
-                    print(f"🎵 Ruido/Música ignorado durante habla: '{text}'")
-                    return
-
-                # 🔹 ECHO CHECK: Is this just me talking? (Secondary check)
+                # A. CHECK ECHO BUFFER (Did I just say this?)
                 if speech_buffer.is_echo(text):
-                    print(f"🔇 Echo ignorado: '{text}'")
+                    print(f"🔇 Echo suprimido: '{text}'")
                     return
 
-                print(f"🛑 ¡INTERRUPCIÓN VALIDADA! ('{text}')")
-                stop_speaking()
+                # B. STRICT KEYWORD CHECK
+                # Only allow interruption if user says a specific keyword
+                # This kills "music/noise" interruptions completely.
+                is_valid = False
+                matched = ""
+                for k in STOP_KEYWORDS:
+                    if k in text:
+                        is_valid = True; matched = k; break
                 
-                # 🔹 FIX: Force active state so the main loop processes this text
-                # even if we were technically "inactive" (finishing a turn)
+                # Also allow if it looks like a wake word or strong command
+                if not is_valid:
+                    # Basic intent check? No, strictly keywords for robustness.
+                    print(f"🛡️ Interrupción bloqueada (falta keyword): '{text}'")
+                    return
+
+                print(f"🛑 Interrupción VÁLIDA por '{matched}': '{text}'")
+                stop_speaking()
+
                 global activado
                 activado = True
 
-            # Pass text to main loop
             print(f"👂 Escuchado: {text}")
             q.put((text, time.time()))
 
         except Exception as e:
-            print(f"⚠️ Error en Listener: {e}")
+            print(f"⚠️ Listener: {e}")
 
     return recognizer.listen_in_background(microphone, callback, phrase_time_limit=5)
 
 # =========================================================================================
-# STREAMING BACKEND CLIENT
+# STREAMING BACKEND
 # =========================================================================================
-
 def buffer_speech_sentences(text_stream):
-    """Yields full sentences from a stream of characters/chunks."""
     buffer = ""
-    # Delimiters for natural pauses
     endings = re.compile(r'([.?!,])') 
-    
     for chunk in text_stream:
         buffer += chunk
         parts = endings.split(buffer)
@@ -436,20 +363,14 @@ def buffer_speech_sentences(text_stream):
             i = 0
             while i < len(to_process) - 1:
                sentence = to_process[i] + to_process[i+1]
-               if sentence.strip():
-                   yield sentence.strip()
+               if sentence.strip(): yield sentence.strip()
                i += 2
             buffer = new_buffer
-    if buffer.strip():
-        yield buffer.strip()
+    if buffer.strip(): yield buffer.strip()
 
 def process_interaction(user_text):
-    """
-    Main logic: Sends text to backend, streams response, feeds TTS, EXECUTES COMMANDS.
-    """
-    global interruption_event, speaking
-    
-    interruption_event.clear() # Reset flag for new turn
+    global interruption_event
+    interruption_event.clear()
     
     api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
@@ -462,93 +383,56 @@ def process_interaction(user_text):
     print(f"📡 Solicitando: {user_text[:30]}...")
 
     try:
-        # Use a session for persistent connection
         with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=10) as r:
-            
-            # Iterator for text chunks from server
             def generate_chunks():
                 nonlocal commands_found
                 for line in r.iter_lines():
                     if interruption_event.is_set(): break
                     if not line: continue
-                    
                     line_str = line.decode('utf-8', errors='ignore')
                     if line_str.startswith('data: '):
                         data = json.loads(line_str[6:])
-                        
-                        if data['type'] == 'chunk':
-                            yield data['chunk']
-                        
+                        if data['type'] == 'chunk': yield data['chunk']
                         elif data['type'] == 'result':
-                            # 🔹 CAPTURE COMMANDS FROM STREAM
-                            # Server sends { "type": "result", "commands": [...] }
                             cmds = data.get('commands', [])
-                            if cmds:
-                                commands_found.extend(cmds)
+                            if cmds: commands_found.extend(cmds)
 
-            # Feed chunks to sentence splitter -> TTS Queue
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if interruption_event.is_set():
-                    print("🛑 Stream de respuesta cancelado.")
+                    print("🛑 Stream cancelado.")
                     break
-                    
                 speak_async(sentence)
                 full_response += " " + sentence
 
     except Exception as e:
-        print(f"❌ Error de Backend: {e}")
-        speak_async("Hubo un error de conexión.")
-        return False 
+        print(f"❌ Backend: {e}")
+        speak_async("Error de conexión.")
+        return False
 
-    # Handle completion
-    if interruption_event.is_set():
-        return True 
+    if interruption_event.is_set(): return True
 
-    # 🔹 EXECUTE COMMANDS
     if commands_found:
-        print(f"⚡ Ejecutando {len(commands_found)} comando(s)...")
+        print(f"⚡ Ejecutando {len(commands_found)} comandos...")
         for cmd in commands_found:
-            action = cmd.get('action') 
-            params = cmd.get('params', {})
-            try:
-                run_command(action, params, {'username': current_username})
-                # Feedback?
-            except Exception as e:
-                print(f"❌ Error ejecutando {action}: {e}")
+            try: run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username})
+            except: pass
 
-    return should_stay_active(user_text, full_response)
-
-def should_stay_active(user_text, response_text):
-    """Logic to keep conversation open and NOTIFY USER"""
-    response_lower = response_text.lower()
-    
-    # 1. Asking questions?
-    if "?" in response_text or any(k in response_lower for k in ["dime", "cuéntame", "qué necesitas", "algo más"]):
-        # print("🔄 Conversación continúa (esperando respuesta)...") 
+    # Heuristic to stay active
+    response_lower = full_response.lower()
+    if "?" in full_response or any(k in response_lower for k in ["dime", "cuéntame", "necesitas", "algo más"]):
         return True
-    
-    # 2. explicit continuation
-    if any(k in response_lower for k in ["luego", "ahora", "espera"]):
-        # print("🔄 Conversación continúa...")
-        return True
-
-    # print("💤 Conversación completada.")
     return False
 
 # =========================================================================================
-# MAIN LOOP
+# MAIN
 # =========================================================================================
-
 def detect_ron_activation(text):
     tokens = text.lower().split()
     return any(w in ALLOWED_WAKE_WORDS for w in tokens)
 
 if __name__ == "__main__":
-    print("🟢 Ron 24/7 v2.0 (Streaming & Barge-In) Listo.")
-    
-    # 🔹 FIX: START CONTROL SERVER
+    print("🟢 Ron 24/7 v2.0 (Violent Anti-Echo & Recording) Listo.")
     handle_external_control()
-    
     task_manager = TaskManager(lambda t: speak_async(t))
     
     recognizer, microphone = setup_streaming_recognition()
@@ -559,49 +443,25 @@ if __name__ == "__main__":
     try:
         while True:
             try:
-                try:
-                    text, ts = audio_queue.get(timeout=0.1)
-                except queue.Empty:
-                    continue
+                try: text, ts = audio_queue.get(timeout=0.1)
+                except queue.Empty: continue
 
                 if not activado:
                     if detect_ron_activation(text):
                         print("✅ Palabra clave detectada!")
-                        
-                        # 🔹 FIX: Clear interruption flag BEFORE greeting
-                        # Stop anything currently playing
-                        stop_speaking() 
-                        # Essential: Wait a tiny bit for queue to clear if threaded
+                        stop_speaking()
                         time.sleep(0.05)
-                        # Reset flag so greeting is accepted
                         interruption_event.clear()
-                        
-                        greeting = random.choice(activation_phrases)
-                        # print(f"🤖 Ron: {greeting}")
-                        speak_async(greeting)
-                        
-                        # 🔹 LOGGING: Registrar el saludo en la memoria del usuario
-                        # Esto hace que aparezca en el chat
-                        try:
-                            # User said "Ron" (text) -> Ron said greeting
-                            add_to_memory(current_username or "default", text, greeting, source="voice")
-                        except Exception as log_err:
-                            print(f"⚠️ Error logueando saludo: {log_err}")
-                        
+                        speak_async(random.choice(activation_phrases))
                         activado = True
                         last_interaction = time.time()
-                
                 else:
                     last_interaction = time.time()
-                    stay_active = process_interaction(text)
-                    if not stay_active:
+                    stay = process_interaction(text)
+                    if not stay:
                         print("💤 Desactivando escucha activa.")
                         activado = False
-
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                print(f"❌ Error en Loop: {e}")
-                
+            except KeyboardInterrupt: break
+            except Exception as e: print(f"❌ Loop: {e}")
     finally:
         stop_listening(wait_for_stop=False)
