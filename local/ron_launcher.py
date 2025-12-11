@@ -79,8 +79,9 @@ STOP_KEYWORDS = {
     # Wake Words
     "ron", "rom", "rron", "oye ron", "hola ron",
     # Stop Commands
-    "silencio", "cállate", "callate", "stop", "para", "detente", "basta", 
-    "espera", "escucha", "oye", "momento", "pausa"
+    # Stop Commands
+    "silencio", "cállate", "callate", "stop", "detente", "basta", 
+    "espera", "momento", "pausa", "parar"
 }
 
 # =========================================================================================
@@ -108,7 +109,7 @@ class SpeechBuffer:
     Tracks recently spoken text to detect if the microphone is hearing Ron's own voice (Echo).
     Entries expire after a few seconds.
     """
-    def __init__(self, max_seconds=10.0):
+    def __init__(self, max_seconds=20.0): # 🔹 TUNED: Increased retention time
         self.buffer = []  # List of (text, timestamp)
         self.max_seconds = max_seconds
         self.lock = threading.Lock()
@@ -369,13 +370,26 @@ def stream_audio_recognition(recognizer, microphone, q):
                 is_valid_interruption = False
                 
                 # 1. Check Stop Keywords / Wake Words
-                if any(k in text_lower for k in STOP_KEYWORDS):
-                    is_valid_interruption = True
+                matched_keyword = None
+                for k in STOP_KEYWORDS:
+                    if k in text_lower:
+                        is_valid_interruption = True
+                        matched_keyword = k
+                        break
                 
                 # 2. Check Wake Words (Global list)
                 if not is_valid_interruption:
-                     if any(w in text_lower for w in ALLOWED_WAKE_WORDS):
-                         is_valid_interruption = True
+                     for w in ALLOWED_WAKE_WORDS:
+                        if w in text_lower:
+                             is_valid_interruption = True
+                             matched_keyword = w
+                             break
+
+                if not is_valid_interruption:
+                    print(f"🎵 Ruido/Música ignorado durante habla: '{text}'")
+                    return
+                
+                print(f"🔍 Interrupción pot. válida por keyword: '{matched_keyword}'")
 
                 if not is_valid_interruption:
                     print(f"🎵 Ruido/Música ignorado durante habla: '{text}'")
