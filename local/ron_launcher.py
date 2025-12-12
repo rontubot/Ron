@@ -281,9 +281,8 @@ def setup_streaming_recognition():
     r.energy_threshold = 400  # Fixed optimal value (not too sensitive, not too high)
     try:
         m = sr.Microphone()
-        # Calibrate WITHOUT closing the microphone (no 'with' statement)
-        r.adjust_for_ambient_noise(m, duration=0.3)
-        print(f"🎤 Micrófono listo. Umbral: {r.energy_threshold}")
+        # Using fixed threshold, no calibration needed
+        print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
         return r, m
     except Exception as e:
         print(f"❌ Error de Micrófono: {e}")
