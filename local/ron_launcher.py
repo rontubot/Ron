@@ -466,7 +466,9 @@ def process_interaction(user_text):
 # MAIN
 # =========================================================================================
 def detect_ron_activation(text):
-    tokens = text.lower().split()
+    # Remove punctuation before checking wake words
+    clean_text = text.replace(',', '').replace('.', '').replace('!', '').replace('?', '').lower()
+    tokens = clean_text.split()
     return any(w in ALLOWED_WAKE_WORDS for w in tokens)
 
 if __name__ == "__main__":
