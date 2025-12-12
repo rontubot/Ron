@@ -275,11 +275,17 @@ def handle_external_control():
 # VAD & LISTENER (Local Whisper Recognition)
 # =========================================================================================
 
-# Disable debug logs from Whisper
+# Disable debug logs from Whisper and TTS
 logging.getLogger('faster_whisper').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('filelock').setLevel(logging.WARNING)
+logging.getLogger('comtypes').setLevel(logging.WARNING)
+logging.getLogger('comtypes.client').setLevel(logging.WARNING)
+logging.getLogger('comtypes._post_coinit').setLevel(logging.WARNING)
+logging.getLogger('comtypes._comobject').setLevel(logging.WARNING)
+logging.getLogger('comtypes._vtbl').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 # Initialize Whisper model globally (load once)
 print("🔄 Cargando modelo Whisper...")
