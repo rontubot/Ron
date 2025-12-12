@@ -247,10 +247,14 @@ def handle_external_control():
                             frames = list(manual_audio_buffer) # Copy
                         
                         try:
+                            # Detect sample rate from first audio chunk if available
+                            # Default to common 44100 if not detectable
+                            sample_rate = 44100
+                            
                             wf = wave.open(filepath, 'wb')
                             wf.setnchannels(1)
                             wf.setsampwidth(2) # 16 bit
-                            wf.setframerate(16000) # Assuming SR defaults
+                            wf.setframerate(sample_rate)
                             wf.writeframes(b''.join(frames))
                             wf.close()
                             client.sendall(f"RECORDED:{filepath}".encode('utf-8'))
@@ -272,16 +276,20 @@ def handle_external_control():
 # =========================================================================================
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 0.8
-    # 🔹 FIX LATENCY: Restore dynamic threshold so it doesn't wait forever on silence
-    r.dynamic_energy_threshold = True 
-    r.energy_threshold = 300 
+    # 🔹 CRITICAL FIX: Ultra-responsive settings
+    r.pause_threshold = 0.5  # Reduced from 0.8 - process faster
+    r.dynamic_energy_threshold = True  # Auto-adjust to environment
+    r.energy_threshold = 150  # VERY sensitive - will pick up quiet speech
     try:
-        m = sr.Microphone(sample_rate=16000) # Force 16k for WAV compatibility
+        # 🔹 DO NOT force sample_rate - let it use hardware default
+        m = sr.Microphone()
         with m as source:
-            r.adjust_for_ambient_noise(source, duration=0.5)
+            # 🔹 Longer calibration for better baseline
+            r.adjust_for_ambient_noise(source, duration=1.5)
+            print(f"🎤 Micrófono calibrado. Umbral: {r.energy_threshold}")
         return r, m
-    except:
+    except Exception as e:
+        print(f"❌ Error de Micrófono: {e}")
         sys.exit(1)
 
 def stream_audio_recognition(recognizer, microphone, q):
