@@ -282,11 +282,11 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('filelock').setLevel(logging.WARNING)
 
 # Initialize Whisper model globally (load once)
-print("🔄 Cargando modelo Whisper (español optimizado)...")
+print("🔄 Cargando modelo Whisper...")
 from faster_whisper import WhisperModel
-# Using "small" model - best balance between speed and accuracy
-whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
-print("✅ Whisper listo (modelo: small, español precisión)")
+# Using "base" model - sweet spot between tiny and small
+whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+print("✅ Whisper listo (español optimizado)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
@@ -316,16 +316,14 @@ def transcribe_with_whisper(audio_data):
             tmp_file.write(wav_data)
             tmp_path = tmp_file.name
         
-        # Transcribe with Whisper - OPTIMIZED FOR SPANISH PRECISION
+        # Transcribe with Whisper - BALANCED FOR SPEED + SPANISH PRECISION
         segments, info = whisper_model.transcribe(
             tmp_path, 
             language="es",  # Force Spanish only
-            task="transcribe",  # Explicit transcription (not translation)
-            beam_size=5,  # Better accuracy (was 1)
-            best_of=5,  # Try 5 candidates, pick best
-            temperature=0.0,  # Deterministic (no randomness)
+            beam_size=3,  # Balanced accuracy/speed (was 5)
+            temperature=0.0,  # Deterministic
             vad_filter=True,  # Filter non-speech
-            vad_parameters=dict(min_silence_duration_ms=500)  # Ignore short silences
+            vad_parameters=dict(min_silence_duration_ms=300)  # Quick response
         )
         
         # Extract text
