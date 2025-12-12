@@ -202,8 +202,9 @@ def handle_external_control():
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)    
             server.bind(('127.0.0.1', args.control_port))    
-            server.listen(5)    
-            print(f"🎛️ Servidor de control: {args.control_port}")    
+            server.listen(5)
+            # 🔹 FIX for UI: Must be exact English string "Control server listening"    
+            print(f"Control server listening on port {args.control_port}", flush=True)    
   
             while control_enabled:    
                 try:    
@@ -245,8 +246,6 @@ def handle_external_control():
                             manual_recording = False
                             frames = list(manual_audio_buffer) # Copy
                         
-                        # Write wav
-                        # We assume standard mic settings: 16kHz, 16bit, Mono usually from SR
                         try:
                             wf = wave.open(filepath, 'wb')
                             wf.setnchannels(1)
@@ -254,13 +253,6 @@ def handle_external_control():
                             wf.setframerate(16000) # Assuming SR defaults
                             wf.writeframes(b''.join(frames))
                             wf.close()
-                            
-                            # Transcribe logic should be handled by backend usually, 
-                            # but here we might return the path or text?
-                            # For Ron, usually the frontend just wants the Signal that recording stopped.
-                            # But wait, does the frontend expect the TEXT?
-                            # Usually Ron sends the audio to OpenAI Whisper handled in Backend.
-                            # Changing architecture: Let's assume we just return "RECORDED"
                             client.sendall(f"RECORDED:{filepath}".encode('utf-8'))
                         except Exception as e:
                             print(f"❌ Error guardando WAV: {e}")
@@ -281,8 +273,9 @@ def handle_external_control():
 def setup_streaming_recognition():
     r = sr.Recognizer()
     r.pause_threshold = 0.8
-    r.dynamic_energy_threshold = False
-    r.energy_threshold = 400 
+    # 🔹 FIX LATENCY: Restore dynamic threshold so it doesn't wait forever on silence
+    r.dynamic_energy_threshold = True 
+    r.energy_threshold = 300 
     try:
         m = sr.Microphone(sample_rate=16000) # Force 16k for WAV compatibility
         with m as source:
