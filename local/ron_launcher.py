@@ -277,7 +277,7 @@ def handle_external_control():
 def setup_streaming_recognition():
     r = sr.Recognizer()
     # 🔹 CRITICAL: Fixed threshold to avoid auto-adjustment in noisy rooms
-    r.pause_threshold = 0.5  # Process after 0.5s of silence
+    r.pause_threshold = 0.3  # Process after 0.3s of silence (faster detection)
     r.dynamic_energy_threshold = False  # DISABLED - prevents auto-raising threshold
     r.energy_threshold = 400  # Fixed optimal value (not too sensitive, not too high)
     try:
@@ -346,7 +346,7 @@ def stream_audio_recognition(recognizer, microphone, q):
         except Exception as e:
             print(f"⚠️ Listener: {e}")
 
-    return recognizer.listen_in_background(microphone, callback, phrase_time_limit=5)
+    return recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)
 
 # =========================================================================================
 # STREAMING BACKEND
