@@ -16,6 +16,7 @@ import unicodedata
 import re
 import requests
 import wave
+import tempfile
 import difflib
 
 # 🔹 Add current script dir to path for imports
@@ -271,22 +272,56 @@ def handle_external_control():
     threading.Thread(target=control_server, daemon=True).start()
 
 # =========================================================================================
-# VAD & LISTENER (Aggressive Echo Logic)
+# VAD & LISTENER (Local Whisper Recognition)
 # =========================================================================================
+
+# Initialize Whisper model globally (load once)
+print("🔄 Cargando modelo Whisper local...")
+from faster_whisper import WhisperModel
+whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+print("✅ Whisper listo (modelo: tiny, ultra-rápido)")
+
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    # 🔹 CRITICAL: Fixed threshold to avoid auto-adjustment in noisy rooms
-    r.pause_threshold = 0.3  # Process after 0.3s of silence (faster detection)
-    r.dynamic_energy_threshold = False  # DISABLED - prevents auto-raising threshold
-    r.energy_threshold = 400  # Fixed optimal value (not too sensitive, not too high)
+    r.pause_threshold = 0.8
+    r.non_speaking_duration = 0.5
+    r.dynamic_energy_threshold = False
+    r.energy_threshold = 400
     try:
         m = sr.Microphone()
-        # Using fixed threshold, no calibration needed
         print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
         return r, m
     except Exception as e:
         print(f"❌ Error de Micrófono: {e}")
         sys.exit(1)
+
+def transcribe_with_whisper(audio_data):
+    """
+    Transcribe audio using local Whisper model (FAST, no network)
+    audio_data: AudioData object from speech_recognition
+    """
+    try:
+        # Convert AudioData to WAV bytes
+        wav_data = audio_data.get_wav_data()
+        
+        # Write to temp file for Whisper (it needs a file path)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            tmp_file.write(wav_data)
+            tmp_path = tmp_file.name
+        
+        # Transcribe with Whisper
+        segments, info = whisper_model.transcribe(tmp_path, language="es", beam_size=1)
+        
+        # Extract text
+        text = " ".join([segment.text for segment in segments]).strip()
+        
+        # Cleanup
+        os.unlink(tmp_path)
+        
+        return text
+    except Exception as e:
+        print(f"⚠️ Whisper error: {e}")
+        return ""
 
 def stream_audio_recognition(recognizer, microphone, q):
     def callback(recognizer, audio):
@@ -296,38 +331,31 @@ def stream_audio_recognition(recognizer, microphone, q):
         if manual_recording:
             with manual_recording_lock:
                 manual_audio_buffer.append(audio.get_raw_data())
-            # Don't transcribe while manually recording for a note
             return
 
         try:
-            # 🔹 2. RECOGNIZE TEXT (Filter noise)
-            try:
-                text = recognizer.recognize_google(audio, language="es").lower().strip()
-            except: return
-
+            # 🔹 2. RECOGNIZE TEXT with LOCAL WHISPER (INSTANT!)
+            text = transcribe_with_whisper(audio).lower().strip()
+            
             if not text: return
 
             # 🔹 3. "VIOLENT" ECHO ATTENUATION & INTERRUPTION LOGIC
             if speaking:
                 if interruption_event.is_set(): return 
 
-                # A. CHECK ECHO BUFFER (Did I just say this?)
+                # A. CHECK ECHO BUFFER
                 if speech_buffer.is_echo(text):
                     print(f"🔇 Echo suprimido: '{text}'")
                     return
 
                 # B. STRICT KEYWORD CHECK
-                # Only allow interruption if user says a specific keyword
-                # This kills "music/noise" interruptions completely.
                 is_valid = False
                 matched = ""
                 for k in STOP_KEYWORDS:
                     if k in text:
                         is_valid = True; matched = k; break
                 
-                # Also allow if it looks like a wake word or strong command
                 if not is_valid:
-                    # Basic intent check? No, strictly keywords for robustness.
                     print(f"🛡️ Interrupción bloqueada (falta keyword): '{text}'")
                     return
 
