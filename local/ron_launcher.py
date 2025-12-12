@@ -276,17 +276,16 @@ def handle_external_control():
 # =========================================================================================
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    # 🔹 CRITICAL FIX: Ultra-responsive settings
-    r.pause_threshold = 0.5  # Reduced from 0.8 - process faster
-    r.dynamic_energy_threshold = True  # Auto-adjust to environment
-    r.energy_threshold = 150  # VERY sensitive - will pick up quiet speech
+    # 🔹 CRITICAL: Fixed threshold to avoid auto-adjustment in noisy rooms
+    r.pause_threshold = 0.5  # Process after 0.5s of silence
+    r.dynamic_energy_threshold = False  # DISABLED - prevents auto-raising threshold
+    r.energy_threshold = 400  # Fixed optimal value (not too sensitive, not too high)
     try:
-        # 🔹 DO NOT force sample_rate - let it use hardware default
         m = sr.Microphone()
         with m as source:
-            # 🔹 Longer calibration for better baseline
-            r.adjust_for_ambient_noise(source, duration=1.5)
-            print(f"🎤 Micrófono calibrado. Umbral: {r.energy_threshold}")
+            # Short calibration just to get baseline, won't change threshold
+            r.adjust_for_ambient_noise(source, duration=0.3)
+            print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
         return r, m
     except Exception as e:
         print(f"❌ Error de Micrófono: {e}")
