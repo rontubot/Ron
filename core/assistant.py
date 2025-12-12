@@ -7,6 +7,7 @@ from core.commands import run_command
 import hashlib
 import time
 
+
 from core.profile import (
     get_or_init_profile,
     append_to_profile_window,
