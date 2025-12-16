@@ -377,8 +377,8 @@ print("✅ Whisper listo (base cargado)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 0.6  # Tuned for faster response
-    r.non_speaking_duration = 0.4
+    r.pause_threshold = 1.0  # Tuned for more natural pausing (was 0.6)
+    r.non_speaking_duration = 0.6 # Requires slightly more silence to stop
     r.dynamic_energy_threshold = False
     r.energy_threshold = 400
     try:
@@ -533,6 +533,22 @@ def process_interaction(user_text):
                     # 🔹 FIX: If interrupted, silence TTS but CONTINUE reading stream
                     # print("🛑 Stream silenciado (buscando comandos...)")
                     continue
+                
+                # ⚡ ASYNC COMMAND EXECUTION (Inside Loop)
+                # If commands arrived with this chunk (or before), run them NOW.
+                if commands_found:
+                    pending_cmds = list(commands_found)
+                    commands_found = [] # Clear processed
+                    print(f"⚡ Ejecutando {len(pending_cmds)} comandos EN PARALELO...")
+                    
+                    def run_cmds_async(cmds):
+                        for cmd in cmds:
+                            try: run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username})
+                            except: pass
+                    
+                    # Launch in thread to not block TTS
+                    threading.Thread(target=run_cmds_async, args=(pending_cmds,), daemon=True).start()
+
                 speak_async(sentence)
                 full_response += " " + sentence
 
