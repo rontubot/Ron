@@ -305,37 +305,69 @@ except ImportError:
         print(f"❌ Error fatal instalando faster-whisper: {e}")
         sys.exit(1)
 
-# 🔹 Patch TQDM to output JSON progress for Splash Screen (Electron reads this)
+# 🔹 Progress Helper for Electron
+def send_progress(p, s):
+    try:
+        print(json.dumps({"progress": p, "status": s}), flush=True)
+    except: pass
+
+send_progress(1, "Verificando archivos del modelo...")
+
+# 🔹 Aggressive TQDM Patching for HuggingFace Hub
 try:
     import tqdm
-    # Patch both top-level and auto if needed, but faster_whisper usually uses tqdm directly or via hf_hub
-    # We'll try to patch the one likely used.
-    class JsonTqdm(tqdm.tqdm):
+    import tqdm.auto
+    import tqdm.std
+
+    class JsonTqdm(tqdm.std.tqdm):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            # Send initial 0%
+            send_progress(0, "Iniciando descarga (3GB)...")
+
         def update(self, n=1):
-            prev_n = self.n
             super().update(n)
             try:
-                if self.total and self.n > prev_n: # Only print on change
+                if self.total and self.total > 0:
                     pct = (self.n / self.total) * 100
-                    # Throttle updates slightly to avoid choking stdout buffer
-                    # Print every 1% or so
-                    if int(pct) > int((prev_n / self.total) * 100):
-                         print(json.dumps({"progress": pct, "status": "Descargando modelo de voz (3GB)..."}), flush=True)
+                    # Throttle: output every ~1% or if finished
+                    if self.n >= self.total or (self.n % (self.total // 100 + 1) == 0):
+                         send_progress(pct, f"Descargando núcleo de voz: {int(pct)}%")
             except: pass
-    
-    tqdm.tqdm = JsonTqdm
-    # Also try patching auto if accessible
-    try:
-        import tqdm.auto
-        tqdm.auto.tqdm = JsonTqdm
-    except: pass
-    
-except ImportError:
-    print(json.dumps({"progress": 0, "status": "Iniciando descarga (sin barra)..."}), flush=True)
 
-# Using "large-v3" model - MAXIMUM ACCURACY as requested by user
-whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
-print("✅ Whisper listo (español optimizado - modelo large-v3)")
+    # Patch EVERYWHERE
+    tqdm.tqdm = JsonTqdm
+    tqdm.auto.tqdm = JsonTqdm
+    tqdm.std.tqdm = JsonTqdm
+    # Some libs import tqdm directly, we try to catch them
+    sys.modules['tqdm'].tqdm = JsonTqdm
+    sys.modules['tqdm.auto'].tqdm = JsonTqdm
+    
+except Exception as e:
+    print(f"TQDM Patch Warning: {e}")
+    send_progress(5, "Descarga iniciada...")
+
+# 🔹 Explicit Download (Blocks until done, but TQDM should report)
+from faster_whisper import download_model
+
+print("Bot: 🔄 Verificando/Descargando modelo large-v3...")
+try:
+    # Explicitly download to default cache
+    # This triggers the patched tqdm for 'huggingface_hub'
+    model_path = download_model("large-v3")
+    send_progress(100, "Modelo cargado. Iniciando...")
+    
+    # Init from local path
+    whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8")
+
+except Exception as e:
+    print(f"Error cargando modelo: {e}")
+    send_progress(100, "Error en carga. Usando fallback...")
+    # Fallback to tiny if large fails? Or re-raise?
+    # Usually better to retry or standard init
+    whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+
+print("✅ Whisper listo (large-v3 cargado)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
