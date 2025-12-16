@@ -289,10 +289,25 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 # Initialize Whisper model globally (load once)
 print("🔄 Cargando modelo Whisper...")
-from faster_whisper import WhisperModel
-# Using "base" model - sweet spot between tiny and small
-whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
-print("✅ Whisper listo (español optimizado)")
+try:
+    from faster_whisper import WhisperModel
+except ImportError:
+    print("📦 Instalando faster-whisper (primera vez, puede tardar)...")
+    try:
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", 
+            "faster-whisper", 
+            "--quiet", "--no-warn-script-location"
+        ])
+        print("✅ faster-whisper instalado. Reintentando import...")
+        from faster_whisper import WhisperModel
+    except Exception as e:
+        print(f"❌ Error fatal instalando faster-whisper: {e}")
+        sys.exit(1)
+
+# Using "small" model - significantly better accuracy for commands
+whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+print("✅ Whisper listo (español optimizado - modelo small)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
@@ -432,7 +447,7 @@ def process_interaction(user_text):
             def generate_chunks():
                 nonlocal commands_found
                 for line in r.iter_lines():
-                    if interruption_event.is_set(): break
+                    # 🔹 FIX: Don't break on interruption, keep reading to get commands at the end
                     if not line: continue
                     line_str = line.decode('utf-8', errors='ignore')
                     if line_str.startswith('data: '):
@@ -444,8 +459,9 @@ def process_interaction(user_text):
 
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if interruption_event.is_set():
-                    print("🛑 Stream cancelado.")
-                    break
+                    # 🔹 FIX: If interrupted, silence TTS but CONTINUE reading stream
+                    # print("🛑 Stream silenciado (buscando comandos...)")
+                    continue
                 speak_async(sentence)
                 full_response += " " + sentence
 
