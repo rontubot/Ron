@@ -356,11 +356,11 @@ except Exception as e:
 # 🔹 Explicit Download (Blocks until done, but TQDM should report)
 from faster_whisper import download_model
 
-print("Bot: 🔄 Verificando/Descargando modelo base (rápido)...")
+print("Bot: 🔄 Verificando/Descargando modelo small (equilibrado)...")
 try:
     # Explicitly download to default cache
     # This triggers the patched tqdm for 'huggingface_hub'
-    model_path = download_model("base")
+    model_path = download_model("small")
     send_progress(100, "Modelo cargado. Iniciando...")
     
     # Init from local path
@@ -371,9 +371,9 @@ except Exception as e:
     print(f"Error cargando modelo: {e}")
     send_progress(100, "Error en carga. Usando fallback...")
     # Fallback/Retry
-    whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
 
-print("✅ Whisper listo (base cargado)")
+print("✅ Whisper listo (small cargado)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
