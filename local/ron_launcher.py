@@ -311,8 +311,8 @@ print("✅ Whisper listo (español optimizado - modelo small)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 0.8
-    r.non_speaking_duration = 0.5
+    r.pause_threshold = 0.6  # Tuned for faster response
+    r.non_speaking_duration = 0.4
     r.dynamic_energy_threshold = False
     r.energy_threshold = 400
     try:
@@ -453,7 +453,7 @@ def process_interaction(user_text):
                     if line_str.startswith('data: '):
                         data = json.loads(line_str[6:])
                         if data['type'] == 'chunk': yield data['chunk']
-                        elif data['type'] == 'result':
+                        elif data['type'] in ('result', 'done'):
                             cmds = data.get('commands', [])
                             if cmds: commands_found.extend(cmds)
 

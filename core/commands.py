@@ -743,9 +743,66 @@ def _username(ctx: dict, params: dict | None = None) -> str:
     if ctx and isinstance(ctx, dict):    
         if ctx.get("username"):    
             return str(ctx["username"]).strip()    
-        if ctx.get("user"):    
-            return str(ctx["user"]).strip()    
-    return "default"  
+
+def execute_autonomous_plan(plan, progress_callback=None):
+    """
+    Ejecuta un plan autónomo (lista de pasos) generado por el backend.
+    """
+    def send_progress(msg):
+        if progress_callback: progress_callback(msg)
+        logger.info(msg)
+
+    try:
+        if not plan or not isinstance(plan, dict):
+            return {"ok": False, "error": "Plan inválido"}
+
+        steps = plan.get("steps", [])
+        if not steps:
+            return {"ok": True, "message": "Plan vacío, nada que ejecutar."}
+
+        send_progress(f"⚙️ Iniciando plan autónomo: {plan.get('task', 'Tarea compleja')}")
+        
+        results = []
+        for step in steps:
+            desc = step.get("description", "Paso sin descripción")
+            cmd = step.get("command")
+            ctype = step.get("type", "cmd")
+            
+            send_progress(f"▶️ {desc}")
+            
+            if not cmd:
+                continue
+
+            try:
+                if ctype == "powershell":
+                    # Ejecutar PowerShell codificado en Base64 para evitar problemas de escape es mejor, 
+                    # pero aquí usaremos directo por simplicidad y compatibilidad con lo que manda el backend
+                    full_cmd = f'powershell -NoProfile -Command "{cmd}"'
+                    res = subprocess.run(full_cmd, shell=True, capture_output=True, text=True, timeout=120)
+                elif ctype == "python":
+                    full_cmd = [sys.executable, "-c", cmd]
+                    res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=120)
+                else: # cmd
+                    full_cmd = f'cmd /c "{cmd}"'
+                    res = subprocess.run(full_cmd, shell=True, capture_output=True, text=True, timeout=120)
+                
+                output = (res.stdout + res.stderr).strip()
+                results.append(f"✅ {desc}: {output[:100]}")
+                logger.info(f"Step '{desc}' output: {output}")
+                
+            except Exception as e:
+                err = f"❌ Error en paso '{desc}': {e}"
+                send_progress(err)
+                results.append(err)
+                # Si falla un paso crítico, ¿paramos? Por ahora seguimos best-effort
+        
+        final_msg = "Plan completado.\n" + "\n".join(results)
+        send_progress("✅ Plan finalizado.")
+        return final_msg
+
+    except Exception as e:
+        logger.error(f"Error ejecutando plan autónomo: {e}")
+        return {"ok": False, "error": str(e)}  
   
   
 def open_application(app_name, progress_callback=None):      
