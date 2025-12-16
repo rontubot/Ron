@@ -413,9 +413,10 @@ def transcribe_with_whisper(audio_data):
             best_of=1,      # Greedy only needs 1 candidate
             temperature=0.0,
             condition_on_previous_text=False, # CRITICAL: Prevents hallucinations/looping
-            initial_prompt="Ron, asistente virtual inteligente. Comandos de Windows, abrir programas, crear archivos. Español latinoamérica.",
+            initial_prompt="Ron. silencio.", # Short prompt to reset context
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=400)
+            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
+            no_speech_threshold=0.4 # Discard segments with high probability of silence
         )
         
         # Extract text

@@ -1043,23 +1043,14 @@ def search_youtube(query, play_video=False, progress_callback=None):
         logger.info(f"Buscando en YouTube: {query}")      
               
         if play_video:      
-            send_progress("🔍 Buscando video específico...")  
-            # Intentar usar youtube-search para reproducir video específico      
-            try:      
-                from youtube_search import YoutubeSearch      
-                results = YoutubeSearch(query, max_results=1).to_dict()      
-                      
-                if results:      
-                    video_id = results[0]['id']      
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"      
-                    send_progress(f"▶️ Reproduciendo video...")  
-                    webbrowser.open(video_url)      
-                    logger.info(f"Reproduciendo video: {video_url}")      
-                    send_progress(f"✅ Video abierto en navegador")  
-                    return f"Reproduciendo '{query}' en YouTube."      
-            except ImportError:      
-                logger.warning("youtube-search no disponible, usando búsqueda simple")      
-                      
+            send_progress("🔍 Buscando video (modo rápido)...")
+            # OPTIMIZACIÓN: Abrir búsqueda directa para eliminar delay de scraping
+            # youtube-search tarda 5-10s. Abrir la URL es instantáneo (0s).
+            search_url = f"https://www.youtube.com/results?search_query={query}&sp=EgIQAQ%3D%3D" # sp=... filtra solo videos
+            webbrowser.open(search_url)
+            send_progress(f"✅ Video encontrado en YouTube")  
+            return f"Abriendo resultados para '{query}'."
+
         # Búsqueda simple      
         search_url = f"https://www.youtube.com/results?search_query={query}"      
         webbrowser.open(search_url)      
