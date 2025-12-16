@@ -397,13 +397,15 @@ def transcribe_with_whisper(audio_data):
             tmp_file.write(wav_data)
             tmp_path = tmp_file.name
         
-        # Transcribe with Whisper - TUNED FOR MAXIMUM PRECISION
+        # Transcribe with Whisper - TUNED FOR SPEED & ACCURACY
+        # beam_size=1 (Greedy) is much faster than beam_size=5
+        # large-v3 is accurate enough to not need beam search for simple commands
         segments, info = whisper_model.transcribe(
             tmp_path, 
             language="es",  # Force Spanish only
-            beam_size=5,    # Higher beam size for better decoding (was 3)
-            best_of=5,      # Comprobar 5 candidatos
-            temperature=0.0, # Deterministic
+            beam_size=1,    # ⚡ SPEED OPTIMIZATION (Greedy)
+            best_of=1,      # Greedy only needs 1 candidate
+            temperature=0.0,
             condition_on_previous_text=False, # CRITICAL: Prevents hallucinations/looping
             initial_prompt="Ron, asistente virtual inteligente. Comandos de Windows, abrir programas, crear archivos. Español latinoamérica.",
             vad_filter=True,
