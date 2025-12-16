@@ -305,9 +305,37 @@ except ImportError:
         print(f"❌ Error fatal instalando faster-whisper: {e}")
         sys.exit(1)
 
-# Using "small" model - significantly better accuracy for commands
-whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
-print("✅ Whisper listo (español optimizado - modelo small)")
+# 🔹 Patch TQDM to output JSON progress for Splash Screen (Electron reads this)
+try:
+    import tqdm
+    # Patch both top-level and auto if needed, but faster_whisper usually uses tqdm directly or via hf_hub
+    # We'll try to patch the one likely used.
+    class JsonTqdm(tqdm.tqdm):
+        def update(self, n=1):
+            prev_n = self.n
+            super().update(n)
+            try:
+                if self.total and self.n > prev_n: # Only print on change
+                    pct = (self.n / self.total) * 100
+                    # Throttle updates slightly to avoid choking stdout buffer
+                    # Print every 1% or so
+                    if int(pct) > int((prev_n / self.total) * 100):
+                         print(json.dumps({"progress": pct, "status": "Descargando modelo de voz (3GB)..."}), flush=True)
+            except: pass
+    
+    tqdm.tqdm = JsonTqdm
+    # Also try patching auto if accessible
+    try:
+        import tqdm.auto
+        tqdm.auto.tqdm = JsonTqdm
+    except: pass
+    
+except ImportError:
+    print(json.dumps({"progress": 0, "status": "Iniciando descarga (sin barra)..."}), flush=True)
+
+# Using "large-v3" model - MAXIMUM ACCURACY as requested by user
+whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+print("✅ Whisper listo (español optimizado - modelo large-v3)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
@@ -337,14 +365,17 @@ def transcribe_with_whisper(audio_data):
             tmp_file.write(wav_data)
             tmp_path = tmp_file.name
         
-        # Transcribe with Whisper - BALANCED FOR SPEED + SPANISH PRECISION
+        # Transcribe with Whisper - TUNED FOR MAXIMUM PRECISION
         segments, info = whisper_model.transcribe(
             tmp_path, 
             language="es",  # Force Spanish only
-            beam_size=3,  # Balanced accuracy/speed (was 5)
-            temperature=0.0,  # Deterministic
-            vad_filter=True,  # Filter non-speech
-            vad_parameters=dict(min_silence_duration_ms=300)  # Quick response
+            beam_size=5,    # Higher beam size for better decoding (was 3)
+            best_of=5,      # Comprobar 5 candidatos
+            temperature=0.0, # Deterministic
+            condition_on_previous_text=False, # CRITICAL: Prevents hallucinations/looping
+            initial_prompt="Ron, asistente virtual inteligente. Comandos de Windows, abrir programas, crear archivos. Español latinoamérica.",
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=400)
         )
         
         # Extract text
