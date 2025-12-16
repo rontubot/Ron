@@ -226,6 +226,12 @@ def handle_external_control():
                     elif cmd == 'STOP':
                         stop_speaking()
                         client.sendall(b'OK')
+
+                    elif cmd.startswith('SPEAK:'):
+                        text_to_speak = cmd[6:].strip()
+                        if text_to_speak:
+                            speak_async(text_to_speak)
+                        client.sendall(b'OK')
                     
                     # 🔹 MANUAL RECORDING COMMANDS
                     elif cmd == 'START_RECORDING':
@@ -358,7 +364,8 @@ try:
     send_progress(100, "Modelo cargado. Iniciando...")
     
     # Init from local path
-    whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8")
+    # cpu_threads=8 forces multi-threading for faster inference on CPU
+    whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8", cpu_threads=8)
 
 except Exception as e:
     print(f"Error cargando modelo: {e}")
