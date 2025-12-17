@@ -413,10 +413,10 @@ def transcribe_with_whisper(audio_data):
             best_of=1,      # Greedy only needs 1 candidate
             temperature=0.0,
             condition_on_previous_text=False, # CRITICAL: Prevents hallucinations/looping
-            initial_prompt="Ron. silencio.", # Short prompt to reset context
+            initial_prompt="Silencio.", # Neutral prompt to avoid biasing 'Ron'
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
-            no_speech_threshold=0.4 # Discard segments with high probability of silence
+            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.6), # Stricter VAD
+            no_speech_threshold=0.6 # Stricter rejection of non-speech
         )
         
         # Extract text
@@ -544,7 +544,16 @@ def process_interaction(user_text):
                     
                     def run_cmds_async(cmds):
                         for cmd in cmds:
-                            try: run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username})
+                            try: 
+                                # 🔹 Inject Task Manager into Command Context
+                                run_command(
+                                    cmd.get('action'), 
+                                    cmd.get('params', {}), 
+                                    {
+                                        'username': current_username,
+                                        'task_manager': task_manager # Pass the global task_manager
+                                    }
+                                )
                             except: pass
                     
                     # Launch in thread to not block TTS
@@ -552,6 +561,13 @@ def process_interaction(user_text):
 
                 speak_async(sentence)
                 full_response += " " + sentence
+
+            # 🔹 SAVE TO MEMORY (GitHub/JSON)
+            if full_response.strip():
+                try:
+                    add_to_memory(current_username, user_text, full_response.strip())
+                except Exception as ex:
+                    print(f"⚠️ Error guardando memoria: {ex}")
 
     except Exception as e:
         print(f"❌ Backend: {e}")

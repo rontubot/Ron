@@ -2485,6 +2485,43 @@ def cmd_reminder_timer(params, ctx):
 
 
 
+
+def cmd_queue_local_task(params, ctx):
+    """
+    Encola una tarea en el TaskManager (si existe en el contexto).
+    """
+    task_manager = ctx.get('task_manager')
+    if not task_manager:
+        return {"ok": False, "error": "No task manager available in this context"}
+
+    task_type = params.get('task_type')
+    description = params.get('description') or f"Tarea: {task_type}"
+    
+    def task_wrapper(progress_callback):
+        # Inyectamos el progress_callback en el contexto
+        new_ctx = ctx.copy()
+        new_ctx['progress_callback'] = progress_callback
+        
+        # Mapeo de task_type a comando real
+        cmd_map = {
+            "analyze_local_file": "analyze_local_file",
+            "diagnose_system": "diagnose_system_performance",
+            "bulk_file_analysis": "bulk_file_analysis",
+            "reminder_timer": "reminder_timer"
+        }
+        
+        real_cmd = cmd_map.get(task_type, task_type)
+        res = run_command(real_cmd, params, new_ctx)
+        
+        if not res.get("ok"):
+            raise Exception(res.get("error", "Unknown error"))
+            
+        return res.get("message") or res.get("result") or "Tarea completada"
+
+    task_id = task_manager.add_task(description, task_wrapper)
+    return {"ok": True, "message": f"Tarea programada: {description}", "task_id": task_id}
+
+
 def reminder_timer(params, ctx):
     """
     Wrapper de compatibilidad para código antiguo.
@@ -2503,7 +2540,9 @@ COMMANDS = {
     "remove_reminder": cmd_remove_reminder,    
     # temporizador de recordatorios
     "reminder_timer": cmd_reminder_timer,
+    "reminder_timer": cmd_reminder_timer,
     "cmd_reminder_timer": cmd_reminder_timer,
+    "queue_local_task": cmd_queue_local_task,
       
     # Sinónimos (opcional)      
     "agregar_recordatorio": cmd_add_reminder,      
