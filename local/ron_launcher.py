@@ -543,10 +543,11 @@ def process_interaction(user_text):
                     print(f"⚡ Ejecutando {len(pending_cmds)} comandos EN PARALELO...")
                     
                     def run_cmds_async(cmds):
+                        nonlocal full_response
                         for cmd in cmds:
                             try: 
                                 # 🔹 Inject Task Manager into Command Context
-                                run_command(
+                                res = run_command(
                                     cmd.get('action'), 
                                     cmd.get('params', {}), 
                                     {
@@ -554,10 +555,14 @@ def process_interaction(user_text):
                                         'task_manager': task_manager # Pass the global task_manager
                                     }
                                 )
+                                # 🔹 Capture output for memory persistence
+                                output = res.get('message') or res.get('result')
+                                if output and isinstance(output, str):
+                                    full_response += f"\n[Comando]: {output}"
                             except: pass
                     
-                    # Launch in thread to not block TTS
-                    threading.Thread(target=run_cmds_async, args=(pending_cmds,), daemon=True).start()
+                    # Run synchronously to ensure output is captured in history
+                    run_cmds_async(pending_cmds)
 
                 speak_async(sentence)
                 full_response += " " + sentence
