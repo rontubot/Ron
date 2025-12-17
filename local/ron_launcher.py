@@ -576,10 +576,11 @@ def process_interaction(user_text):
 # MAIN
 # =========================================================================================
 def detect_ron_activation(text):
-    # Remove punctuation before checking wake words
-    clean_text = text.replace(',', '').replace('.', '').replace('!', '').replace('?', '').lower()
-    tokens = clean_text.split()
-    return any(w in ALLOWED_WAKE_WORDS for w in tokens)
+    if not text: return False
+    # Regex strict word boundary. 
+    # Matches 'ron', 'oye ron', 'hola ron' but NOT 'chicharron', 'electron', 'patron'
+    pattern = r'\b(' + '|'.join(re.escape(w) for w in ALLOWED_WAKE_WORDS) + r')\b'
+    return bool(re.search(pattern, text, re.IGNORECASE))
 
 if __name__ == "__main__":
     print("🟢 Ron 24/7 v2.0 (Violent Anti-Echo & Recording) Listo.")
