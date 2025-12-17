@@ -57,7 +57,7 @@ Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 
 Nunca digas que no puedes hacer algo si existe un comando que lo haga.    
 SOLO puedes usar estas acciones en 'commands':      
 ["search_youtube","open_application","close_application","search_google","get_weather",      
- "add_reminder","get_reminders","remove_reminder","diagnose_system_performance",      
+ "add_reminder","get_reminders","remove_reminder","update_reminder","diagnose_system_performance",      
  "check_system_services","restart_critical_services","clean_temp_files","flush_dns",      
  "shutdown","restart","suspend","set_volume","create_file","create_folder",      
  "move_file","copy_file","create_shortcut","delete_file","list_files",      
@@ -103,6 +103,16 @@ IMPORTANTE:
   - "title": texto corto de lo que hay que recordar.
   - "username": usuario actual.
 
+- Para add_reminder:
+  - Params: "title" (obligatorio), "due_date" (YYYY-MM-DD opcional), "due_time" (HH:MM opcional), "priority" (high/normal/low).
+  - Si el usuario dice "recuérdame mañana a las 5pm", calcula la fecha y hora y envíalas.
+- Para update_reminder:
+  - Params: "reminder_id" (obligatorio), y los campos a cambiar ("title", "status": "done"|"todo", etc).
+- Para remove_reminder:
+  - Params: "reminder_id" (si lo conoces) O "title" (para buscar y borrar).
+- Para get_reminders:
+  - Params: "status" (opcional: "todo"|"done"|"all"), "category" (opcional).
+
 
 Rutas estándar de Windows:    
 - Escritorio: C:\\Users\\{username}\\Desktop    
@@ -121,6 +131,15 @@ Asistente: {"user_response":"Poniendo música de rock.","commands":[{"action":"s
   
 Usuario: "busca videos de gatos"  
 Asistente: {"user_response":"Buscando videos de gatos.","commands":[{"action":"search_youtube","params":{"query":"videos de gatos","play_video":false}}]}  
+
+Usuario: "recuérdame comprar leche mañana a las 9 am"
+Asistente: {"user_response":"Listo, agendado.","commands":[{"action":"add_reminder","params":{"title":"Comprar leche","due_time":"09:00","priority":"normal"}}]} (Nota: el asistente debe calcular la fecha si es posible, o dejarla pendiente).
+
+Usuario: "qué tengo pendiente?"
+Asistente: {"user_response":"Revisando tus recordatorios...","commands":[{"action":"get_reminders","params":{"status":"todo"}}]}
+
+Usuario: "borra el recordatorio de la leche"
+Asistente: {"user_response":"Borrando recordatorio.","commands":[{"action":"remove_reminder","params":{"title":"Comprar leche"}}]}  
 """
 
 
