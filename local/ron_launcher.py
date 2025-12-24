@@ -35,6 +35,25 @@ from core.memory import add_to_memory, get_display_name, set_display_name
 from core.tts import speak as tts_speak
 
 # =========================================================================================
+# UTILITIES
+# =========================================================================================
+def get_internet_time():
+    """Obtiene la hora real desde internet para evitar alucinaciones."""
+    try:
+        # worldtimeapi es rápido y no requiere API KEY
+        r = requests.get("https://worldtimeapi.org/api/ip", timeout=2)
+        if r.status_code == 200:
+            data = r.json()
+            # ISO format 2024-12-24T16:20:01...
+            dt = data["datetime"].split(".")[0]
+            return dt
+    except:
+        pass
+    # Fallback a hora de sistema
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+# =========================================================================================
 # CONFIGURATION & LOGGING
 # =========================================================================================
 
@@ -57,6 +76,12 @@ control_enabled = True
 # Constants
 SILENCE_TIMEOUT_SEC = 1.2
 ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn", "ram"}
+
+# 🔹 DEACTIVATE: Palabras que apagan la escucha activa
+DEACTIVATE_KEYWORDS = {
+    "descansa", "reposo", "dormir", "adios", "adiós", "hasta luego", 
+    "terminamos", "ya está", "ya esta", "nada más", "nada mas", "silencio"
+}
 
 # 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
 STOP_KEYWORDS = {
@@ -498,7 +523,16 @@ def process_interaction(user_text):
     api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
     headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
-    payload = {"text": user_text, "username": current_username or "default"}
+    
+    # 🔹 Incluir contexto de fecha/hora para evitar alucinaciones
+    now_str = get_internet_time()
+    context_prefix = f"[Contexto actual: {now_str}] "
+    
+    payload = {
+        "text": context_prefix + user_text, 
+        "username": current_username or "default",
+        "source": "desktop_launcher"
+    }
 
     full_response = ""
     commands_found = []
@@ -601,10 +635,19 @@ if __name__ == "__main__":
     print("👂 Escuchando...")
     
     try:
+        last_interaction = time.time()
         while True:
             try:
+                # 🔹 Heartbeat / Timeout: Si pasan 60s sin nada, desactivar
+                if activado and (time.time() - last_interaction > 60):
+                    print("💤 Timeout: Ron vuelve a reposo.")
+                    activado = False
+
                 try: text, ts = audio_queue.get(timeout=0.1)
                 except queue.Empty: continue
+
+                # Normalizar texto para busqueda de keywords
+                norm_text = text.lower().strip()
 
                 if not activado:
                     if detect_ron_activation(text):
@@ -616,6 +659,14 @@ if __name__ == "__main__":
                         activado = True
                         last_interaction = time.time()
                 else:
+                    # 1. ¿Es una palabra de despedida/reposo?
+                    if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
+                        print(f"💤 Comando de reposo detectado: '{norm_text}'")
+                        speak_async("Entendido, estaré en reposo. Avísame si me necesitas.")
+                        activado = False
+                        continue
+
+                    # 2. Procesar interacción normal
                     last_interaction = time.time()
                     stay = process_interaction(text)
                     if not stay:
