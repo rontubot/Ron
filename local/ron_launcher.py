@@ -203,14 +203,21 @@ except Exception as ex:
     print(ex)
 """
                 try:
-                    subprocess.run(
+                    p = subprocess.Popen(
                         [sys.executable, "-c", tts_script],
-                        capture_output=True,
-                        text=True,
-                        timeout=40
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
                     )
-                except subprocess.TimeoutExpired:
-                    print("⚠️ TTS Subprocess Timeout.")
+                    # Monitorear el proceso mientras revisamos si hay una interrupción
+                    while p.poll() is None:
+                        if interruption_event.is_set():
+                            p.terminate()
+                            p.wait()
+                            print("💀 Proceso de voz detenido inmediatamente.")
+                            break
+                        time.sleep(0.02) # Poll rápido para respuesta instantánea
+
                 except Exception as e:
                     print(f"❌ Error en TTS Subprocess: {e}")
 
@@ -419,8 +426,8 @@ else:
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 0.8  # ⚡ Reducido para mayor rapidez (era 1.0)
-    r.non_speaking_duration = 0.5 # Snappier cut
+    r.pause_threshold = 0.5  # ⚡ Velocidad máxima de detección de fin de frase
+    r.non_speaking_duration = 0.3 # Corte rápido
     r.dynamic_energy_threshold = False
     r.energy_threshold = 400
     try:
@@ -633,11 +640,9 @@ def process_interaction(user_text):
             try: run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username})
             except: pass
 
-    # Heuristic to stay active
-    response_lower = full_response.lower()
-    if "?" in full_response or any(k in response_lower for k in ["dime", "cuéntame", "necesitas", "algo más"]):
-        return True
-    return False
+    # Mantener activa la escucha por defecto para un flujo conversacional rápido
+    # Ron solo se desactivará con comandos como "reposo" o "descansa"
+    return True
 
 # =========================================================================================
 # MAIN
@@ -678,7 +683,6 @@ if __name__ == "__main__":
                     if detect_ron_activation(text):
                         print("✅ Palabra clave detectada!")
                         stop_speaking()
-                        time.sleep(0.05)
                         interruption_event.clear()
                         speak_async(random.choice(activation_phrases))
                         activado = True
