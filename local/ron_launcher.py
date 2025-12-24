@@ -88,11 +88,9 @@ DEACTIVATE_KEYWORDS = {
 
 # 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
 STOP_KEYWORDS = {
-    # Wake Words
-    "ron", "rom", "rron", "oye ron", "hola ron",
-    # Stop Commands
+    # Stop Commands (SÓLO estas comandos detendrán a Ron)
     "silencio", "cállate", "callate", "stop", "detente", "basta", 
-    "espera", "momento", "pausa", "parar"
+    "para", "parar", "espera", "momento"
 }
 
 activation_phrases = ["Te escucho.", "Sí, estoy aquí.", "Dime.", "Aquí estoy."]
@@ -492,31 +490,24 @@ def stream_audio_recognition(recognizer, microphone, q):
             
             if not text: return
 
-            # 🔹 3. "VIOLENT" ECHO ATTENUATION & INTERRUPTION LOGIC
+            # 🔹 3. "STRICT" KEYWORD INTERRUPTION LOGIC
             if speaking:
                 if interruption_event.is_set(): return 
 
-                # A. CHECK ECHO BUFFER
-                if speech_buffer.is_echo(text):
-                    print(f"🔇 Echo suprimido: '{text}'")
-                    return
-
-                # B. STRICT KEYWORD CHECK
-                is_valid = False
-                matched = ""
+                # Solo interrumpir si detecta un comando de parada específico
+                matched = None
                 for k in STOP_KEYWORDS:
                     if k in text:
-                        is_valid = True; matched = k; break
+                        matched = k; break
                 
-                if not is_valid:
-                    print(f"🛡️ Interrupción bloqueada (falta keyword): '{text}'")
+                if matched:
+                    print(f"🛑 Interrupción VÁLIDA por comando '{matched}': '{text}'")
+                    stop_speaking()
+                    global activado
+                    activado = True # Asegurar que sigue en modo escucha si lo callamos
+                else:
+                    # Si está hablando y no es una palabra de parada, ignoramos para evitar cortes por ruido
                     return
-
-                print(f"🛑 Interrupción VÁLIDA por '{matched}': '{text}'")
-                stop_speaking()
-
-                global activado
-                activado = True
 
             print(f"👂 Escuchado: {text}")
             q.put((text, time.time()))
