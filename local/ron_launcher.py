@@ -220,6 +220,7 @@ def handle_external_control():
                     elif cmd.startswith('SPEAK:'):
                         text_to_speak = cmd[6:].strip()
                         if text_to_speak:
+                            interruption_event.clear()  # 🔹 Force speech even if interrupted recently
                             speak_async(text_to_speak)
                         client.sendall(b'OK')
                     
