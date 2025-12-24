@@ -367,8 +367,8 @@ print("✅ Whisper listo (small cargado)")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 1.0  # Tuned for more natural pausing (was 0.6)
-    r.non_speaking_duration = 0.6 # Requires slightly more silence to stop
+    r.pause_threshold = 0.8  # ⚡ Reducido para mayor rapidez (era 1.0)
+    r.non_speaking_duration = 0.5 # Snappier cut
     r.dynamic_energy_threshold = False
     r.energy_threshold = 400
     try:
@@ -468,7 +468,7 @@ def stream_audio_recognition(recognizer, microphone, q):
         except Exception as e:
             print(f"⚠️ Listener: {e}")
 
-    return recognizer.listen_in_background(microphone, callback, phrase_time_limit=2)
+    return recognizer.listen_in_background(microphone, callback, phrase_time_limit=10) # ⚡ Permitir frases más largas si el usuario no pausa
 
 # =========================================================================================
 # STREAMING BACKEND
