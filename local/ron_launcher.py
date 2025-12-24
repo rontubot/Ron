@@ -32,6 +32,7 @@ from core.commands import (
     restore_application_volumes
 )
 from core.memory import add_to_memory, get_display_name, set_display_name
+from core.tts import speak as tts_speak
 
 # =========================================================================================
 # CONFIGURATION & LOGGING
@@ -133,11 +134,7 @@ speech_buffer = SpeechBuffer()
 # TTS ENGINE & WORKER
 # =========================================================================================
 
-def clean_text_for_tts(text: str) -> str:
-    text = text.replace('\\n', ' ').replace('\n', ' ')
-    text = re.sub(r'[*_`#]', '', text)
-    text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑🧀-🫿]+', '', text)
-    return text.strip()
+# tts_worker uses core.tts now
 
 class TTSWorker(threading.Thread):
     def __init__(self):
@@ -170,14 +167,7 @@ class TTSWorker(threading.Thread):
     def _speak(self, text):
         if interruption_event.is_set(): return
         try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.setProperty('rate', 190)
-            engine.setProperty('volume', 1.0)
-            cleaned = clean_text_for_tts(text)
-            engine.say(cleaned)
-            engine.runAndWait()
-            if engine._inLoop: engine.endLoop()
+            tts_speak(text)
         except: pass
 
 tts_worker = TTSWorker()
