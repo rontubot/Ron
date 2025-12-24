@@ -547,7 +547,7 @@ def process_interaction(user_text):
                         for cmd in cmds:
                             try: 
                                 # 🔹 Inject Task Manager into Command Context
-                                res = run_command(
+                                run_command(
                                     cmd.get('action'), 
                                     cmd.get('params', {}), 
                                     {
@@ -555,10 +555,6 @@ def process_interaction(user_text):
                                         'task_manager': task_manager # Pass the global task_manager
                                     }
                                 )
-                                # 🔹 Capture output for memory persistence
-                                output = res.get('message') or res.get('result')
-                                if output and isinstance(output, str):
-                                    full_response += f"\n[Comando]: {output}"
                             except: pass
                     
                     # Run synchronously to ensure output is captured in history
