@@ -19,10 +19,13 @@ import wave
 import tempfile
 import difflib
 
-# 🔹 Add current script dir to path for imports
+# 🔹 Add project root to path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir) # ron root
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 # Core imports
 from core.task_manager import TaskManager
@@ -309,87 +312,89 @@ logging.getLogger('comtypes._comobject').setLevel(logging.WARNING)
 logging.getLogger('comtypes._vtbl').setLevel(logging.WARNING)
 logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-# Initialize Whisper model globally (load once)
-print("🔄 Cargando modelo Whisper...")
-try:
-    from faster_whisper import WhisperModel
-except ImportError:
-    print("📦 Instalando faster-whisper (primera vez, puede tardar)...")
-    try:
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", 
-            "faster-whisper", 
-            "--quiet", "--no-warn-script-location"
-        ])
-        print("✅ faster-whisper instalado. Reintentando import...")
-        from faster_whisper import WhisperModel
-    except Exception as e:
-        print(f"❌ Error fatal instalando faster-whisper: {e}")
-        sys.exit(1)
-
 # 🔹 Progress Helper for Electron
 def send_progress(p, s):
     try:
         print(json.dumps({"progress": p, "status": s}), flush=True)
     except: pass
 
-send_progress(1, "Verificando archivos del modelo...")
+# 🔹 Initialize STT Engine (Default to Google for speed)
+# We can still keep whisper_model as None and load it only if needed
+whisper_model = None
+STT_ENGINE = os.getenv("STT_ENGINE", "google") # 'google' or 'whisper'
 
-# 🔹 Aggressive TQDM Patching for HuggingFace Hub
-try:
-    import tqdm
-    import tqdm.auto
-    import tqdm.std
+def load_whisper():
+    global whisper_model
+    if whisper_model: return
+    print("🔄 Cargando modelo Whisper (modo offline)...")
+    try:
+        from faster_whisper import WhisperModel
+        whisper_model = WhisperModel("base", device="cpu", compute_type="int8", cpu_threads=4)
+        print("✅ Whisper listo (base cargado)")
+    except Exception as e:
+        print(f"❌ Error cargando Whisper: {e}")
 
-    class JsonTqdm(tqdm.std.tqdm):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            # Send initial 0%
-            send_progress(0, "Iniciando descarga (3GB)...")
+if STT_ENGINE == "whisper":
+    load_whisper()
 
-        def update(self, n=1):
-            super().update(n)
-            try:
-                if self.total and self.total > 0:
-                    pct = (self.n / self.total) * 100
-                    # Throttle: output every ~1% or if finished
-                    if self.n >= self.total or (self.n % (self.total // 100 + 1) == 0):
-                         send_progress(pct, f"Descargando núcleo de voz: {int(pct)}%")
-            except: pass
+    # 🔹 Aggressive TQDM Patching for HuggingFace Hub
+    # Skip unnecessary patches if not using whisper
+    try:
+        import tqdm
+        import tqdm.auto
+        import tqdm.std
 
-    # Patch EVERYWHERE
-    tqdm.tqdm = JsonTqdm
-    tqdm.auto.tqdm = JsonTqdm
-    tqdm.std.tqdm = JsonTqdm
-    # Some libs import tqdm directly, we try to catch them
-    sys.modules['tqdm'].tqdm = JsonTqdm
-    sys.modules['tqdm.auto'].tqdm = JsonTqdm
-    
-except Exception as e:
-    print(f"TQDM Patch Warning: {e}")
-    send_progress(5, "Descarga iniciada...")
+        class JsonTqdm(tqdm.std.tqdm):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # Send initial 0%
+                send_progress(0, "Iniciando descarga (3GB)...")
 
-# 🔹 Explicit Download (Blocks until done, but TQDM should report)
-from faster_whisper import download_model
+            def update(self, n=1):
+                super().update(n)
+                try:
+                    if self.total and self.total > 0:
+                        pct = (self.n / self.total) * 100
+                        # Throttle: output every ~1% or if finished
+                        if self.n >= self.total or (self.n % (self.total // 100 + 1) == 0):
+                            send_progress(pct, f"Descargando núcleo de voz: {int(pct)}%")
+                except: pass
 
-print("Bot: 🔄 Verificando/Descargando modelo small (equilibrado)...")
-try:
-    # Explicitly download to default cache
-    # This triggers the patched tqdm for 'huggingface_hub'
-    model_path = download_model("small")
-    send_progress(100, "Modelo cargado. Iniciando...")
-    
-    # Init from local path
-    # cpu_threads=8 is still good to keep it snappy
-    whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8", cpu_threads=8)
+        # Patch EVERYWHERE
+        tqdm.tqdm = JsonTqdm
+        tqdm.auto.tqdm = JsonTqdm
+        tqdm.std.tqdm = JsonTqdm
+        # Some libs import tqdm directly, we try to catch them
+        sys.modules['tqdm'].tqdm = JsonTqdm
+        sys.modules['tqdm.auto'].tqdm = JsonTqdm
+        
+    except Exception as e:
+        print(f"TQDM Patch Warning: {e}")
+        send_progress(5, "Descarga iniciada...")
 
-except Exception as e:
-    print(f"Error cargando modelo: {e}")
-    send_progress(100, "Error en carga. Usando fallback...")
-    # Fallback/Retry
-    whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+    # 🔹 Explicit Download (Blocks until done, but TQDM should report)
+    from faster_whisper import download_model
 
-print("✅ Whisper listo (small cargado)")
+    print("Bot: 🔄 Verificando/Descargando modelo small (equilibrado)...")
+    try:
+        # Explicitly download to default cache
+        # This triggers the patched tqdm for 'huggingface_hub'
+        model_path = download_model("small")
+        send_progress(100, "Modelo cargado. Iniciando...")
+        
+        # Init from local path
+        # cpu_threads=8 is still good to keep it snappy
+        whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8", cpu_threads=8)
+
+    except Exception as e:
+        print(f"Error cargando modelo: {e}")
+        send_progress(100, "Error en carga. Usando fallback...")
+        # Fallback/Retry
+        whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+
+    print("✅ Whisper listo (small cargado)")
+else:
+    print("🚀 Usando STT básico (Google) para máxima velocidad.")
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
@@ -405,46 +410,48 @@ def setup_streaming_recognition():
         print(f"❌ Error de Micrófono: {e}")
         sys.exit(1)
 
-def transcribe_with_whisper(audio_data):
+def transcribe_audio(recognizer, audio_data):
     """
-    Transcribe audio using local Whisper model (FAST, no network)
-    audio_data: AudioData object from speech_recognition
+    Transcribe audio usando el motor configurado (Google por defecto para rapidez)
     """
-    try:
-        # Convert AudioData to WAV bytes
-        wav_data = audio_data.get_wav_data()
-        
-        # Write to temp file for Whisper (it needs a file path)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-            tmp_file.write(wav_data)
-            tmp_path = tmp_file.name
-        
-        # Transcribe with Whisper - TUNED FOR SPEED & ACCURACY
-        # beam_size=1 (Greedy) is much faster than beam_size=5
-        # large-v3 is accurate enough to not need beam search for simple commands
-        segments, info = whisper_model.transcribe(
-            tmp_path, 
-            language="es",  # Force Spanish only
-            beam_size=1,    # ⚡ SPEED OPTIMIZATION (Greedy)
-            best_of=1,      # Greedy only needs 1 candidate
-            temperature=0.0,
-            condition_on_previous_text=False, # CRITICAL: Prevents hallucinations/looping
-            initial_prompt="Silencio.", # Neutral prompt to avoid biasing 'Ron'
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.6), # Stricter VAD
-            no_speech_threshold=0.6 # Stricter rejection of non-speech
-        )
-        
-        # Extract text
-        text = " ".join([segment.text for segment in segments]).strip()
-        
-        # Cleanup
-        os.unlink(tmp_path)
-        
-        return text
-    except Exception as e:
-        print(f"⚠️ Whisper error: {e}")
-        return ""
+    global whisper_model
+    
+    if STT_ENGINE == "google":
+        try:
+            # Google es muy rápido para frases cortas y tiene buena precisión en español
+            return recognizer.recognize_google(audio_data, language="es-ES")
+        except sr.UnknownValueError:
+            return ""
+        except sr.RequestError as e:
+            print(f"☁️ Google API Error: {e}")
+            # Si falla Google (internet), intentar cargar Whisper como fallback si el usuario lo permite
+            return ""
+            
+    elif STT_ENGINE == "whisper":
+        if not whisper_model: load_whisper()
+        if not whisper_model: return ""
+        try:
+            wav_data = audio_data.get_wav_data()
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                tmp_file.write(wav_data)
+                tmp_path = tmp_file.name
+            
+            segments, _ = whisper_model.transcribe(
+                tmp_path, 
+                language="es",
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                condition_on_previous_text=False
+            )
+            text = " ".join([segment.text for segment in segments]).strip()
+            os.unlink(tmp_path)
+            return text
+        except Exception as e:
+            print(f"⚠️ Whisper error: {e}")
+            return ""
+            
+    return ""
 
 def stream_audio_recognition(recognizer, microphone, q):
     def callback(recognizer, audio):
@@ -457,8 +464,8 @@ def stream_audio_recognition(recognizer, microphone, q):
             return
 
         try:
-            # 🔹 2. RECOGNIZE TEXT with LOCAL WHISPER (INSTANT!)
-            text = transcribe_with_whisper(audio).lower().strip()
+            # 🔹 2. RECOGNIZE TEXT with chosen Engine
+            text = transcribe_audio(recognizer, audio).lower().strip()
             
             if not text: return
 
