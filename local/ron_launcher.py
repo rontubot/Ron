@@ -586,39 +586,32 @@ def process_interaction(user_text):
                             cmds = data.get('commands', [])
                             if cmds: commands_found.extend(cmds)
 
-            for sentence in buffer_speech_sentences(generate_chunks()):
-                if interruption_event.is_set():
-                    # 🔹 FIX: If interrupted, silence TTS but CONTINUE reading stream
-                    # print("🛑 Stream silenciado (buscando comandos...)")
-                    continue
+            # 🔹 Recopilar TODO el texto antes de hablar para mayor fluidez (a petición del usuario)
+            full_content = ""
+            for chunk in generate_chunks():
+                full_content += chunk
                 
-                # ⚡ ASYNC COMMAND EXECUTION (Inside Loop)
-                # If commands arrived with this chunk (or before), run them NOW.
-                if commands_found:
-                    pending_cmds = list(commands_found)
-                    commands_found = [] # Clear processed
-                    print(f"⚡ Ejecutando {len(pending_cmds)} comandos EN PARALELO...")
-                    
-                    def run_cmds_async(cmds):
-                        nonlocal full_response
-                        for cmd in cmds:
-                            try: 
-                                # 🔹 Inject Task Manager into Command Context
-                                run_command(
-                                    cmd.get('action'), 
-                                    cmd.get('params', {}), 
-                                    {
-                                        'username': current_username,
-                                        'task_manager': task_manager # Pass the global task_manager
-                                    }
-                                )
-                            except: pass
-                    
-                    # Run synchronously to ensure output is captured in history
-                    run_cmds_async(pending_cmds)
-
-                speak_async(sentence)
-                full_response += " " + sentence
+            # Una vez tenemos todo, lo segmentamos y hablamos de corrido
+            # (Incluso si es una sola frase larga, speak_async la pondrá en cola)
+            if full_content.strip():
+                # Hablar el mensaje completo de una sola vez
+                speak_async(full_content.strip())
+                full_response = full_content
+            
+            # Procesar comandos si llegaron
+            if commands_found:
+                print(f"⚡ Ejecutando {len(commands_found)} comandos...")
+                for cmd in commands_found:
+                    try: 
+                        run_command(
+                            cmd.get('action'), 
+                            cmd.get('params', {}), 
+                            {
+                                'username': current_username,
+                                'task_manager': task_manager
+                            }
+                        )
+                    except: pass
 
             # 🔹 SAVE TO MEMORY (GitHub/JSON)
             if full_response.strip():
