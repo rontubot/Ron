@@ -167,54 +167,58 @@ speech_buffer = SpeechBuffer()
 class TTSWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
-        self.engine = None
-
-    def _init_engine(self):
-        if self.engine: return
-        try:
-            import pyttsx3
-            self.engine = pyttsx3.init()
-            self.engine.setProperty('rate', 195)
-            # Buscar voz en español
-            voices = self.engine.getProperty('voices')
-            v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish'])), None)
-            if v_id: self.engine.setProperty('voice', v_id)
-        except Exception as e:
-            print(f"❌ Error iniciando pyttsx3: {e}")
 
     def run(self):
         global speaking
-        self._init_engine()
         while True:
             try:
                 text = tts_queue.get()
                 if not text: continue
                 
-                # Si hay una interrupción activa, limpiar cola y saltar
                 if interruption_event.is_set():
                     with tts_queue.mutex: tts_queue.queue.clear()
-                    print("🚫 TTS Interrumpido (Saltando frase)")
+                    print("🚫 TTS Interrumpido (Saltando)")
                     continue
 
                 speaking = True
                 speech_buffer.add(text)
                 
-                # Hablar
+                # Saneamiento y Base64 para evitar errores de escape
+                import base64
+                b64_text = base64.b64encode(text.encode('utf-8')).decode('utf-8')
+
+                print(f"🤖 Ron hablando: {text[:60]}...")
+                
+                tts_script = f"""
+import pyttsx3, sys, base64
+try:
+    text = base64.b64decode('{b64_text}').decode('utf-8')
+    e = pyttsx3.init()
+    e.setProperty('rate', 195)
+    e.setProperty('volume', 1.0)
+    voices = e.getProperty('voices')
+    v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish'])), None)
+    if v_id: e.setProperty('voice', v_id)
+    e.say(text)
+    e.runAndWait()
+except Exception as ex:
+    print(ex)
+"""
                 try:
-                    if self.engine:
-                        # Limpieza básica para el motor nativo
-                        cleaned = text.replace('\\n', ' ').replace('\n', ' ')
-                        print(f"🤖 Ron hablando: {cleaned[:60]}...")
-                        self.engine.say(cleaned)
-                        self.engine.runAndWait()
-                except Exception as ex:
-                    print(f"❌ Fallo en engine.say: {ex}")
-                    self.engine = None # Forzar re-init
-                    self._init_engine()
+                    subprocess.run(
+                        [sys.executable, "-c", tts_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=40
+                    )
+                except subprocess.TimeoutExpired:
+                    print("⚠️ TTS Subprocess Timeout.")
+                except Exception as e:
+                    print(f"❌ Error en TTS Subprocess: {e}")
 
                 speaking = False
             except Exception as e:
-                print(f"❌ TTS Loop: {e}")
+                print(f"❌ TTS Worker: {e}")
                 speaking = False
 
 tts_worker = TTSWorker()
