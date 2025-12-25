@@ -18,7 +18,7 @@ import requests
 import wave
 import tempfile
 import difflib
-from datetime import datetime
+from datetime import datetime, timezone
 
 # 🔹 Add project root to path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -47,25 +47,15 @@ def get_internet_time():
     Retorna ISO 8601 UTC (ending in Z) para consistencia global.
     """
     try:
-        # Usamos WorldTimeAPI (IP based) o una similar
         r = requests.get("https://worldtimeapi.org/api/ip", timeout=5)
         if r.status_code == 200:
             data = r.json()
-            # worldtimeapi devuelve datetime en formato ISO
             dt_str = data.get("datetime")
-            if dt_str:
-                # Asegurar formato Z si es UTC
-                if "+" in dt_str or "-" in dt_str.split("T")[1]:
-                    # Convertir a UTC real si no lo es (aunque worldtimeapi suele dar el local de la IP)
-                    # Para simplificar y dado que el front ya maneja drift, 
-                    # forzamos a que sea UTC real si es posible o simplemente usamos utcnow
-                    pass
-                return dt_str
-    except:
-        pass
+            if dt_str: return dt_str
+    except: pass
     
     # Fallback robusto: UTC real con sufijo Z
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 def drain_queue(q):
     """Vacía completamente una cola."""
@@ -123,6 +113,7 @@ audio_queue = queue.Queue()
 speaking = False
 listening_active = True
 activado = False
+last_speech_at = 0.0 # 🔹 Para evitar eco inmediato
 
 # MANUAL RECORDING STATE
 manual_recording = False
@@ -177,14 +168,12 @@ speech_buffer = SpeechBuffer()
 # TTS ENGINE & WORKER
 # =========================================================================================
 
-# tts_worker uses core.tts now
-
 class TTSWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
 
     def run(self):
-        global speaking
+        global speaking, last_speech_at
         while True:
             try:
                 text = tts_queue.get()
@@ -198,7 +187,6 @@ class TTSWorker(threading.Thread):
                 speaking = True
                 speech_buffer.add(text)
                 
-                # Saneamiento y Base64 para evitar errores de escape
                 import base64
                 b64_text = base64.b64encode(text.encode('utf-8')).decode('utf-8')
 
@@ -220,10 +208,7 @@ except Exception as ex:
     print(ex)
 """
                 try:
-                    p = subprocess.Popen(
-                        [sys.executable, "-c", tts_script]
-                    )
-                    # Monitorear el proceso mientras revisamos si hay una interrupción
+                    p = subprocess.Popen([sys.executable, "-c", tts_script])
                     while p.poll() is None:
                         if interruption_event.is_set():
                             p.terminate()
@@ -234,16 +219,11 @@ except Exception as ex:
                     print(f"❌ Error en TTS Subprocess: {e}")
 
                 speaking = False
+                last_speech_at = time.time() # 🔹 Registrar fin de habla
             except Exception as e:
                 print(f"❌ TTS Worker: {e}")
                 speaking = False
-
-tts_worker = TTSWorker()
-tts_worker.start()
-
-def speak_async(text: str):
-    if not text or interruption_event.is_set(): return
-    tts_queue.put(text)
+                last_speech_at = time.time()
 
 def stop_speaking():
     interruption_event.set()
@@ -255,13 +235,12 @@ def stop_speaking():
 # =========================================================================================
 def handle_external_control():    
     def control_server():    
-        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer
+        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer, activado
         try:    
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)    
             server.bind(('127.0.0.1', args.control_port))    
             server.listen(5)
-            # 🔹 FIX for UI: Must be exact English string "Control server listening"    
             print(f"Control server listening on port {args.control_port}", flush=True)    
   
             while control_enabled:    
@@ -288,16 +267,15 @@ def handle_external_control():
                     elif cmd.startswith('SPEAK:'):
                         text_to_speak = cmd[6:].strip()
                         if text_to_speak:
-                            interruption_event.clear()  # 🔹 Force speech even if interrupted recently
+                            interruption_event.clear()
                             speak_async(text_to_speak)
                         client.sendall(b'OK')
                     
-                    # 🔹 MANUAL RECORDING COMMANDS
                     elif cmd == 'START_RECORDING':
                         print("🎙️ Iniciando grabación manual...")
                         with manual_recording_lock:
                             manual_recording = True
-                            manual_audio_buffer = [] # Reset buffer
+                            manual_audio_buffer = [] 
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
@@ -306,19 +284,15 @@ def handle_external_control():
                         filepath = os.path.join(os.getcwd(), 'temp', filename)
                         os.makedirs(os.path.join(os.getcwd(), 'temp'), exist_ok=True)
                         
-                        # Save WAV
                         with manual_recording_lock:
                             manual_recording = False
-                            frames = list(manual_audio_buffer) # Copy
+                            frames = list(manual_audio_buffer) 
                         
                         try:
-                            # Detect sample rate from first audio chunk if available
-                            # Default to common 44100 if not detectable
                             sample_rate = 44100
-                            
                             wf = wave.open(filepath, 'wb')
                             wf.setnchannels(1)
-                            wf.setsampwidth(2) # 16 bit
+                            wf.setsampwidth(2) 
                             wf.setframerate(sample_rate)
                             wf.writeframes(b''.join(frames))
                             wf.close()
@@ -335,6 +309,10 @@ def handle_external_control():
             print(f"❌ Error fatal en control server: {e}")    
   
     threading.Thread(target=control_server, daemon=True).start()
+
+def speak_async(text: str):
+    if not text or interruption_event.is_set(): return
+    tts_queue.put(text)
 
 # =========================================================================================
 # VAD & LISTENER (Local Whisper Recognition)
@@ -359,9 +337,8 @@ def send_progress(p, s):
     except: pass
 
 # 🔹 Initialize STT Engine (Default to Google for speed)
-# We can still keep whisper_model as None and load it only if needed
 whisper_model = None
-STT_ENGINE = os.getenv("STT_ENGINE", "google") # 'google' or 'whisper'
+STT_ENGINE = os.getenv("STT_ENGINE", "google") 
 
 def load_whisper():
     global whisper_model
@@ -376,9 +353,6 @@ def load_whisper():
 
 if STT_ENGINE == "whisper":
     load_whisper()
-
-    # 🔹 Aggressive TQDM Patching for HuggingFace Hub
-    # Skip unnecessary patches if not using whisper
     try:
         import tqdm
         import tqdm.auto
@@ -387,7 +361,6 @@ if STT_ENGINE == "whisper":
         class JsonTqdm(tqdm.std.tqdm):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
-                # Send initial 0%
                 send_progress(0, "Iniciando descarga (3GB)...")
 
             def update(self, n=1):
@@ -395,16 +368,13 @@ if STT_ENGINE == "whisper":
                 try:
                     if self.total and self.total > 0:
                         pct = (self.n / self.total) * 100
-                        # Throttle: output every ~1% or if finished
                         if self.n >= self.total or (self.n % (self.total // 100 + 1) == 0):
                             send_progress(pct, f"Descargando núcleo de voz: {int(pct)}%")
                 except: pass
 
-        # Patch EVERYWHERE
         tqdm.tqdm = JsonTqdm
         tqdm.auto.tqdm = JsonTqdm
         tqdm.std.tqdm = JsonTqdm
-        # Some libs import tqdm directly, we try to catch them
         sys.modules['tqdm'].tqdm = JsonTqdm
         sys.modules['tqdm.auto'].tqdm = JsonTqdm
         
@@ -412,24 +382,17 @@ if STT_ENGINE == "whisper":
         print(f"TQDM Patch Warning: {e}")
         send_progress(5, "Descarga iniciada...")
 
-    # 🔹 Explicit Download (Blocks until done, but TQDM should report)
     from faster_whisper import download_model
 
     print("Bot: 🔄 Verificando/Descargando modelo small (equilibrado)...")
     try:
-        # Explicitly download to default cache
-        # This triggers the patched tqdm for 'huggingface_hub'
         model_path = download_model("small")
         send_progress(100, "Modelo cargado. Iniciando...")
-        
-        # Init from local path
-        # cpu_threads=8 is still good to keep it snappy
+        from faster_whisper import WhisperModel
         whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8", cpu_threads=8)
-
     except Exception as e:
         print(f"Error cargando modelo: {e}")
-        send_progress(100, "Error en carga. Usando fallback...")
-        # Fallback/Retry
+        from faster_whisper import WhisperModel
         whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
 
     print("✅ Whisper listo (small cargado)")
@@ -438,8 +401,8 @@ else:
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 0.5  # ⚡ Velocidad máxima de detección de fin de frase
-    r.non_speaking_duration = 0.3 # Corte rápido
+    r.pause_threshold = 0.5  
+    r.non_speaking_duration = 0.3 
     r.dynamic_energy_threshold = False
     r.energy_threshold = 400
     try:
@@ -451,22 +414,14 @@ def setup_streaming_recognition():
         sys.exit(1)
 
 def transcribe_audio(recognizer, audio_data):
-    """
-    Transcribe audio usando el motor configurado (Google por defecto para rapidez)
-    """
     global whisper_model
-    
     if STT_ENGINE == "google":
         try:
-            # Google es muy rápido para frases cortas y tiene buena precisión en español
             return recognizer.recognize_google(audio_data, language="es-ES")
-        except sr.UnknownValueError:
-            return ""
+        except sr.UnknownValueError: return ""
         except sr.RequestError as e:
             print(f"☁️ Google API Error: {e}")
-            # Si falla Google (internet), intentar cargar Whisper como fallback si el usuario lo permite
             return ""
-            
     elif STT_ENGINE == "whisper":
         if not whisper_model: load_whisper()
         if not whisper_model: return ""
@@ -475,59 +430,47 @@ def transcribe_audio(recognizer, audio_data):
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
                 tmp_file.write(wav_data)
                 tmp_path = tmp_file.name
-            
-            segments, _ = whisper_model.transcribe(
-                tmp_path, 
-                language="es",
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                condition_on_previous_text=False
-            )
+            segments, _ = whisper_model.transcribe(tmp_path, language="es", beam_size=1, best_of=1, temperature=0.0, condition_on_previous_text=False)
             text = " ".join([segment.text for segment in segments]).strip()
             os.unlink(tmp_path)
             return text
         except Exception as e:
             print(f"⚠️ Whisper error: {e}")
             return ""
-            
     return ""
 
 def stream_audio_recognition(recognizer, microphone, q):
     def callback(recognizer, audio):
-        global speaking, interruption_event, manual_recording, manual_audio_buffer
+        global speaking, interruption_event, manual_recording, manual_audio_buffer, last_speech_at
 
-        # 🔹 1. HANDLE MANUAL RECORDING
+        # 🔹 1. ECHO COOLDOWN (0.5s)
+        if time.time() - last_speech_at < 0.5:
+            return
+
+        # 🔹 2. HANDLE MANUAL RECORDING
         if manual_recording:
             with manual_recording_lock:
                 manual_audio_buffer.append(audio.get_raw_data())
             return
 
         try:
-            # 🔹 2. RECOGNIZE TEXT with chosen Engine
+            # 🔹 3. RECOGNIZE TEXT
             text = transcribe_audio(recognizer, audio).lower().strip()
-            
             if not text: return
 
-            # 🔹 3. "STRICT" KEYWORD INTERRUPTION LOGIC
+            # 🔹 4. "STRICT" KEYWORD INTERRUPTION LOGIC
             if speaking:
                 if interruption_event.is_set(): return 
 
-                # Solo interrumpir si detecta un comando de parada específico
                 matched = None
                 for k in STOP_KEYWORDS:
-                    if k in text:
-                        matched = k; break
+                    if k in text: matched = k; break
                 
                 if matched:
-                    print(f"🛑 Interrupción VÁLIDA por comando '{matched}': '{text}'")
+                    print(f"🛑 Interrupción VÁLIDA: '{text}'")
                     stop_speaking()
-                    # 🔹 IMPORTANTE: No enviamos la palabra de parada al backend para evitar respuestas redundantes
                     return 
-                else:
-                    # Si está hablando y no es una palabra de parada, ignoramos COMPLETAMENTE
-                    # Esto evita que el eco del propio Ron active nuevas solicitudes.
-                    return
+                else: return
 
             # Normal log for activity feed
             print(f"👂 Escuchado: {text}")
@@ -536,27 +479,20 @@ def stream_audio_recognition(recognizer, microphone, q):
         except Exception as e:
             print(f"⚠️ Listener: {e}")
 
-    return recognizer.listen_in_background(microphone, callback, phrase_time_limit=10) # ⚡ Permitir frases más largas si el usuario no pausa
+    return recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)
 
-# =========================================================================================
-# STREAMING BACKEND
-# =========================================================================================
 def buffer_speech_sentences(text_stream):
     buffer = ""
-    # Dividir por puntos, pero no esperar demasiado
     endings = re.compile(r'([.?!:;])') 
     for chunk in text_stream:
         if not chunk: continue
         buffer += chunk
-        
-        # Si el buffer es muy largo (+100 chars), forzar una división por espacios si no hay puntos
         if len(buffer) > 100 and not endings.search(buffer):
             parts = buffer.rsplit(' ', 1)
             if len(parts) > 1:
                 yield parts[0].strip()
                 buffer = parts[1]
                 continue
-
         parts = endings.split(buffer)
         if len(parts) > 1:
             to_process = parts[:-1]
@@ -570,14 +506,13 @@ def buffer_speech_sentences(text_stream):
     if buffer.strip(): yield buffer.strip()
 
 def process_interaction(user_text):
-    global interruption_event
+    global interruption_event, activado
     interruption_event.clear()
     
     api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
     headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
     
-    # 🔹 Incluir contexto de fecha/hora para evitar alucinaciones
     now_str = get_internet_time()
     context_prefix = f"[Contexto actual: {now_str}] "
     
@@ -597,7 +532,6 @@ def process_interaction(user_text):
             def generate_chunks():
                 nonlocal commands_found
                 for line in r.iter_lines():
-                    # 🔹 FIX: Don't break on interruption, keep reading to get commands at the end
                     if not line: continue
                     line_str = line.decode('utf-8', errors='ignore')
                     if line_str.startswith('data: '):
@@ -607,50 +541,33 @@ def process_interaction(user_text):
                             cmds = data.get('commands', [])
                             if cmds: commands_found.extend(cmds)
 
-            # 🔹 Recopilar TODO el texto antes de hablar para mayor fluidez (a petición del usuario)
             full_content = ""
-            for chunk in generate_chunks():
-                full_content += chunk
-
-            if full_content.strip():
-                # Tagged output for UI routing
-                print(f"[RON_VOICE] {full_content.strip()}")
+            for chunk in generate_chunks(): full_content += chunk
                 
-                # Hablar el mensaje completo de una sola vez
+            if full_content.strip():
+                print(f"[RON_VOICE] {full_content.strip()}")
                 speak_async(full_content.strip())
                 full_response = full_content
                 
-                # 🔹 IMPORTANTE: Esperar a que Ron termine de hablar antes de seguir el flujo
-                # Esto es lo que permite vaciar la cola después de que el ruido (eco) haya parado.
-                while speaking:
-                    time.sleep(0.01)
-                
-                # 🌪️ PURGAR COLA DE AUDIO: Eliminar el eco escuchado durante el habla
-                # Esto es CRÍTICO para responder "de inmediato" sin repetir cosas.
+                while speaking: time.sleep(0.01)
                 drain_queue(audio_queue)
                 print("🌪️ Cola de audio purgada (Eco eliminado).")
             
-            # Procesar comandos si llegaron
+            # 🔹 SI HAY COMANDOS, VOLVERNOS A REPOSO TRAS EJECUTARLOS
             if commands_found:
                 print(f"⚡ Ejecutando {len(commands_found)} comandos...")
                 for cmd in commands_found:
                     try: 
-                        run_command(
-                            cmd.get('action'), 
-                            cmd.get('params', {}), 
-                            {
-                                'username': current_username,
-                                'task_manager': task_manager
-                            }
-                        )
+                        run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username, 'task_manager': task_manager})
                     except: pass
+                # Desactivar tras comando (petición de usuario)
+                print("💤 Comando completado. Ron vuelve a reposo.")
+                activado = False
+                return False
 
-            # 🔹 SAVE TO MEMORY (GitHub/JSON)
             if full_response.strip():
-                try:
-                    add_to_memory(current_username, user_text, full_response.strip())
-                except Exception as ex:
-                    print(f"⚠️ Error guardando memoria: {ex}")
+                try: add_to_memory(current_username, user_text, full_response.strip())
+                except: pass
 
     except Exception as e:
         print(f"❌ Backend: {e}")
@@ -659,14 +576,8 @@ def process_interaction(user_text):
 
     if interruption_event.is_set(): return True
 
-    if commands_found:
-        print(f"⚡ Ejecutando {len(commands_found)} comandos...")
-        for cmd in commands_found:
-            try: run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username})
-            except: pass
-
-    # Mantener activa la escucha por defecto para un flujo conversacional rápido
-    # Ron solo se desactivará con comandos como "reposo" o "descansa"
+    # Si no hubo comandos y el mensaje sugiere una despedida implícita, podriamos desactivar.
+    # Por ahora cumplimos con desactivar tras comandos y mantener activo el flujo si es puro chat.
     return True
 
 # =========================================================================================
@@ -674,8 +585,6 @@ def process_interaction(user_text):
 # =========================================================================================
 def detect_ron_activation(text):
     if not text: return False
-    # Regex strict word boundary. 
-    # Matches 'ron', 'oye ron', 'hola ron' but NOT 'chicharron', 'electron', 'patron'
     pattern = r'\b(' + '|'.join(re.escape(w) for w in ALLOWED_WAKE_WORDS) + r')\b'
     return bool(re.search(pattern, text, re.IGNORECASE))
 
@@ -693,15 +602,14 @@ if __name__ == "__main__":
         last_interaction = time.time()
         while True:
             try:
-                # 🔹 Heartbeat / Timeout: Si pasan 60s sin nada, desactivar
-                if activado and (time.time() - last_interaction > 60):
+                # 🔹 Heartbeat / Timeout: Si pasan 15s sin nada, desactivar
+                if activado and (time.time() - last_interaction > 15):
                     print("💤 Timeout: Ron vuelve a reposo.")
                     activado = False
 
                 try: text, ts = audio_queue.get(timeout=0.1)
                 except queue.Empty: continue
 
-                # Normalizar texto para busqueda de keywords
                 norm_text = text.lower().strip()
 
                 if not activado:
@@ -711,28 +619,25 @@ if __name__ == "__main__":
                         interruption_event.clear()
                         speak_async(random.choice(activation_phrases))
                         
-                        # Esperar confirmación
-                        while speaking: time.sleep(0.05)
-                        drain_queue(audio_queue) # Limpiar eco de "Te escucho"
+                        while speaking: time.sleep(0.01)
+                        drain_queue(audio_queue)
                         
                         activado = True
                         last_interaction = time.time()
                 else:
-                    # 1. ¿Es una palabra de despedida/reposo?
                     if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
                         print(f"💤 Comando de reposo detectado: '{norm_text}'")
-                        speak_async("Entendido, estaré en reposo. Avísame si me necesitas.")
+                        speak_async("Entendido.")
                         activado = False
                         continue
 
                     # 2. Procesar interacción normal
                     last_interaction = time.time()
-                    # Tagged output ONLY when active
                     print(f"[USER_VOICE] {text}")
                     stay = process_interaction(text)
-                    if not stay:
-                        print("💤 Desactivando escucha activa.")
-                        activado = False
+                    if not stay: 
+                        # activado ya se puso a False dentro si hubo comandos
+                        pass
             except KeyboardInterrupt: break
             except Exception as e: print(f"❌ Loop: {e}")
     finally:
