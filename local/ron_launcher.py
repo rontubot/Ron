@@ -616,7 +616,9 @@ if __name__ == "__main__":
                         print("✅ Palabra clave detectada!")
                         stop_speaking()
                         interruption_event.clear()
-                        speak_async(random.choice(activation_phrases))
+                        phrase = random.choice(activation_phrases)
+                        print(f"[RON_VOICE] {phrase}")
+                        speak_async(phrase)
                         
                         while speaking: time.sleep(0.01)
                         drain_queue(audio_queue)
@@ -626,6 +628,7 @@ if __name__ == "__main__":
                 else:
                     if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
                         print(f"💤 Comando de reposo detectado: '{norm_text}'")
+                        print("[RON_VOICE] Entendido.")
                         speak_async("Entendido.")
                         activado = False
                         continue

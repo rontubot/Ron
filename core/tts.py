@@ -16,24 +16,30 @@ def clean_text_for_tts(text: str) -> str:
 def _get_engine():
     global _engine
     if _engine is None:
-        _engine = pyttsx3.init()
-        _engine.setProperty('rate', 190)
-        _engine.setProperty('volume', 1.0)
+        try:
+            # En Windows, forzar el uso de SAPI5 para mayor estabilidad
+            _engine = pyttsx3.init('sapi5') if os.name == 'nt' else pyttsx3.init()
+            _engine.setProperty('rate', 195)
+            _engine.setProperty('volume', 1.0)
 
-        voices = _engine.getProperty('voices')
-        # Buscar Helena o Sabina (Windows) o cualquier voz en español
-        spanish_voice = next(
-            (v.id for v in voices 
-             if "mexico" in v.name.lower() or "helena" in v.name.lower() or "sabina" in v.name.lower() or "spanish" in v.name.lower()),
-            None
-        )
-        if spanish_voice:
-            _engine.setProperty('voice', spanish_voice)
-        else:
-            # Búsqueda secundaria por ID
-            spanish_voice = next((v.id for v in voices if "es" in v.id.lower() or "spanish" in v.id.lower()), None)
+            voices = _engine.getProperty('voices')
+            # Buscar Helena o Sabina (Windows) o cualquier voz en español
+            spanish_voice = next(
+                (v.id for v in voices 
+                 if any(n in v.name.lower() for n in ["mexico", "helena", "sabina", "spanish", "castellano", "español"])),
+                None
+            )
             if spanish_voice:
                 _engine.setProperty('voice', spanish_voice)
+            else:
+                # Búsqueda secundaria por ID
+                spanish_voice = next((v.id for v in voices if "es" in v.id.lower() or "es-es" in v.id.lower() or "es-mx" in v.id.lower()), None)
+                if spanish_voice:
+                    _engine.setProperty('voice', spanish_voice)
+        except Exception as e:
+            print(f"⚠️ Error inicializando pyttsx3: {e}")
+            # Reintentar sin driver específico
+            _engine = pyttsx3.init()
 
     return _engine
 
