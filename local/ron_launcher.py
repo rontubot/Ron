@@ -405,7 +405,7 @@ def setup_streaming_recognition():
     r.pause_threshold = 0.5  
     r.non_speaking_duration = 0.3 
     r.dynamic_energy_threshold = False
-    r.energy_threshold = 700 # 🔹 Aumentado para reducir falsos positivos por ruido ambiente
+    r.energy_threshold = 500 # 🔹 Revertido a un valor más equilibrado para rapidez
     try:
         m = sr.Microphone()
         print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
@@ -457,7 +457,7 @@ def stream_audio_recognition(recognizer, microphone, q):
         try:
             # 🔹 3. RECOGNIZE TEXT
             text = transcribe_audio(recognizer, audio).lower().strip()
-            if not text or len(text) < 3: return # Ignorar ruidos muy cortos (mm, ah, etc)
+            if not text or len(text) < 2: return # Evitar micro-ruidos
 
             # 🔹 4. "STRICT" KEYWORD INTERRUPTION LOGIC
             if speaking:
@@ -532,25 +532,22 @@ def process_interaction(user_text):
         with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=10) as r:
             def generate_chunks():
                 nonlocal commands_found
-                for line in r.iter_lines():
-                    if not line: continue
-                    line_str = line.decode('utf-8', errors='ignore')
-                    if line_str.startswith('data: '):
-                        data = json.loads(line_str[6:])
-                        if data['type'] == 'chunk': yield data['chunk']
-                        elif data['type'] in ('result', 'done'):
-                            cmds = data.get('commands', [])
-                            if cmds: commands_found.extend(cmds)
-
             full_content = ""
-            for sentence in buffer_speech_sentences(generate_chunks()):
-                if interruption_event.is_set(): break
-                print(f"[RON_VOICE] {sentence}")
-                speak_async(sentence)
-                full_content += " " + sentence
-                
+            for line in r.iter_lines():
+                if not line: continue
+                line_str = line.decode('utf-8', errors='ignore')
+                if line_str.startswith('data: '):
+                    data = json.loads(line_str[6:])
+                    if data['type'] == 'chunk': full_content += data['chunk']
+                    elif data['type'] in ('result', 'done'):
+                        cmds = data.get('commands', [])
+                        if cmds: commands_found.extend(cmds)
+
             full_response = full_content.strip()
             if full_response:
+                print(f"[RON_VOICE] {full_response}")
+                speak_async(full_response)
+                
                 while speaking: time.sleep(0.01)
                 drain_queue(audio_queue)
                 print("🌪️ Cola de audio purgada (Eco eliminado).")
@@ -604,8 +601,8 @@ if __name__ == "__main__":
         last_interaction = time.time()
         while True:
             try:
-                # 🔹 Heartbeat / Timeout: Si pasan 30s sin nada, desactivar
-                if activado and (time.time() - last_interaction > 30):
+                # 🔹 Heartbeat / Timeout: Si pasan 15s sin nada, desactivar
+                if activado and (time.time() - last_interaction > 15):
                     print("💤 Timeout: Ron vuelve a reposo.")
                     activado = False
 
