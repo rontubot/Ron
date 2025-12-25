@@ -474,7 +474,7 @@ def add_to_memory(username: str, user_text: str, ron_response: str = ""):
     conv.append({
         "user": user_text,
         "ron": ron_response if isinstance(ron_response, str) else str(ron_response),
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "timestamp": datetime.utcnow().isoformat() + "Z"
     })
     # Mantén histórico razonable
     mem["conversaciones"] = conv[-100:]

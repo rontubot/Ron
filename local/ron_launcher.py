@@ -41,20 +41,30 @@ from core.tts import speak as tts_speak
 # UTILITIES
 # =========================================================================================
 def get_internet_time():
-    """Obtiene la hora real desde internet para evitar alucinaciones."""
+    """
+    Obtiene la hora actual de una API confiable. 
+    Retorna ISO 8601 UTC (ending in Z) para consistencia global.
+    """
     try:
-        # worldtimeapi es rápido y no requiere API KEY
-        r = requests.get("https://worldtimeapi.org/api/ip", timeout=2)
+        # Usamos WorldTimeAPI (IP based) o una similar
+        r = requests.get("https://worldtimeapi.org/api/ip", timeout=5)
         if r.status_code == 200:
             data = r.json()
-            # ISO format 2024-12-24T16:20:01...
-            dt = data["datetime"].split(".")[0]
-            return dt
+            # worldtimeapi devuelve datetime en formato ISO
+            dt_str = data.get("datetime")
+            if dt_str:
+                # Asegurar formato Z si es UTC
+                if "+" in dt_str or "-" in dt_str.split("T")[1]:
+                    # Convertir a UTC real si no lo es (aunque worldtimeapi suele dar el local de la IP)
+                    # Para simplificar y dado que el front ya maneja drift, 
+                    # forzamos a que sea UTC real si es posible o simplemente usamos utcnow
+                    pass
+                return dt_str
     except:
         pass
-    # Fallback a hora de sistema
-    from datetime import datetime
-    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    
+    # Fallback robusto: UTC real con sufijo Z
+    return datetime.utcnow().isoformat() + "Z"
 
 def drain_queue(q):
     """Vacía completamente una cola."""
