@@ -516,10 +516,11 @@ def stream_audio_recognition(recognizer, microphone, q):
                 if matched:
                     print(f"🛑 Interrupción VÁLIDA por comando '{matched}': '{text}'")
                     stop_speaking()
-                    global activado
-                    activado = True # Asegurar que sigue en modo escucha si lo callamos
+                    # 🔹 IMPORTANTE: No enviamos la palabra de parada al backend para evitar respuestas redundantes
+                    return 
                 else:
-                    # Si está hablando y no es una palabra de parada, ignoramos para evitar cortes por ruido
+                    # Si está hablando y no es una palabra de parada, ignoramos COMPLETAMENTE
+                    # Esto evita que el eco del propio Ron active nuevas solicitudes.
                     return
 
             print(f"👂 Escuchado: {text}")
