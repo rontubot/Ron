@@ -193,19 +193,20 @@ class TTSWorker(threading.Thread):
                 print(f"🤖 Ron hablando: {text[:60]}...")
                 
                 tts_script = f"""
-import pyttsx3, sys, base64
+import pyttsx3, sys, base64, os
 try:
     text = base64.b64decode('{b64_text}').decode('utf-8')
-    e = pyttsx3.init()
+    # Forzar SAPI5 en Windows para evitar silencio
+    e = pyttsx3.init('sapi5') if os.name == 'nt' else pyttsx3.init()
     e.setProperty('rate', 195)
     e.setProperty('volume', 1.0)
     voices = e.getProperty('voices')
-    v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish'])), None)
+    v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish','es-es','es-mx'])), None)
     if v_id: e.setProperty('voice', v_id)
     e.say(text)
     e.runAndWait()
 except Exception as ex:
-    print(ex)
+    print(f"TTS Subprocess Error: {{ex}}")
 """
                 try:
                     # Simplificar: quitar PIPEs que pueden causar bloqueos en Windows si no se consumen bien
@@ -601,8 +602,8 @@ if __name__ == "__main__":
         last_interaction = time.time()
         while True:
             try:
-                # 🔹 Heartbeat / Timeout: Si pasan 15s sin nada, desactivar
-                if activado and (time.time() - last_interaction > 15):
+                # 🔹 Heartbeat / Timeout: Si pasan 30s sin nada, desactivar
+                if activado and (time.time() - last_interaction > 30):
                     print("💤 Timeout: Ron vuelve a reposo.")
                     activado = False
 
@@ -634,9 +635,9 @@ if __name__ == "__main__":
                         continue
 
                     # 2. Procesar interacción normal
-                    last_interaction = time.time()
                     print(f"[USER_VOICE] {text}")
                     stay = process_interaction(text)
+                    last_interaction = time.time() # Resetear solo DESPUÉS de hablar
                     if not stay: 
                         # activado ya se puso a False dentro si hubo comandos
                         pass
