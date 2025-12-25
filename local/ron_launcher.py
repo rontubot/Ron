@@ -529,8 +529,8 @@ def stream_audio_recognition(recognizer, microphone, q):
                     # Esto evita que el eco del propio Ron active nuevas solicitudes.
                     return
 
-            # Tagged output for UI routing
-            print(f"[USER_VOICE] {text}")
+            # Normal log for activity feed
+            print(f"👂 Escuchado: {text}")
             q.put((text, time.time()))
 
         except Exception as e:
@@ -611,10 +611,11 @@ def process_interaction(user_text):
             full_content = ""
             for chunk in generate_chunks():
                 full_content += chunk
-                
-            # Una vez tenemos todo, lo segmentamos y hablamos de corrido
-            # (Incluso si es una sola frase larga, speak_async la pondrá en cola)
+
             if full_content.strip():
+                # Tagged output for UI routing
+                print(f"[RON_VOICE] {full_content.strip()}")
+                
                 # Hablar el mensaje completo de una sola vez
                 speak_async(full_content.strip())
                 full_response = full_content
@@ -622,7 +623,7 @@ def process_interaction(user_text):
                 # 🔹 IMPORTANTE: Esperar a que Ron termine de hablar antes de seguir el flujo
                 # Esto es lo que permite vaciar la cola después de que el ruido (eco) haya parado.
                 while speaking:
-                    time.sleep(0.05)
+                    time.sleep(0.01)
                 
                 # 🌪️ PURGAR COLA DE AUDIO: Eliminar el eco escuchado durante el habla
                 # Esto es CRÍTICO para responder "de inmediato" sin repetir cosas.
@@ -726,6 +727,8 @@ if __name__ == "__main__":
 
                     # 2. Procesar interacción normal
                     last_interaction = time.time()
+                    # Tagged output ONLY when active
+                    print(f"[USER_VOICE] {text}")
                     stay = process_interaction(text)
                     if not stay:
                         print("💤 Desactivando escucha activa.")
