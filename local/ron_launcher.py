@@ -208,17 +208,16 @@ except Exception as ex:
     print(ex)
 """
                 try:
-                    p = subprocess.Popen([sys.executable, "-c", tts_script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                    stdout, stderr = p.communicate(timeout=30)
-                    if p.returncode != 0:
-                        print(f"❌ TTS Error ({p.returncode}): {stderr}")
-                    elif stderr:
-                        print(f"⚠️ TTS Warning: {stderr}")
-                except subprocess.TimeoutExpired:
-                    p.kill()
-                    print("❌ TTS Subprocess timed out")
+                    # Simplificar: quitar PIPEs que pueden causar bloqueos en Windows si no se consumen bien
+                    p = subprocess.Popen([sys.executable, "-c", tts_script])
+                    while p.poll() is None:
+                        if interruption_event.is_set():
+                            p.terminate()
+                            break
+                        time.sleep(0.01)
+                    p.wait()
                 except Exception as e:
-                    print(f"❌ Error en TTS Subprocess execution: {e}")
+                    print(f"❌ Error en TTS Subprocess: {e}")
 
                 speaking = False
                 last_speech_at = time.time() # 🔹 Registrar fin de habla
@@ -406,7 +405,7 @@ def setup_streaming_recognition():
     r.pause_threshold = 0.5  
     r.non_speaking_duration = 0.3 
     r.dynamic_energy_threshold = False
-    r.energy_threshold = 400
+    r.energy_threshold = 700 # 🔹 Aumentado para reducir falsos positivos por ruido ambiente
     try:
         m = sr.Microphone()
         print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
@@ -458,7 +457,7 @@ def stream_audio_recognition(recognizer, microphone, q):
         try:
             # 🔹 3. RECOGNIZE TEXT
             text = transcribe_audio(recognizer, audio).lower().strip()
-            if not text: return
+            if not text or len(text) < 3: return # Ignorar ruidos muy cortos (mm, ah, etc)
 
             # 🔹 4. "STRICT" KEYWORD INTERRUPTION LOGIC
             if speaking:
