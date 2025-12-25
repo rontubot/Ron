@@ -208,15 +208,17 @@ except Exception as ex:
     print(ex)
 """
                 try:
-                    p = subprocess.Popen([sys.executable, "-c", tts_script])
-                    while p.poll() is None:
-                        if interruption_event.is_set():
-                            p.terminate()
-                            break
-                        time.sleep(0.01)
-                    p.wait()
+                    p = subprocess.Popen([sys.executable, "-c", tts_script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    stdout, stderr = p.communicate(timeout=30)
+                    if p.returncode != 0:
+                        print(f"❌ TTS Error ({p.returncode}): {stderr}")
+                    elif stderr:
+                        print(f"⚠️ TTS Warning: {stderr}")
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    print("❌ TTS Subprocess timed out")
                 except Exception as e:
-                    print(f"❌ Error en TTS Subprocess: {e}")
+                    print(f"❌ Error en TTS Subprocess execution: {e}")
 
                 speaking = False
                 last_speech_at = time.time() # 🔹 Registrar fin de habla
@@ -542,13 +544,14 @@ def process_interaction(user_text):
                             if cmds: commands_found.extend(cmds)
 
             full_content = ""
-            for chunk in generate_chunks(): full_content += chunk
+            for sentence in buffer_speech_sentences(generate_chunks()):
+                if interruption_event.is_set(): break
+                print(f"[RON_VOICE] {sentence}")
+                speak_async(sentence)
+                full_content += " " + sentence
                 
-            if full_content.strip():
-                print(f"[RON_VOICE] {full_content.strip()}")
-                speak_async(full_content.strip())
-                full_response = full_content
-                
+            full_response = full_content.strip()
+            if full_response:
                 while speaking: time.sleep(0.01)
                 drain_queue(audio_queue)
                 print("🌪️ Cola de audio purgada (Eco eliminado).")
@@ -602,8 +605,8 @@ if __name__ == "__main__":
         last_interaction = time.time()
         while True:
             try:
-                # 🔹 Heartbeat / Timeout: Si pasan 15s sin nada, desactivar
-                if activado and (time.time() - last_interaction > 15):
+                # 🔹 Heartbeat / Timeout: Si pasan 30s sin nada, desactivar
+                if activado and (time.time() - last_interaction > 30):
                     print("💤 Timeout: Ron vuelve a reposo.")
                     activado = False
 
