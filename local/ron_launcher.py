@@ -56,6 +56,12 @@ def get_internet_time():
     from datetime import datetime
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
+def drain_queue(q):
+    """Vacía completamente una cola."""
+    while not q.empty():
+        try: q.get_nowait()
+        except queue.Empty: break
+
 # =========================================================================================
 # CONFIGURATION & LOGGING
 # =========================================================================================
@@ -604,6 +610,16 @@ def process_interaction(user_text):
                 # Hablar el mensaje completo de una sola vez
                 speak_async(full_content.strip())
                 full_response = full_content
+                
+                # 🔹 IMPORTANTE: Esperar a que Ron termine de hablar antes de seguir el flujo
+                # Esto es lo que permite vaciar la cola después de que el ruido (eco) haya parado.
+                while speaking:
+                    time.sleep(0.05)
+                
+                # 🌪️ PURGAR COLA DE AUDIO: Eliminar el eco escuchado durante el habla
+                # Esto es CRÍTICO para responder "de inmediato" sin repetir cosas.
+                drain_queue(audio_queue)
+                print("🌪️ Cola de audio purgada (Eco eliminado).")
             
             # Procesar comandos si llegaron
             if commands_found:
@@ -685,6 +701,11 @@ if __name__ == "__main__":
                         stop_speaking()
                         interruption_event.clear()
                         speak_async(random.choice(activation_phrases))
+                        
+                        # Esperar confirmación
+                        while speaking: time.sleep(0.05)
+                        drain_queue(audio_queue) # Limpiar eco de "Te escucho"
+                        
                         activado = True
                         last_interaction = time.time()
                 else:

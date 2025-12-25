@@ -1031,7 +1031,7 @@ def search_google(query, progress_callback=None):
         return f"Error al buscar en Google: {e}"  
   
   
-def search_youtube(query, play_video=False, progress_callback=None):      
+def search_youtube(query, play_video=True, progress_callback=None):      
     """Busca y opcionalmente reproduce un video de YouTube"""  
     def send_progress(msg):  
         if progress_callback:  
