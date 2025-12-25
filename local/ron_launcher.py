@@ -221,8 +221,15 @@ except Exception as ex:
 """
                 try:
                     p = subprocess.Popen(
-                        [sys.executable, "-c", tts_script],
-
+                        [sys.executable, "-c", tts_script]
+                    )
+                    # Monitorear el proceso mientras revisamos si hay una interrupción
+                    while p.poll() is None:
+                        if interruption_event.is_set():
+                            p.terminate()
+                            break
+                        time.sleep(0.01)
+                    p.wait()
                 except Exception as e:
                     print(f"❌ Error en TTS Subprocess: {e}")
 
