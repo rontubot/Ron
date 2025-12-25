@@ -142,9 +142,14 @@ def _load_reminders(username: str) -> list[dict]:
                 return []
         except Exception as e:
             log.warning(f"⚠️ Error cargando recordatorios desde GitHub para {username}: {e}")
-            # Continuar con fallback local
+            # Si hay un error de red pero queremos modo estricto, mejor no usar local
+            if os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
+                return []
     
-    # 🔹 Fallback: cargar desde archivo local
+    # 🔹 Fallback: cargar desde archivo local (SOLO SI NO ESTA DESHABILITADO)
+    if os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
+        return []
+
     path = _reminders_file(username)
     try:
         if not os.path.exists(path):
@@ -202,7 +207,10 @@ def _save_reminders(username: str, items: list[dict]) -> bool:
         except Exception as e:
             log.warning(f"⚠️ Error guardando recordatorios en GitHub para {username}: {e}")
     
-    # 🔹 Guardar copia local como backup
+    # 🔹 Guardar copia local como backup (SOLO SI NO ESTA DESHABILITADO)
+    if os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
+        return success_github
+
     path = _reminders_file(username)
     try:
         with open(path, "w", encoding="utf-8") as f:
