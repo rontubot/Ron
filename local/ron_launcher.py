@@ -222,18 +222,6 @@ except Exception as ex:
                 try:
                     p = subprocess.Popen(
                         [sys.executable, "-c", tts_script],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
-                    # Monitorear el proceso mientras revisamos si hay una interrupción
-                    while p.poll() is None:
-                        if interruption_event.is_set():
-                            p.terminate()
-                            p.wait()
-                            print("💀 Proceso de voz detenido inmediatamente.")
-                            break
-                        time.sleep(0.02) # Poll rápido para respuesta instantánea
 
                 except Exception as e:
                     print(f"❌ Error en TTS Subprocess: {e}")
@@ -534,7 +522,8 @@ def stream_audio_recognition(recognizer, microphone, q):
                     # Esto evita que el eco del propio Ron active nuevas solicitudes.
                     return
 
-            print(f"👂 Escuchado: {text}")
+            # Tagged output for UI routing
+            print(f"[USER_VOICE] {text}")
             q.put((text, time.time()))
 
         except Exception as e:
