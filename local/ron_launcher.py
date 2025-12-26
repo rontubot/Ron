@@ -276,6 +276,13 @@ def handle_external_control():
                             interruption_event.clear()
                             speak_async(text_to_speak)
                         client.sendall(b'OK')
+
+                    elif cmd.startswith('UPDATE_TOKEN:'):
+                        new_token = cmd[13:].strip()
+                        if new_token:
+                            os.environ["RON_AUTH_TOKEN"] = new_token
+                            print(f"[Python] 🔑 Token de acceso actualizado dinámicamente.")
+                        client.sendall(b'OK')
                     
                     elif cmd == 'START_RECORDING':
                         print("🎙️ Iniciando grabación manual...")
