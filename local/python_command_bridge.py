@@ -4,6 +4,7 @@ import io
 import os
 import traceback
 
+
 # 🔹 AÑADIDO: asegurar que se pueda importar core.*
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORE_DIR = os.path.join(BASE_DIR, 'core')
