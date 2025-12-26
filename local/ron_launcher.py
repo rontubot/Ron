@@ -281,7 +281,17 @@ def handle_external_control():
                         new_token = cmd[13:].strip()
                         if new_token:
                             os.environ["RON_AUTH_TOKEN"] = new_token
-                            print(f"[Python] 🔑 Token de acceso actualizado dinámicamente.")
+                            # 🔹 DEBUG: Mostrar que el token se recibió (truncado por seguridad)
+                            safe_token = f"{new_token[:5]}...{new_token[-5:]}" if len(new_token) > 10 else "***"
+                            print(f"[Python] 🔑 Token actualizado: {safe_token}")
+                        client.sendall(b'OK')
+
+                    elif cmd.startswith('UPDATE_USER:'):
+                        new_user = cmd[12:].strip()
+                        if new_user:
+                            global current_username
+                            current_username = new_user
+                            print(f"[Python] 👤 Username actualizado: {new_user}")
                         client.sendall(b'OK')
                     
                     elif cmd == 'START_RECORDING':
@@ -524,6 +534,13 @@ def process_interaction(user_text):
     
     api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
+    
+    # 🔹 DEBUG: Verificar token antes de enviar
+    if not auth_token:
+        print("[Python] ⚠️ ADVERTENCIA: Intentando petición sin RON_AUTH_TOKEN")
+    else:
+        print(f"[Python] 🔑 Usando token (env): {auth_token[:5]}...{auth_token[-5:]}")
+
     headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
     
     now_str = get_internet_time()
