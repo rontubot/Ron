@@ -536,6 +536,7 @@ def process_interaction(user_text):
     try:
         # 🔹 Usar streamed response para obtener texto lo antes posible
         with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=15) as r:
+            print(f"🌐 Status API: {r.status_code}")
             if r.status_code != 200:
                 print(f"❌ Error API: {r.status_code}")
                 speak_async("No pude conectarme con mi cerebro.")
@@ -551,16 +552,21 @@ def process_interaction(user_text):
                         try:
                             data = json.loads(line_str[6:])
                             if data['type'] == 'chunk':
+                                print(f"📦 Recibido chunk: {data['chunk'][:20]}...")
                                 yield data['chunk']
                             elif data['type'] in ('result', 'done'):
                                 cmds = data.get('commands', [])
-                                if cmds: commands_found.extend(cmds)
-                        except: continue
+                                if cmds: 
+                                    print(f"⚡ Comandos recibidos: {len(cmds)}")
+                                    commands_found.extend(cmds)
+                        except Exception as je: 
+                            print(f"⚠️ JSON Error: {je}")
+                            continue
 
             # 🔹 Enviar a TTS por oraciones
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if sentence:
-                    print(f"💬 Procesando: {sentence}")
+                    print(f"💬 Procesando oración: {sentence}")
                     full_content += " " + sentence
                     speak_async(sentence)
 
@@ -569,7 +575,6 @@ def process_interaction(user_text):
             # 🔹 Esperar a que termine de hablar antes de purgar eco
             while speaking: time.sleep(0.01)
             drain_queue(audio_queue)
-            print("🌪️ Cola de audio purgada.")
             
             # 🔹 Ejecutar comandos si los hay
             if commands_found:
@@ -577,8 +582,8 @@ def process_interaction(user_text):
                 for cmd in commands_found:
                     try: 
                         run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username, 'task_manager': task_manager})
-                    except: pass
-                # Desactivar tras comando (petición de usuario)
+                    except Exception as ce:
+                        print(f"⚠️ Error ejec. comando: {ce}")
                 print("💤 Comando completado. Ron vuelve a reposo.")
                 activado = False
                 return False
@@ -610,6 +615,9 @@ if __name__ == "__main__":
     
     recognizer, microphone = setup_streaming_recognition()
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
+    
+    # 🔹 Iniciar trabajador de voz
+    TTSWorker().start()
     
     print("👂 Escuchando...")
     
