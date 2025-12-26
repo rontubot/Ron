@@ -534,30 +534,44 @@ def process_interaction(user_text):
     print(f"📡 Solicitando: {user_text[:30]}...")
 
     try:
-        with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=10) as r:
-            def generate_chunks():
-                nonlocal commands_found
+        # 🔹 Usar streamed response para obtener texto lo antes posible
+        with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=15) as r:
+            if r.status_code != 200:
+                print(f"❌ Error API: {r.status_code}")
+                speak_async("No pude conectarme con mi cerebro.")
+                return False
+
             full_content = ""
-            for line in r.iter_lines():
-                if not line: continue
-                line_str = line.decode('utf-8', errors='ignore')
-                if line_str.startswith('data: '):
-                    data = json.loads(line_str[6:])
-                    if data['type'] == 'chunk': full_content += data['chunk']
-                    elif data['type'] in ('result', 'done'):
-                        cmds = data.get('commands', [])
-                        if cmds: commands_found.extend(cmds)
+            # 🔹 Procesar por oraciones para que hable mientras descarga
+            def generate_chunks():
+                for line in r.iter_lines():
+                    if not line: continue
+                    line_str = line.decode('utf-8', errors='ignore')
+                    if line_str.startswith('data: '):
+                        try:
+                            data = json.loads(line_str[6:])
+                            if data['type'] == 'chunk':
+                                yield data['chunk']
+                            elif data['type'] in ('result', 'done'):
+                                cmds = data.get('commands', [])
+                                if cmds: commands_found.extend(cmds)
+                        except: continue
+
+            # 🔹 Enviar a TTS por oraciones
+            for sentence in buffer_speech_sentences(generate_chunks()):
+                if sentence:
+                    print(f"💬 Procesando: {sentence}")
+                    full_content += " " + sentence
+                    speak_async(sentence)
 
             full_response = full_content.strip()
-            if full_response:
-                print(f"[RON_VOICE] {full_response}")
-                speak_async(full_response)
-                
-                while speaking: time.sleep(0.01)
-                drain_queue(audio_queue)
-                print("🌪️ Cola de audio purgada (Eco eliminado).")
             
-            # 🔹 SI HAY COMANDOS, VOLVERNOS A REPOSO TRAS EJECUTARLOS
+            # 🔹 Esperar a que termine de hablar antes de purgar eco
+            while speaking: time.sleep(0.01)
+            drain_queue(audio_queue)
+            print("🌪️ Cola de audio purgada.")
+            
+            # 🔹 Ejecutar comandos si los hay
             if commands_found:
                 print(f"⚡ Ejecutando {len(commands_found)} comandos...")
                 for cmd in commands_found:
@@ -569,19 +583,16 @@ def process_interaction(user_text):
                 activado = False
                 return False
 
-            if full_response.strip():
-                try: add_to_memory(current_username, user_text, full_response.strip())
+            if full_response:
+                print(f"[RON_VOICE] {full_response}")
+                try: add_to_memory(current_username, user_text, full_response)
                 except: pass
 
     except Exception as e:
-        print(f"❌ Backend: {e}")
+        print(f"❌ Backend Error: {e}")
         speak_async("Error de conexión.")
         return False
 
-    if interruption_event.is_set(): return True
-
-    # Si no hubo comandos y el mensaje sugiere una despedida implícita, podriamos desactivar.
-    # Por ahora cumplimos con desactivar tras comandos y mantener activo el flujo si es puro chat.
     return True
 
 # =========================================================================================
