@@ -515,7 +515,7 @@ def process_interaction(user_text):
     global interruption_event, activado
     interruption_event.clear()
     
-    api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
+    api_url = os.getenv("RON_API_URL", "https://ron-assistant-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
     headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
     
