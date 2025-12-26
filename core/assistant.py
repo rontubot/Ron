@@ -62,7 +62,7 @@ SOLO puedes usar estas acciones en 'commands':
  "shutdown","restart","suspend","set_volume","create_file","create_folder",      
  "move_file","copy_file","create_shortcut","delete_file","list_files",      
  "read_file","analyze_file","list_directory_detailed","get_standard_path",
- "queue_local_task"].
+ "queue_local_task", "stop_listening"].
     
 REGLAS DE FORMATO DE TEXTO (user_response):
 - NUNCA uses punto y coma (;), usa coma (,) o punto (.) seguido de MAYÚSCULA.
@@ -139,7 +139,10 @@ Usuario: "qué tengo pendiente?"
 Asistente: {"user_response":"Revisando tus recordatorios...","commands":[{"action":"get_reminders","params":{"status":"todo"}}]}
 
 Usuario: "borra el recordatorio de la leche"
-Asistente: {"user_response":"Borrando recordatorio.","commands":[{"action":"remove_reminder","params":{"title":"Comprar leche"}}]}  
+Asistente: {"user_response":"Borrando recordatorio.","commands":[{"action":"remove_reminder","params":{"title":"Comprar leche"}}]}
+
+Usuario: "hasta luego Ron"
+Asistente: {"user_response":"Hasta luego, que descanses.","commands":[{"action":"stop_listening","params":{}}]}
 """
 
 
@@ -649,6 +652,7 @@ def construir_historial_usuario_openai(username: str):
         "content": (
             "Eres Ron, un asistente técnico especializado en ejecución y optimizador de tareas. "
             "PRIORIDAD: ejecutar comandos cuando corresponda. "
+            "IMPORTANTE: Si el usuario se despide, dice 'ya está', 'nada más', 'silencio', o indica que ha terminado la interacción, DEBES incluir la acción 'stop_listening' en 'commands'. "
             'Formato de salida: JSON estricto con {"user_response": "...", "commands":[...]}.'
         ),
     })
@@ -1195,11 +1199,14 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         pass  
       
     # 2. Despedida  
+    # 2. Despedida  
     if detect_farewell_patterns(user_input):  
         response = "Hasta luego. Que tengas un buen día."  
         if save_to_memory:  
             _append_user_conv(username, original_input, response, source="voice")  
-        yield response  
+        yield response
+        # Enviar comando de cierre
+        yield f"\n__COMMANDS__:{json.dumps([{'action':'stop_listening','params':{}}], ensure_ascii=False)}\n"
         return  
       
     # 3. Comandos directos (mismos patrones que _process_user_input)  

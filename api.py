@@ -820,6 +820,23 @@ def memory_status(current_user: str = Depends(get_current_user)):
     except Exception as e:      
         return {"status": "error", "message": str(e)}
 
+# Global Whisper model instance (Lazy loaded)
+local_whisper_model = None
+
+def get_whisper_model():
+    global local_whisper_model
+    if local_whisper_model is None:
+        print("🔄 Loading local Faster-Whisper model...")
+        try:
+            from faster_whisper import WhisperModel
+            # Int8 for speed and low memory on CPU
+            local_whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+            print("✅ Faster-Whisper model loaded.")
+        except Exception as e:
+            print(f"❌ Failed to load Faster-Whisper: {e}")
+            raise e
+    return local_whisper_model
+
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...), authorization: str = Header(None)):
     if authorization is None or not authorization.startswith("Bearer "):
@@ -831,30 +848,28 @@ async def transcribe_audio(file: UploadFile = File(...), authorization: str = He
 
     temp_filename = f"temp_{file.filename}"
     try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
         # Save temp file
         with open(temp_filename, "wb") as buffer:
             buffer.write(await file.read())
             
-        # Transcribe
-        with open(temp_filename, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file
-            )
+        # Transcribe using LOCAL Whisper
+        model = get_whisper_model()
+        segments, _ = model.transcribe(temp_filename, language="es", beam_size=1)
+        
+        text = " ".join([segment.text for segment in segments]).strip()
             
         # Cleanup
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         
-        return {"text": transcript.text}
+        return {"text": text}
         
     except Exception as e:
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         print(f"Transcription error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Improve error message for client
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 # --- Endpoints de Recordatorios (REST) ---
 

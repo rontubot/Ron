@@ -87,10 +87,13 @@ control_enabled = True
 SILENCE_TIMEOUT_SEC = 1.2
 ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn", "ram"}
 
+
 # 🔹 DEACTIVATE: Palabras que apagan la escucha activa
 DEACTIVATE_KEYWORDS = {
     "descansa", "reposo", "dormir", "adios", "adiós", "hasta luego", 
-    "terminamos", "ya está", "ya esta", "nada más", "nada mas", "silencio"
+    "terminamos", "ya está", "ya esta", "nada más", "nada mas", "silencio",
+    "desactivar", "desactívate", "desactivarse", "apágate", "cierra la boca",
+    "nos vemos", "chao", "bye", "nos vimos", "corta", "cortala"
 }
 
 # 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
@@ -99,6 +102,7 @@ STOP_KEYWORDS = {
     "silencio", "cállate", "callate", "stop", "detente", "basta", 
     "para", "parar", "espera", "momento"
 }
+
 
 activation_phrases = ["Te escucho.", "Sí, estoy aquí.", "Dime.", "Aquí estoy."]
 
@@ -591,10 +595,21 @@ def process_interaction(user_text):
             if commands_found:
                 print(f"⚡ Ejecutando {len(commands_found)} comandos...")
                 for cmd in commands_found:
+                    action = cmd.get('action')
+                    params = cmd.get('params', {})
+                    
+                    if action == 'stop_listening':
+                        print("💤 Ron se desactiva por orden del cerebro.")
+                        activado = False
+                        return False
+
                     try: 
-                        run_command(cmd.get('action'), cmd.get('params', {}), {'username': current_username, 'task_manager': task_manager})
+                        run_command(action, params, {'username': current_username, 'task_manager': task_manager})
                     except Exception as ce:
                         print(f"⚠️ Error ejec. comando: {ce}")
+                
+                # Si se ejecutaron comandos que NO son stop_listening, 
+                # actualmente Ron se desactiva. Esto es comportamiento por defecto.
                 print("💤 Comando completado. Ron vuelve a reposo.")
                 activado = False
                 return False
@@ -603,6 +618,16 @@ def process_interaction(user_text):
                 print(f"[RON_VOICE] {full_response}")
                 try: add_to_memory(current_username, user_text, full_response)
                 except: pass
+
+                # 🔹 AUTO-DEACTIVATE: Si la respuesta del LLM sugiere despedida
+                low_response = full_response.lower()
+                farewell_phrases = ["hasta luego", "nos vemos", "me mantendré inactivo", "estaré aquí cuando me necesites", 
+                                    "me desactivaré", "modo reposo", "si necesitas algo más", "estaré inactivo", "me quedo a la espera"]
+                
+                if any(phrase in low_response for phrase in farewell_phrases):
+                    print(f"💤 Auto-desactivación por respuesta del LLM: '{full_response[:30]}...'")
+                    activado = False
+                    return False
 
     except Exception as e:
         print(f"❌ Backend Error: {e}")
