@@ -515,7 +515,7 @@ def process_interaction(user_text):
     global interruption_event, activado
     interruption_event.clear()
     
-    api_url = os.getenv("RON_API_URL", "https://ron-assistant-production.up.railway.app")
+    api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
     headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
     
@@ -660,7 +660,12 @@ if __name__ == "__main__":
                     # 2. Procesar interacción normal
                     print(f"[USER_VOICE] {text}")
                     stay = process_interaction(text)
-                    last_interaction = time.time() # 🔹 Resetear solo DESPUÉS de hablar para dar tiempo al usuario
+                    
+                    # 🔹 CRÍTICO: Limpiar audio acumulado mientras Ron hablaba (Anti-Echo/Noise)
+                    while speaking: time.sleep(0.01)
+                    drain_queue(audio_queue)
+                    
+                    last_interaction = time.time() 
             except KeyboardInterrupt: break
             except Exception as e: print(f"❌ Loop: {e}")
     finally:
