@@ -171,22 +171,9 @@ speech_buffer = SpeechBuffer()
 class TTSWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
-        self.engine = None
-
-    def _init_engine(self):
-        if self.engine: return
-        try:
-            self.engine = pyttsx3.init('sapi5') if os.name == 'nt' else pyttsx3.init()
-            self.engine.setProperty('rate', 195)
-            self.engine.setProperty('volume', 1.0)
-            voices = self.engine.getProperty('voices')
-            v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish','es-es','es-mx'])), None)
-            if v_id: self.engine.setProperty('voice', v_id)
-        except: pass
 
     def run(self):
         global speaking, last_speech_at
-        self._init_engine()
         while True:
             try:
                 text = tts_queue.get()
@@ -199,19 +186,36 @@ class TTSWorker(threading.Thread):
                 speaking = True
                 speech_buffer.add(text)
                 
+                import base64
+                b64_text = base64.b64encode(text.encode('utf-8')).decode('utf-8')
+
                 print(f"🤖 Ron hablando: {text[:60]}...")
                 
-                if self.engine:
-                    try:
-                        self.engine.say(text)
-                        self.engine.runAndWait()
-                    except:
-                        # Si falla, intentar resucitar el motor una vez
-                        self.engine = None
-                        self._init_engine()
-                        if self.engine:
-                            self.engine.say(text)
-                            self.engine.runAndWait()
+                tts_script = f"""
+import pyttsx3, sys, base64, os
+try:
+    text = base64.b64decode('{b64_text}').decode('utf-8')
+    e = pyttsx3.init('sapi5') if os.name == 'nt' else pyttsx3.init()
+    e.setProperty('rate', 195)
+    e.setProperty('volume', 1.0)
+    voices = e.getProperty('voices')
+    v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish','es-es','es-mx'])), None)
+    if v_id: e.setProperty('voice', v_id)
+    e.say(text)
+    e.runAndWait()
+except:
+    pass
+"""
+                try:
+                    p = subprocess.Popen([sys.executable, "-c", tts_script])
+                    while p.poll() is None:
+                        if interruption_event.is_set():
+                            p.terminate()
+                            break
+                        time.sleep(0.01)
+                    p.wait()
+                except:
+                    pass
 
                 speaking = False
                 last_speech_at = time.time()
@@ -246,7 +250,11 @@ def handle_external_control():
                     if not data:
                         client.close(); continue    
   
-                    cmd = data.decode('utf-8', errors='ignore').strip().upper()  
+                    raw_data = data.decode('utf-8', errors='ignore').strip()
+                    if not raw_data:
+                        client.close(); continue
+                    
+                    cmd = raw_data.upper()
   
                     if cmd == 'STATUS':    
                         state = b'ACTIVE' if (listening_active or speaking or activado) else b'INACTIVE'
@@ -260,14 +268,14 @@ def handle_external_control():
                         client.sendall(b'OK')
 
                     elif cmd.startswith('SPEAK:'):
-                        text_to_speak = cmd[6:].strip()
+                        text_to_speak = raw_data[6:].strip()
                         if text_to_speak:
                             interruption_event.clear()
                             speak_async(text_to_speak)
                         client.sendall(b'OK')
 
                     elif cmd.startswith('UPDATE_TOKEN:'):
-                        new_token = cmd[13:].strip()
+                        new_token = raw_data[13:].strip()
                         if new_token:
                             os.environ["RON_AUTH_TOKEN"] = new_token
                             # 🔹 DEBUG: Mostrar que el token se recibió (truncado por seguridad)
@@ -276,7 +284,7 @@ def handle_external_control():
                         client.sendall(b'OK')
 
                     elif cmd.startswith('UPDATE_USER:'):
-                        new_user = cmd[12:].strip()
+                        new_user = raw_data[12:].strip()
                         if new_user:
                             global current_username
                             current_username = new_user
