@@ -171,9 +171,22 @@ speech_buffer = SpeechBuffer()
 class TTSWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
+        self.engine = None
+
+    def _init_engine(self):
+        if self.engine: return
+        try:
+            self.engine = pyttsx3.init('sapi5') if os.name == 'nt' else pyttsx3.init()
+            self.engine.setProperty('rate', 195)
+            self.engine.setProperty('volume', 1.0)
+            voices = self.engine.getProperty('voices')
+            v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish','es-es','es-mx'])), None)
+            if v_id: self.engine.setProperty('voice', v_id)
+        except: pass
 
     def run(self):
         global speaking, last_speech_at
+        self._init_engine()
         while True:
             try:
                 text = tts_queue.get()
@@ -181,53 +194,29 @@ class TTSWorker(threading.Thread):
                 
                 if interruption_event.is_set():
                     with tts_queue.mutex: tts_queue.queue.clear()
-                    print("🚫 TTS Interrumpido (Saltando)")
                     continue
 
                 speaking = True
                 speech_buffer.add(text)
                 
-                import base64
-                b64_text = base64.b64encode(text.encode('utf-8')).decode('utf-8')
-
                 print(f"🤖 Ron hablando: {text[:60]}...")
                 
-                tts_script = f"""
-import pyttsx3, sys, base64, os
-try:
-    text = base64.b64decode('{b64_text}').decode('utf-8')
-    # Forzar SAPI5 en Windows para máxima estabilidad (evita silencio)
-    e = pyttsx3.init('sapi5') if os.name == 'nt' else pyttsx3.init()
-    e.setProperty('rate', 195)
-    e.setProperty('volume', 1.0)
-    voices = e.getProperty('voices')
-    v_id = next((v.id for v in voices if any(x in v.name.lower() for x in ['mexico','helena','sabina','spanish','es-es','es-mx'])), None)
-    if v_id: e.setProperty('voice', v_id)
-    else:
-        # Fallback por ID si el nombre no coincide
-        v_id = next((v.id for v in voices if "es" in v.id.lower()), None)
-        if v_id: e.setProperty('voice', v_id)
-    e.say(text)
-    e.runAndWait()
-except Exception as ex:
-    print(f"TTS Subprocess Error: {{ex}}")
-"""
-                try:
-                    # Simplificar: quitar PIPEs que pueden causar bloqueos en Windows si no se consumen bien
-                    p = subprocess.Popen([sys.executable, "-c", tts_script])
-                    while p.poll() is None:
-                        if interruption_event.is_set():
-                            p.terminate()
-                            break
-                        time.sleep(0.01)
-                    p.wait()
-                except Exception as e:
-                    print(f"❌ Error en TTS Subprocess: {e}")
+                if self.engine:
+                    try:
+                        self.engine.say(text)
+                        self.engine.runAndWait()
+                    except:
+                        # Si falla, intentar resucitar el motor una vez
+                        self.engine = None
+                        self._init_engine()
+                        if self.engine:
+                            self.engine.say(text)
+                            self.engine.runAndWait()
 
                 speaking = False
-                last_speech_at = time.time() # 🔹 Registrar fin de habla
+                last_speech_at = time.time()
             except Exception as e:
-                print(f"❌ TTS Worker: {e}")
+                print(f"❌ TTS Worker Error: {e}")
                 speaking = False
                 last_speech_at = time.time()
 
@@ -534,35 +523,30 @@ def process_interaction(user_text):
     
     api_url = os.getenv("RON_API_URL", "https://ron-production.up.railway.app")
     auth_token = os.getenv("RON_AUTH_TOKEN", "")
-    
-    # 🔹 DEBUG: Verificar token antes de enviar
-    if not auth_token:
-        print("[Python] ⚠️ ADVERTENCIA: Intentando petición sin RON_AUTH_TOKEN")
-    else:
-        print(f"[Python] 🔑 Usando token (env): {auth_token[:5]}...{auth_token[-5:]}")
-
     headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
+    
+    # Normalizar username: preferir minúsculas si viene del sistema (ej: LMAR -> lmar)
+    user_to_send = (current_username or "default").lower()
     
     now_str = get_internet_time()
     context_prefix = f"[Contexto actual: {now_str}] "
     
     payload = {
         "text": context_prefix + user_text, 
-        "username": current_username or "default",
-        "source": "desktop_launcher"
+        "username": user_to_send,
+        "source": "desktop"
     }
 
     full_response = ""
     commands_found = []
     
-    print(f"📡 Solicitando: {user_text[:30]}...")
+    print(f"📡 Solicitando: {user_text[:40]}...")
 
     try:
         # 🔹 Usar streamed response para obtener texto lo antes posible
         with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=15) as r:
-            print(f"🌐 Status API: {r.status_code}")
             if r.status_code != 200:
-                print(f"❌ Error API: {r.status_code}")
+                print(f"❌ Error API: {r.status_code} (User: {user_to_send})")
                 speak_async("No pude conectarme con mi cerebro.")
                 return False
 
@@ -576,21 +560,16 @@ def process_interaction(user_text):
                         try:
                             data = json.loads(line_str[6:])
                             if data['type'] == 'chunk':
-                                print(f"📦 Recibido chunk: {data['chunk'][:20]}...")
                                 yield data['chunk']
                             elif data['type'] in ('result', 'done'):
                                 cmds = data.get('commands', [])
                                 if cmds: 
-                                    print(f"⚡ Comandos recibidos: {len(cmds)}")
                                     commands_found.extend(cmds)
-                        except Exception as je: 
-                            print(f"⚠️ JSON Error: {je}")
-                            continue
+                        except: continue
 
             # 🔹 Enviar a TTS por oraciones
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if sentence:
-                    print(f"💬 Procesando oración: {sentence}")
                     full_content += " " + sentence
                     speak_async(sentence)
 
