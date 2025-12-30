@@ -482,6 +482,9 @@ def stream_audio_recognition(recognizer, microphone, q):
             text = transcribe_audio(recognizer, audio).lower().strip()
             if not text or len(text) < 2: return # Evitar micro-ruidos
 
+            # 🔹 4. PRINT USER VOICE FOR UI LOGGER
+            print(f"[USER_VOICE] {text}")
+
             # 🔹 4. "STRICT" KEYWORD INTERRUPTION LOGIC
             if speaking:
                 if interruption_event.is_set(): return 
@@ -572,7 +575,9 @@ def process_interaction(user_text):
                         try:
                             data = json.loads(line_str[6:])
                             if data['type'] == 'chunk':
-                                yield data['chunk']
+                                chunk = data['chunk']
+                                print(f"[RON_PARTIAL] {chunk}") # Newline for Electron split('\n')
+                                yield chunk
                             elif data['type'] in ('result', 'done'):
                                 cmds = data.get('commands', [])
                                 if cmds: 
@@ -582,6 +587,7 @@ def process_interaction(user_text):
             # 🔹 Enviar a TTS por oraciones
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if sentence:
+                    print(f"[RON_VOICE] {sentence}") # Interceptado por Electron para Chat en vivo
                     full_content += " " + sentence
                     speak_async(sentence)
 

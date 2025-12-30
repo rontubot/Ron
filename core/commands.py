@@ -1971,6 +1971,7 @@ def cmd_add_reminder(params, ctx):
         tags=tags,    
     )
 
+    days_of_week = params.get("daysOfWeek")
     notes = params.get("notes", "")
     priority = params.get("priority", 1)
     remindEveryValue = params.get("remindEveryValue", 0)
