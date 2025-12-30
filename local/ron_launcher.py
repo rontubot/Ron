@@ -428,7 +428,7 @@ def setup_streaming_recognition():
     r.pause_threshold = 0.4  
     r.non_speaking_duration = 0.2 
     r.dynamic_energy_threshold = False
-    r.energy_threshold = 450 # Slightly more sensitive
+    r.energy_threshold = 350 # More sensitive for better pickup
     try:
         m = sr.Microphone()
         print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")

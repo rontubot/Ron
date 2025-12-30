@@ -1971,10 +1971,12 @@ def cmd_add_reminder(params, ctx):
         tags=tags,    
     )
 
-    # 🔹 Si tiene fecha/hora programada, o es recurrente por días, crear tarea en Electron TaskManager
-    recurrence = params.get("recurrence")
-    days_of_week = params.get("daysOfWeek")
-    
+    notes = params.get("notes", "")
+    priority = params.get("priority", 1)
+    remindEveryValue = params.get("remindEveryValue", 0)
+    remindEveryUnit = params.get("remindEveryUnit", "hours")
+    color = params.get("color")
+
     if (due_date and due_time) or (recurrence == 'days' and days_of_week):
         try:
             from datetime import datetime
@@ -1997,6 +1999,11 @@ def cmd_add_reminder(params, ctx):
                                 "delay_seconds": 0,
                                 "reminder_id": item.get("id"),
                                 "daysOfWeek": days_of_week,
+                                "notes": notes,
+                                "priority": priority,
+                                "remindEveryValue": remindEveryValue,
+                                "remindEveryUnit": remindEveryUnit,
+                                "color": color
                             },
                             "due_at": due_at,
                             "category": category,

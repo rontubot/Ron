@@ -102,13 +102,12 @@ IMPORTANTE:
 - Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), PREFIERE usar "add_reminder" con "delay_seconds".
 
 - Para add_reminder:
-  - "title": descripción breve.
-  - "due_date": YYYY-MM-DD.
-  - "due_time": HH:MM.
-  - "category": (opcional) ej: "Personal", "Trabajo", "Urgente".
-  - "recurrence": (opcional) "daily", "weekly", "monthly" o "days" (para días específicos).
-  - "daysOfWeek": (opcional, solo si recurrence es "days") lista de días: ["Lun","Mar","Mie","Jue","Vie","Sab","Dom"].
-  - Ejemplo: "Pon una alarma todos los lunes y miércoles a las 8 am" -> {"action": "add_reminder", "params": {"title": "Alarma", "due_time": "08:00", "recurrence": "days", "daysOfWeek": ["Lun", "Mie"]}}
+  - add_reminder(title: str, description: str = "", due_date: str = None, due_time: str = None, recurrence: str = None, daysOfWeek: list = None, notes: str = "", priority: int = 1, remindEveryValue: int = 0, remindEveryUnit: str = 'hours')
+  Usa 'recurrence: "days"' y 'daysOfWeek: ["Lun", "Mie"]' para alarmas en días específicos.
+  Usa 'remindEveryValue' y 'remindEveryUnit' para que Ron te recuerde periódicamente (ej: "tomar agua cada 1 hora").
+  USA TU RAZONAMIENTO: Si el usuario pide algo "más seguido" o "cada cierto tiempo", deduce el intervalo apropiado.
+  Ej: "Recuérdame tomar agua cada hora" -> { "remindEveryValue": 1, "remindEveryUnit": "hours", "priority": 3 }
+  Ej: "Pon una alarma para los lunes y jueves a las 8am" -> { "recurrence": "days", "daysOfWeek": ["Lun", "Jue"], "due_time": "08:00" }
 - Para add_recurring_reminder:
   - Params: "title" (obligatorio), "recurrence" ("daily"|"weekly"|"monthly"), "time" (HH:MM).
   - Úsalo para alarmas diarias o recordatorios periódicos.
