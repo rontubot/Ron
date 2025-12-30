@@ -500,7 +500,6 @@ def stream_audio_recognition(recognizer, microphone, q):
                 else: return
 
             # Normal log for activity feed
-            print(f"👂 Escuchado: {text}")
             q.put((text, time.time()))
 
         except Exception as e:
