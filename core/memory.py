@@ -112,6 +112,58 @@ def _reminders_file(username: str) -> str:
     return os.path.join(_reminders_base_dir(), f"{uname}.json")
 
 
+def _load_electron_tasks():
+    """
+    Lee y mapea las tareas de Electron (tasks.json) al formato de recordatorios de Python.
+    Esto permite que la voz y la UI compartan la misma fuente de verdad.
+    """
+    path = os.getenv("RON_TASKS_PATH")
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []
+        
+        mapped = []
+        for t in data:
+            # Solo nos interesan recordatorios
+            if t.get("kind") != "reminder":
+                continue
+            
+            # Mapeo de campos
+            due_at = t.get("due_at") # ISO
+            d_date, d_time = None, None
+            if due_at:
+                try:
+                    # '2025-12-25T15:00:00.000Z' o similar
+                    # datetime.fromisoformat maneja el formato Z en Python 3.11+
+                    # Para compatibilidad, reemplazamos Z por +00:00
+                    clean_iso = due_at.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(clean_iso)
+                    d_date = dt.strftime("%Y-%m-%d")
+                    d_time = dt.strftime("%H:%M")
+                except:
+                    pass
+            
+            mapped.append({
+                "id": t.get("id"),
+                "title": t.get("description", "Recordatorio"),
+                "description": "", # TaskManager no suele usar desc separada en el board
+                "category": t.get("category", "General"),
+                "status": t.get("status", "todo"),
+                "due_date": d_date,
+                "due_time": d_time,
+                "recurrence": t.get("recurrence"),
+                "created_at": t.get("created_at")
+            })
+        return mapped
+    except Exception as e:
+        log.error(f"Error cargando tareas de Electron: {e}")
+        return []
+
+
 def _load_reminders(username: str) -> list[dict]:
     """
     Carga recordatorios desde GitHub (primaria) con fallback a local.
@@ -119,7 +171,13 @@ def _load_reminders(username: str) -> list[dict]:
     """
     username = (username or "default").strip() or "default"
     
-    # 🔹 Intentar cargar desde GitHub primero
+    # 🔹 SI ESTAMOS EN ELECTRON (Escritorio), la fuente de verdad es tasks.json
+    electron_tasks = _load_electron_tasks()
+    if electron_tasks:
+        log.info(f"✅ Usando {len(electron_tasks)} recordatorios de Electron (tasks.json)")
+        return electron_tasks
+
+    # 🔹 Intentar cargar desde GitHub primero (Flujo móvil/web puro)
     token = get_github_token()
     if token:
         try:

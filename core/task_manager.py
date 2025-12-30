@@ -118,6 +118,11 @@ class TaskManager:
         self.active_tasks[task_id] = thread  
         thread.start()  
         return task_id  
+
+    def add_task(self, description: str, target: Callable, *args, **kwargs):
+        """Alias para run_background_task para compatibilidad con comandos UI"""
+        task_id = f"task_{int(time.time())}"
+        return self.run_background_task(task_id, target, args, kwargs)
       
     def run_command_background(
         self,

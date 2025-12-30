@@ -2008,19 +2008,38 @@ def cmd_get_reminders(params, ctx):
     username = _username(ctx, params)    
     category = params.get("category")    
     status   = params.get("status")    
+    date_query = params.get("date") # "today", "tomorrow", YYYY-MM-DD
     
     items = list_reminders(username, category=category, status=status)    
     
+    # Filtrar por fecha si se solicita
+    if date_query:
+        target_date = ""
+        if date_query.lower() == "today" or date_query.lower() == "hoy":
+            target_date = datetime.now().strftime("%Y-%m-%d")
+        elif date_query.lower() == "tomorrow" or date_query.lower() == "mañana":
+            target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        elif re.match(r"\d{4}-\d{2}-\d{2}", date_query):
+            target_date = date_query
+            
+        if target_date:
+            items = [r for r in items if r.get("due_date") == target_date]
+            date_label = "para hoy" if date_query.lower() in ["today", "hoy"] else (f"para el {target_date}")
+        else:
+            date_label = f"en la fecha {date_query}"
+    else:
+        date_label = ""
+
     if not items:
-        # Sin recordatorios
         return {
             "ok": True,
             "reminders": [],
-            "message": "No tienes recordatorios guardados."
+            "message": f"No tienes recordatorios guardados {date_label}.".strip()
         }
 
     # Armamos una lista legible
-    lines = ["Estos son tus recordatorios:"]
+    header = f"Estos son tus recordatorios {date_label}:".strip()
+    lines = [header]
     for i, item in enumerate(items, start=1):
         title = item.get("title", "(sin título)")
         desc  = item.get("description") or ""
@@ -2072,6 +2091,17 @@ def cmd_update_reminder(params, ctx):
 
     # Si viene id, usarlo directo
     if reminder_id:
+        # SI ESTAMOS EN ELECTRON: Avisar a Electron
+        if os.getenv("RON_TASKS_PATH"):
+            print(json.dumps({
+                "type": "commands",
+                "commands": [{"action": "tasks:update", "params": {"id": reminder_id, "patch": fields}}]
+            }, ensure_ascii=False), flush=True)
+            return {
+                "ok": True,
+                "message": f"Recordatorio actualizado (id: {reminder_id}).",
+            }
+        
         updated = update_reminder(username, reminder_id, **fields)
         if updated:
             return {
@@ -2129,6 +2159,17 @@ def cmd_update_reminder(params, ctx):
             "error": f"No encontré ningún recordatorio que coincida con '{title_query}'.",
         }
 
+    # SI ESTAMOS EN ELECTRON: Avisar a Electron
+    if os.getenv("RON_TASKS_PATH"):
+        print(json.dumps({
+            "type": "commands",
+            "commands": [{"action": "tasks:update", "params": {"id": rid, "patch": fields}}]
+        }, ensure_ascii=False), flush=True)
+        return {
+            "ok": True,
+            "message": f"Recordatorio '{item.get('title')}' actualizado con éxito.",
+        }
+
     updated = update_reminder(username, rid, **fields)
     if not updated:
         return {
@@ -2164,82 +2205,57 @@ def cmd_remove_reminder(params, ctx):
         or ""
     ).strip().lower()
 
-    # Si no hay id ni texto, intentamos con cualquier string que venga en params
-    if not reminder_id and not title_query:
-        for v in params.values():
-            if isinstance(v, str) and v.strip():
-                title_query = v.strip().lower()
-                break
-
-    # 1) Si viene ID directo, usarlo
-    if reminder_id:
-        ok = remove_reminder_item(username, reminder_id)
-        if ok:
-            return {
-                "ok": True,
-                "message": f"Recordatorio eliminado (id: {reminder_id}).",
-            }
-        return {
-            "ok": False,
-            "error": "No se encontró un recordatorio con ese id.",
-        }
-
-    # 2) No hay id → buscar por título aproximado
-    if not title_query:
-        return {
-            "ok": False,
-            "error": "Falta 'id' o 'title' del recordatorio para eliminar.",
-        }
-
     items = list_reminders(username)
     if not items:
+        return {"ok": False, "error": "No tienes recordatorios guardados."}
+
+    rid = None
+    item = None
+
+    # 1. Búsqueda por ID directo
+    if reminder_id:
+        match = next((x for x in items if str(x.get("id")) == str(reminder_id)), None)
+        if match:
+            rid = reminder_id
+            item = match
+
+    # 2. Búsqueda por Título
+    if not rid and title_query:
+        # Búsqueda exacta primero
+        match = next((x for x in items if x.get("title", "").lower() == title_query), None)
+        if match:
+            rid = match.get("id")
+            item = match
+        else:
+            # Búsqueda parcial
+            match = next((x for x in items if title_query in x.get("title", "").lower()), None)
+            if match:
+                rid = match.get("id")
+                item = match
+
+    if not rid:
+        return {"ok": False, "error": f"No encontré ningún recordatorio que coincida con '{title_query or reminder_id}'."}
+
+    # 🔹 SI ESTAMOS EN ELECTRON: Avisar a Electron para que borre de memoria y de su tasks.json
+    if os.getenv("RON_TASKS_PATH"):
+        # Imprimimos el comando para que Electron lo intercepte
+        print(json.dumps({
+            "type": "commands", 
+            "commands": [{"action": "tasks:delete", "params": {"id": rid}}]
+        }, ensure_ascii=False), flush=True)
         return {
-            "ok": False,
-            "error": "No tienes recordatorios guardados.",
+            "ok": True, 
+            "message": f"Recordatorio '{item.get('title')}' eliminado con éxito.",
         }
 
-    exact = None
-    partials = []
-
-    for item in items:
-        rid = item.get("id") or item.get("_id")
-        title = (item.get("title") or "").lower()
-        if not rid:
-            continue
-
-        if title == title_query:
-            exact = (rid, item)
-            break
-
-        if title_query in title:
-            partials.append((rid, item))
-
-    # Resolver cuál borrar
-    if exact:
-        rid, item = exact
-    elif len(partials) == 1:
-        rid, item = partials[0]
-    elif len(partials) > 1:
-        return {
-            "ok": False,
-            "error": "Hay varios recordatorios con un título similar; sé más específico.",
-        }
-    else:
-        return {
-            "ok": False,
-            "error": f"No encontré ningún recordatorio que coincida con '{title_query}'.",
-        }
-
-    ok = remove_reminder_item(username, rid)
-    if not ok:
-        return {
-            "ok": False,
-            "error": "No se pudo eliminar el recordatorio.",
-        }
+    # FLUJO NORMAL (Sin Electron)
+    removed = remove_reminder_item(username, rid)
+    if not removed:
+        return {"ok": False, "error": "No se pudo eliminar el recordatorio."}
 
     return {
         "ok": True,
-        "message": f"Recordatorio '{item.get('title')}' eliminado.",
+        "message": f"Recordatorio '{item.get('title')}' eliminado."
     }
 
 

@@ -56,8 +56,9 @@ Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.
 Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.    
 Nunca digas que no puedes hacer algo si existe un comando que lo haga.    
 SOLO puedes usar estas acciones en 'commands':      
-["search_youtube","open_application","close_application","search_google","get_weather",      
- "add_reminder","get_reminders","remove_reminder","update_reminder","diagnose_system_performance",      
+ ["search_youtube","open_application","close_application","search_google","get_weather",      
+ "add_reminder","add_recurring_reminder","add_multiple_reminders","get_reminders","remove_reminder",
+ "update_reminder","diagnose_system_performance",      
  "check_system_services","restart_critical_services","clean_temp_files","flush_dns",      
  "shutdown","restart","suspend","set_volume","create_file","create_folder",      
  "move_file","copy_file","create_shortcut","delete_file","list_files",      
@@ -98,14 +99,17 @@ IMPORTANTE:
 - Si la tarea involucra archivos locales, incluye también:
 - "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
 - Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".
-- Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), puedes además crear una tarea con "task_type": "reminder_timer" que reciba en "params" al menos:
-  - "delay_seconds": número de segundos hasta el recordatorio.
-  - "title": texto corto de lo que hay que recordar.
-  - "username": usuario actual.
+- Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), PREFIERE usar "add_reminder" con "delay_seconds".
 
 - Para add_reminder:
-  - Params: "title" (obligatorio), "due_date" (YYYY-MM-DD opcional), "due_time" (HH:MM opcional), "priority" (high/normal/low).
-  - Si el usuario dice "recuérdame mañana a las 5pm", calcula la fecha y hora y envíalas.
+  - Params: "title" (obligatorio), "description" (opcional), "due_date" (YYYY-MM-DD), "due_time" (HH:MM), "delay_seconds" (número).
+  - Si el usuario dice "recuérdame mañana a las 5pm", calcula la fecha y hora.
+- Para add_recurring_reminder:
+  - Params: "title" (obligatorio), "recurrence" ("daily"|"weekly"|"monthly"), "time" (HH:MM).
+  - Úsalo para alarmas diarias o recordatorios periódicos.
+- Para add_multiple_reminders:
+  - Params: "reminders" (lista de objetos con los params de add_reminder).
+  - Úsalo si el usuario pide varias cosas a la vez (ej: "ponme una alarma a las 8, otra a las 9 y recuérdame comprar pan").
 - Para update_reminder:
   - Params: "reminder_id" (obligatorio), y los campos a cambiar ("title", "status": "done"|"todo", etc).
 - Para remove_reminder:
@@ -407,6 +411,8 @@ def parse_and_execute_commands_dynamic(gpt_response: str, ctx: dict | None = Non
     # Log para ver si el modelo trajo comandos  
     if commands_to_execute:  
         logger.info(f"[LLM commands] {', '.join([ (c.get('action') or '?') for c in commands_to_execute ])}")  
+        # 🔹 NUEVO: Imprimir JSON para que Electron intercepte (Recordatorios, etc.)
+        print(json.dumps({"type": "commands", "commands": commands_to_execute}, ensure_ascii=False), flush=True)
     else:  
         logger.info("[LLM commands] (vacío)")  
   
