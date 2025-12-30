@@ -1871,7 +1871,7 @@ def check_disk_space(progress_callback=None):
                     free_bytes = int(line.split('=')[1].strip())  
                     current_disk['free_gb'] = free_bytes / (1024**3)  
                 except:  
-                    pass  
+                    pass
             elif 'Size=' in line:  
                 try:  
                     size_bytes = int(line.split('=')[1].strip())  
@@ -1951,7 +1951,8 @@ def cmd_add_reminder(params, ctx):
     
     category = (params.get("category") or "inbox").strip().lower()    
     status   = (params.get("status") or "todo").strip().lower()    
-    priority = (params.get("priority") or "normal").strip().lower()    
+    priority_val = params.get("priority")
+    priority = str(priority_val).strip().lower() if priority_val is not None else "normal"
     due_date = params.get("due_date")  # "YYYY-MM-DD"    
     due_time = params.get("due_time")  # "HH:MM"    
     
@@ -1977,6 +1978,7 @@ def cmd_add_reminder(params, ctx):
     remindEveryValue = params.get("remindEveryValue", 0)
     remindEveryUnit = params.get("remindEveryUnit", "hours")
     color = params.get("color")
+    recurrence = params.get("recurrence") # Added this line to define recurrence
 
     if (due_date and due_time) or (recurrence == 'days' and days_of_week):
         try:

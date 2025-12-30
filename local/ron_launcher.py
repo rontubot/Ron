@@ -483,7 +483,11 @@ def stream_audio_recognition(recognizer, microphone, q):
             if not text or len(text) < 2: return # Evitar micro-ruidos
 
             # 🔹 4. PRINT USER VOICE FOR UI LOGGER
-            print(f"[USER_VOICE] {text}")
+            if not activado:
+                print(f"[USER_PASSIVE] {text}")
+            else:
+                # Feedback instantáneo para modo activo (se quita del loop principal para evitar duplicado)
+                print(f"[USER_VOICE] {text}")
 
             # 🔹 4. "STRICT" KEYWORD INTERRUPTION LOGIC
             if speaking:
@@ -704,7 +708,7 @@ if __name__ == "__main__":
                         continue
 
                     # 2. Procesar interacción normal
-                    print(f"[USER_VOICE] {text}")
+                    # print(f"[USER_VOICE] {text}") # Quitado: ya se imprimió en el handler
                     stay = process_interaction(text)
                     
                     # 🔹 CRÍTICO: Limpiar audio acumulado mientras Ron hablaba (Anti-Echo/Noise)
