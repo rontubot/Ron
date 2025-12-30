@@ -84,7 +84,7 @@ current_username = args.username
 control_enabled = True
 
 # Constants
-SILENCE_TIMEOUT_SEC = 1.2
+SILENCE_TIMEOUT_SEC = 0.8
 ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn", "ram"}
 
 
@@ -425,10 +425,10 @@ else:
 
 def setup_streaming_recognition():
     r = sr.Recognizer()
-    r.pause_threshold = 0.5  
-    r.non_speaking_duration = 0.3 
+    r.pause_threshold = 0.4  
+    r.non_speaking_duration = 0.2 
     r.dynamic_energy_threshold = False
-    r.energy_threshold = 500 # 🔹 Revertido a un valor más equilibrado para rapidez
+    r.energy_threshold = 450 # Slightly more sensitive
     try:
         m = sr.Microphone()
         print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
@@ -604,7 +604,11 @@ def process_interaction(user_text):
                         return False
 
                     try: 
-                        run_command(action, params, {'username': current_username, 'task_manager': task_manager})
+                        # Capture command results to relay to Electron
+                        cmd_result = run_command(action, params, {'username': current_username, 'task_manager': task_manager})
+                        if cmd_result and isinstance(cmd_result, dict) and 'commands' in cmd_result:
+                            # Relay follow-up commands (like UI updates)
+                            print(json.dumps({"type": "commands", "commands": cmd_result['commands']}))
                     except Exception as ce:
                         print(f"⚠️ Error ejec. comando: {ce}")
                 
@@ -615,6 +619,7 @@ def process_interaction(user_text):
                 return False
 
             if full_response:
+                # Explicitly print Ron's voice for Electron interceptor
                 print(f"[RON_VOICE] {full_response}")
                 try: add_to_memory(current_username, user_text, full_response)
                 except: pass

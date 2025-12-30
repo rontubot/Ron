@@ -1971,12 +1971,17 @@ def cmd_add_reminder(params, ctx):
         tags=tags,    
     )
 
-    # 🔹 Si tiene fecha/hora programada, crear tarea en Electron TaskManager
-    if due_date and due_time:
+    # 🔹 Si tiene fecha/hora programada, o es recurrente por días, crear tarea en Electron TaskManager
+    recurrence = params.get("recurrence")
+    days_of_week = params.get("daysOfWeek")
+    
+    if (due_date and due_time) or (recurrence == 'days' and days_of_week):
         try:
             from datetime import datetime
-            due_dt = datetime.fromisoformat(f"{due_date}T{due_time}")
-            due_at = due_dt.isoformat()
+            due_at = None
+            if due_date and due_time:
+                due_dt = datetime.fromisoformat(f"{due_date}T{due_time}")
+                due_at = due_dt.isoformat()
             
             return {
                 "ok": True,
@@ -1991,9 +1996,11 @@ def cmd_add_reminder(params, ctx):
                                 "title": title,
                                 "delay_seconds": 0,
                                 "reminder_id": item.get("id"),
+                                "daysOfWeek": days_of_week,
                             },
                             "due_at": due_at,
                             "category": category,
+                            "recurrence": recurrence,
                         }
                     }
                 ]
