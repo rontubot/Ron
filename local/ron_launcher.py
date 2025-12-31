@@ -301,59 +301,84 @@ def handle_external_control():
                         client.sendall(b'OK')
                     
                     elif cmd == 'START_RECORDING':
-                        print("[Python] 🎙️ Iniciando grabación manual continua...")
-                        # 1. Detener el escucha de fondo para liberar el micro
+                        print("[Python] 🎙️ Iniciando grabación manual continua (INSTANT)...")
+                        # 1. Detener escucha de fondo (si aplica)
                         if stop_listening:
                             stop_listening(wait_for_stop=True)
                             stop_listening = None
+                        
+                        # 2. Activar flag de grabación
+                        # El stream YA DEBE ESTAR ABIERTO globalmente o iniciarse una sola vez.
+                        # Para este fix rápido, iniciamos el hilo UNA VEZ si no existe, o simplemente seteamos el flag.
                         
                         with manual_recording_lock:
                             manual_recording = True
                             manual_audio_buffer = [] 
                             
-                        # 2. Iniciar hilo de captura RAW
-                        def raw_recorder():
-                            try:
-                                import pyaudio
-                                p = pyaudio.PyAudio()
-                                # Usar mismos parámetros que Whisper/Google suelen preferir
-                                stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
-                                print("[Python] [Recorder] Stream abierto.")
-                                while True:
-                                    with manual_recording_lock:
-                                        if not manual_recording: break
-                                    data = stream.read(1024, exception_on_overflow=False)
-                                    with manual_recording_lock:
-                                        manual_audio_buffer.append(data)
-                                stream.stop_stream()
-                                stream.close()
-                                p.terminate()
-                                print("[Python] [Recorder] Stream cerrado.")
-                            except Exception as e:
-                                print(f"[Python] ❌ Error en hilo Recorder: {e}")
+                        # Si el hilo 'global_raw_recorder' no está corriendo, iniciarlo.
+                        # (Implementación simplificada: Asumimos que START inicia el heavy lifting si no existe)
+                        
+                        global_recorder_thread = [t for t in threading.enumerate() if t.name == 'GlobalRawRecorder']
+                        if not global_recorder_thread:
+                             print("[Python] [Recorder] Iniciando Hilo Global de Grabación...")
+                             def raw_recorder_loop():
+                                try:
+                                    import pyaudio
+                                    p = pyaudio.PyAudio()
+                                    stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
+                                    print("[Python] [Recorder] Stream Global ABIERTO y listo.")
+                                    
+                                    while True:
+                                        # Leemos SIEMPRE para vaciar el buffer del hardware
+                                        try:
+                                            data = stream.read(1024, exception_on_overflow=False)
+                                        except:
+                                            continue
+                                            
+                                        # Solo guardamos si el flag está activo
+                                        with manual_recording_lock:
+                                            if manual_recording:
+                                                manual_audio_buffer.append(data)
+                                                
+                                        # Pequeño sleep para no quemar CPU? No, read es bloqueante.
+                                        
+                                except Exception as e:
+                                    print(f"[Python] ❌ Error en Global Recorder: {e}")
 
-                        threading.Thread(target=raw_recorder, daemon=True).start()
+                             t = threading.Thread(target=raw_recorder_loop, name='GlobalRawRecorder', daemon=True)
+                             t.start()
+                             
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
-                        print("🎙️ Deteniendo grabación manual...")
+                        print("🎙️ Deteniendo grabación manual (Flag)...")
                         # 🔹 Pequeña espera para asegurar que el último chunk se capture
                         with manual_recording_lock:
                             manual_recording = False
-                        
-                        time.sleep(0.3) # "Dale un tiempo" como pidió el usuario
-                        
+                                                
+                        # El hilo sigue corriendo, pero ya no escribe en el buffer.
+                        # No cerramos nada.
+
+                        if stop_listening:
+                            # Reactivamos la escucha de Ron 24/7 si estaba parada
+                            # Nota: stop_listening es el 'stopper', no el start.
+                            # Aquí deberíamos volver a 'listening' mode si se desea.
+                            # Por ahora, dejemos que Ron 24/7 se auto-recupere o se quede callado.
+                            pass
+
                         filename = f"rec_{int(time.time())}.wav"
                         filepath = os.path.join(os.getcwd(), 'temp', filename)
                         os.makedirs(os.path.join(os.getcwd(), 'temp'), exist_ok=True)
                         
                         with manual_recording_lock:
                             frames = list(manual_audio_buffer) 
+                            # NO limpiamos el buffer aquí si queremos debugging, pero sí para la próxima.
                             manual_audio_buffer = []
 
                         try:
-                            if not frames:
-                                print("[Python] ⚠️ Grabación vacía.")
+                            # 🔹 Relaxed threshold: Si hay al menos un poco de data
+                            if not frames or len(frames) < 2: 
+                                print("[Python] ⚠️ Grabación vacía (Buffer < 2 chunks).")
                                 client.sendall(b'ERROR:EMPTY')
                             else:
                                 # Guardar WAV
@@ -365,12 +390,11 @@ def handle_external_control():
                                 
                                 print(f"✅ WAV guardado: {filepath}")
                                 
-                                # 🔹 NUEVO: Transcribir y actuar DE UNA VEZ
+                                # 🔹 Transcribir
                                 try:
                                     import speech_recognition as sr
                                     with sr.AudioFile(filepath) as source:
                                         audio_data = recognizer.record(source)
-                                        # Usar el transcriptor interno que ya está configurado (Google/Whisper)
                                         transcription = transcribe_audio(recognizer, audio_data)
                                         
                                         if transcription and len(transcription.strip()) > 1:
