@@ -792,7 +792,9 @@ def process_interaction(user_text):
                             # Si el comando retorna 'user_response', lo hablamos
                             response_text = cmd_result.get('user_response') or cmd_result.get('message')
                             if response_text:
-                                print(f"[RON_VOICE] {response_text}") # Para UI Chat
+                                # Serialize newlines so Electron receives 1 line
+                                safe_text = response_text.replace('\n', '\\n')
+                                print(f"[RON_VOICE] {safe_text}") 
                                 speak_async(response_text)
                             
                             # Relay follow-up commands (like UI updates)
@@ -810,7 +812,9 @@ def process_interaction(user_text):
 
             if full_response:
                 # Explicitly print Ron's voice for Electron interceptor
-                print(f"[RON_VOICE] {full_response}")
+                # Serialize newlines
+                safe_resp = full_response.replace('\n', '\\n')
+                print(f"[RON_VOICE] {safe_resp}")
                 try: add_to_memory(current_username, user_text, full_response)
                 except: pass
 
