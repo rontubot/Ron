@@ -431,6 +431,7 @@ Los campos significan:
     - "search_youtube"
     - "search_google"
     - "add_reminder"
+    - "add_recurring_reminder"
     - "get_reminders"
     - "remove_reminder"
     - "update_reminder"
@@ -472,6 +473,15 @@ Los campos significan:
 - Si NO se menciona hora, usa "09:00" por defecto.
 - Si NO se menciona fecha, usa HOY (%TODAY%).
 - NUNCA dejes due_date o due_time vacíos.
+
+⚠️ REGLA CRÍTICA PARA RECURRENTES (add_recurring_reminder):
+- ÚSALO SIEMPRE QUE EL USUARIO DIGA "todos los días", "diariamente", "cada semana", "todos los lunes", etc.
+- Params OBLIGATORIOS:
+  * "title": descripción de la tarea
+  * "recurrence": "daily", "weekly", "monthly"
+  * "time": hora en formato "HH:MM" (ej: "11:30") -- NOTA: usa 'time', NO 'due_time' para recurrentes.
+- Ejemplo: "recuérdame almorzar todos los días a las 11:30"
+  -> {"action": "add_recurring_reminder", "params": {"title": "Almorzar", "recurrence": "daily", "time": "11:30"}}
 
 ⚠️ REGLA PARA MODIFICAR RECORDATORIOS (update_reminder):
 - Cuando el usuario quiera "cambiar", "modificar", "actualizar" o "corregir" un recordatorio:
