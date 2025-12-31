@@ -786,9 +786,19 @@ def process_interaction(user_text):
                     try: 
                         # Capture command results to relay to Electron
                         cmd_result = run_command(action, params, {'username': current_username, 'task_manager': task_manager})
-                        if cmd_result and isinstance(cmd_result, dict) and 'commands' in cmd_result:
+                        
+                        # 🔹 FEEDBACK VOCAL OBLIGATORIO (Para queries como 'get_reminders')
+                        if cmd_result and isinstance(cmd_result, dict):
+                            # Si el comando retorna 'user_response', lo hablamos
+                            response_text = cmd_result.get('user_response') or cmd_result.get('message')
+                            if response_text:
+                                print(f"[RON_VOICE] {response_text}") # Para UI Chat
+                                speak_async(response_text)
+                            
                             # Relay follow-up commands (like UI updates)
-                            print(json.dumps({"type": "commands", "commands": cmd_result['commands']}))
+                            if 'commands' in cmd_result:
+                                print(json.dumps({"type": "commands", "commands": cmd_result['commands']}))
+                                
                     except Exception as ce:
                         print(f"⚠️ Error ejec. comando: {ce}")
                 
