@@ -701,8 +701,9 @@ def process_interaction(user_text):
                 }
 
                 # 1. Enviar TODOS los comandos a Electron primero para que la UI reaccione
-                # 🔹 PREPEND NEWLINE para garantizar que Electron lo parsee incluso si hubo texto pegado antes
-                print("\n" + json.dumps({"type": "commands", "commands": commands_found}))
+                # 🔹 PROTOCOLO SEGURO: Usar delimitadores para que el regex en Electron no falle con llaves anidadas
+                json_str = json.dumps({"type": "commands", "commands": commands_found})
+                print(f"\n<<RON_CMD>>{json_str}<<END_CMD>>\n", flush=True)
                 
                 for cmd in commands_found:
                     action = cmd.get('action')
