@@ -336,7 +336,7 @@ def handle_external_control():
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
-                        print("[Python] 🎙️ Deteniendo grabación manual...")
+                        print("🎙️ Deteniendo grabación manual...")
                         # 🔹 Pequeña espera para asegurar que el último chunk se capture
                         with manual_recording_lock:
                             manual_recording = False
@@ -363,7 +363,7 @@ def handle_external_control():
                                     wf.setframerate(16000)
                                     wf.writeframes(b''.join(frames))
                                 
-                                print(f"[Python] ✅ WAV guardado: {filepath}")
+                                print(f"✅ WAV guardado: {filepath}")
                                 
                                 # 🔹 NUEVO: Transcribir y actuar DE UNA VEZ
                                 try:
@@ -402,14 +402,14 @@ def handle_external_control():
                             except: pass
 
                     elif cmd == 'ACTIVATE':
-                        print("[Python] 🤖 Activación forzada vía Control Server.")
+                        print("🤖 Activación forzada vía Control Server.")
                         stop_speaking()
                         interruption_event.clear()
                         activado = True # Forzar a Ron a escuchar
                         client.sendall(b'OK')
 
                     elif cmd == 'DEACTIVATE':
-                        print("[Python] 💤 Desactivación forzada vía Control Server.")
+                        print("💤 Desactivación forzada vía Control Server.")
                         activado = False
                         client.sendall(b'OK')
 
