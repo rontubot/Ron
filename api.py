@@ -467,6 +467,7 @@ Los campos significan:
     - "due_date" / "due_time"
     - "new_title" (si cambia el texto)
     - "recurrence"
+    - "priority": DEBE ser un ENTERO (1-5). PROHIBIDO usar strings como "alta" o "máxima".
   * Ejemplo: "cambia el recordatorio de la abuela para mañana a las 5"
     -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "%TOMORROW%", "due_time": "17:00"}}
 

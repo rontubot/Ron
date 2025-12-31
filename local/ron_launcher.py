@@ -304,7 +304,7 @@ def handle_external_control():
                         print("[Python] 🎙️ Iniciando grabación manual continua (INSTANT)...")
                         # 1. Detener escucha de fondo (si aplica)
                         if stop_listening:
-                            stop_listening(wait_for_stop=True)
+                            stop_listening(wait_for_stop=False) # ⚡ INSTANT STOP
                             stop_listening = None
                         
                         # 2. Activar flag de grabación
