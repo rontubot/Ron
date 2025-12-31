@@ -12,3 +12,4 @@ psutil==5.9.5
 pyttsx3
 faster-whisper>=1.0.0
 SpeechRecognition>=3.10.0
+pyaudio

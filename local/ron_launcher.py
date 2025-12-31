@@ -238,7 +238,7 @@ def stop_speaking():
 # =========================================================================================
 def handle_external_control():    
     def control_server():    
-        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer, activado
+        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer, activado, stop_listening
         try:    
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)    
@@ -296,10 +296,38 @@ def handle_external_control():
                         client.sendall(b'OK')
                     
                     elif cmd == 'START_RECORDING':
-                        print("🎙️ Iniciando grabación manual...")
+                        print("🎙️ Iniciando grabación manual continua...")
+                        # 1. Detener el escucha de fondo para liberar el micro
+                        if stop_listening:
+                            stop_listening(wait_for_stop=True)
+                            stop_listening = None
+                        
                         with manual_recording_lock:
                             manual_recording = True
                             manual_audio_buffer = [] 
+                            
+                        # 2. Iniciar hilo de captura RAW
+                        def raw_recorder():
+                            try:
+                                import pyaudio
+                                p = pyaudio.PyAudio()
+                                # Usar mismos parámetros que Whisper/Google suelen preferir
+                                stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
+                                print("   [Recorder] Stream abierto.")
+                                while True:
+                                    with manual_recording_lock:
+                                        if not manual_recording: break
+                                    data = stream.read(1024, exception_on_overflow=False)
+                                    with manual_recording_lock:
+                                        manual_audio_buffer.append(data)
+                                stream.stop_stream()
+                                stream.close()
+                                p.terminate()
+                                print("   [Recorder] Stream cerrado.")
+                            except Exception as e:
+                                print(f"❌ Error en hilo Recorder: {e}")
+
+                        threading.Thread(target=raw_recorder, daemon=True).start()
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
@@ -311,19 +339,28 @@ def handle_external_control():
                         with manual_recording_lock:
                             manual_recording = False
                             frames = list(manual_audio_buffer) 
-                        
+                            manual_audio_buffer = []
+
                         try:
-                            sample_rate = 44100
-                            wf = wave.open(filepath, 'wb')
-                            wf.setnchannels(1)
-                            wf.setsampwidth(2) 
-                            wf.setframerate(sample_rate)
-                            wf.writeframes(b''.join(frames))
-                            wf.close()
-                            client.sendall(f"RECORDED:{filepath}".encode('utf-8'))
+                            if not frames:
+                                print("⚠️ Grabación vacía.")
+                                client.sendall(b'ERROR:EMPTY')
+                            else:
+                                wf = wave.open(filepath, 'wb')
+                                wf.setnchannels(1)
+                                wf.setsampwidth(2) # 16-bit
+                                wf.setframerate(16000)
+                                wf.writeframes(b''.join(frames))
+                                wf.close()
+                                print(f"✅ WAV guardado: {filepath}")
+                                client.sendall(f"RECORDED:{filepath}".encode('utf-8'))
                         except Exception as e:
                             print(f"❌ Error guardando WAV: {e}")
                             client.sendall(b'ERROR')
+                        
+                        # 3. Reiniciar el escucha de fondo
+                        if not stop_listening:
+                            stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
 
                     else:
                         client.sendall(b'UNKNOWN')
@@ -471,11 +508,10 @@ def stream_audio_recognition(recognizer, microphone, q):
         if time.time() - last_speech_at < 0.5:
             return
 
-        # 🔹 2. HANDLE MANUAL RECORDING
-        if manual_recording:
-            with manual_recording_lock:
-                manual_audio_buffer.append(audio.get_raw_data())
-            return
+        # 🔹 2. HANDLE MANUAL RECORDING (Deprecated via background callback)
+        # if manual_recording:
+        #    ...
+        #    return
 
         try:
             # 🔹 3. RECOGNIZE TEXT
@@ -664,6 +700,7 @@ if __name__ == "__main__":
     task_manager = TaskManager(lambda t: speak_async(t))
     
     recognizer, microphone = setup_streaming_recognition()
+    # Ponerlo en global para que el control server pueda detenerlo/reiniciarlo
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
     
     # 🔹 Iniciar trabajador de voz
