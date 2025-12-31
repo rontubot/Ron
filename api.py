@@ -464,6 +464,9 @@ Los campos significan:
   * Ejemplo: "cambia el recordatorio de la abuela para mañana a las 5"
     -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "%TOMORROW%", "due_time": "17:00"}}
 
+  * Ejemplo: "ponle prioridad alta (5) al de sacar la basura"
+    -> {"action": "update_reminder", "params": {"original_title": "basura", "priority": 5}}
+
   ⚠️ CRÍTICO - ANTI-ALUCINACIÓN:
   - Si tu respuesta dice "He actualizado...", "Lo he modificado...", etc., ES OBLIGATORIO generar el comando JSON.
   - NO respondas que lo hiciste si no incluyes el bloque {"action": "update_reminder"...} en "commands".
