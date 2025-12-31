@@ -740,6 +740,30 @@ def process_interaction(user_text):
                     'add_multiple_reminders'
                 }
 
+                # 🔹 CONTEXTO: Guardar tema del último recordatorio interactuado
+                def save_context_memory(cmd_list):
+                    try:
+                        ctx_file = os.path.join(os.getcwd(), 'temp', 'context_memory.json')
+                        last_topic = None
+                        
+                        for c in cmd_list:
+                            act = c.get('action', '')
+                            p = c.get('params', {})
+                            if act in ['add_reminder', 'add_reminder_item', 'add_recurring_reminder']:
+                                last_topic = p.get('activity') or p.get('title')
+                            elif act in ['update_reminder', 'remove_reminder']:
+                                last_topic = p.get('original_title') or p.get('title')
+                        
+                        if last_topic:
+                            with open(ctx_file, 'w', encoding='utf-8') as f:
+                                json.dump({"last_reminder_topic": last_topic, "timestamp": time.time()}, f)
+                            print(f"[Memory] Contexto guardado: '{last_topic}'")
+                    except Exception as e:
+                        print(f"[Memory] Error guardando contexto: {e}")
+
+                save_context_memory(commands_found)
+
+
                 # 1. Enviar TODOS los comandos a Electron primero para que la UI reaccione
                 # 🔹 PROTOCOLO SEGURO: Usar delimitadores para que el regex en Electron no falle con llaves anidadas
                 json_str = json.dumps({"type": "commands", "commands": commands_found})
