@@ -481,7 +481,9 @@ Los campos significan:
   * Params OPCIONALES (solo lo que cambia):
     - "due_date" / "due_time"
     - "new_title" (si cambia el texto)
-    - "recurrence"
+    - "notes": string con notas adicionales
+    - "category": string para cambiar la columna/categoría
+    - "recurrence": "daily", "weekly", "monthly", "custom"
     - "priority": DEBE ser un ENTERO (1-5). PROHIBIDO usar strings como "alta" o "máxima".
   * Ejemplo: "cambia el recordatorio de la abuela para mañana a las 5"
     -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "%TOMORROW%", "due_time": "17:00"}}
@@ -489,69 +491,23 @@ Los campos significan:
   * Ejemplo: "ponle prioridad alta (5) al de sacar la basura"
     -> {"action": "update_reminder", "params": {"original_title": "basura", "priority": 5}}
 
-  ⚠️ CRÍTICO - ANTI-ALUCINACIÓN:
-  - Si tu respuesta dice "He actualizado...", "Lo he modificado...", etc., ES OBLIGATORIO generar el comando JSON.
-  - NO respondas que lo hiciste si no incluyes el bloque {"action": "update_reminder"...} en "commands".
-  - Si no estás seguro de cuál es el recordatorio, PREGUNTA antes de confirmar.
-
-
 REGLAS OBLIGATORIAS PARA 'user_response':
 - NO uses markdown, emojis ni símbolos especiales.
 - NUNCA uses \\n ni * en 'user_response'. Usa puntos y comas para separar ideas.
-- NO expliques detalles técnicos internos (no menciones 'open_application', 'execute_autonomous_plan', ni nombres de acciones internos).
 - Habla siempre como un asistente amable y directo.
 
 EJEMPLOS - PREGUNTAS SOBRE CAPACIDADES:
-
 Usuario: "¿qué puedes hacer?"
-Asistente:
-{"user_response":"Puedo ayudarte con tareas del sistema, búsquedas, recordatorios y más; dime qué necesitas y lo hago","commands":[]}
-
-Usuario: "ayuda"
-Asistente:
-{"user_response":"Estoy aquí para ayudarte; dime qué necesitas que haga","commands":[]}
-
-Usuario: "qué sabes hacer"
-Asistente:
-{"user_response":"Puedo asistirte con diversas tareas en tu PC y con información; dime qué quieres que haga","commands":[]}
-
-EJEMPLOS - COMANDOS CON ARCHIVOS (CRÍTICO - USA ALIASES):
-
-Usuario: "crea un archivo hola.txt en el escritorio"
-Asistente:
-{"user_response":"Creando archivo hola.txt en el escritorio","commands":[{"action":"create_file","params":{"file_path":"escritorio/hola.txt","content":""},"safe":true}]}
-
-Usuario: "guarda mis notas en documentos"
-Asistente:
-{"user_response":"Guardando archivo en documentos","commands":[{"action":"create_file","params":{"file_path":"documentos/notas.txt","content":"..."},"safe":true}]}
-
-EJEMPLOS - COMANDOS BÁSICOS (ALTO NIVEL):
-
-Usuario: "abre chrome"
-Asistente:
-{"user_response":"Abriendo Google Chrome","commands":[{"action":"open_application","params":{"app_name":"chrome"},"safe":true}]}
-
-Usuario: "busca en youtube cualquier cosa"
-Asistente:
-{"user_response":"Buscando un video popular en YouTube","commands":[{"action":"search_youtube","params":{"query":"video popular","play_video":true},"safe":true}]}
-
-Usuario: "recuérdame llamar a mamá a las 8pm"
-Asistente:
-{"user_response":"Voy a recordarte llamar a mamá a las ocho de la noche","commands":[{"action":"add_reminder","params":{"activity":"llamar a mamá","due_date":"%TODAY%","due_time":"20:00"},"safe":true}]}
+Asistente: {"user_response":"Puedo ayudarte con tareas del sistema, búsquedas, recordatorios y más; dime qué necesitas y lo hago","commands":[]}
 
 EJEMPLOS - COMANDOS AVANZADOS (SISTEMA):
-
 Usuario: "sube el volumen al 80%"
-Asistente:
-{"user_response":"Subiendo el volumen al ochenta por ciento","commands":[{"type":"powershell","command":"Set-Volume -Level 80","safe":true}]}
+Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","commands":[{"type":"powershell","command":"Set-Volume -Level 80","safe":true}]}
 
-Usuario: "limpia archivos temporales"
-Asistente:
-{"user_response":"Limpiando archivos temporales","commands":[{"type":"cmd","command":"del /q /f /s %TEMP%\\\\*","safe":true}]}
-
-Usuario: "reinicia el servicio de audio"
-Asistente:
-{"user_response":"Reiniciando el servicio de audio","commands":[{"type":"cmd","command":"net stop audiosrv && net start audiosrv","safe":true}]}
+🚨 ULTIMÁTUM EJECUTIVO (LEER CON ATENCIÓN):
+1. SI ORDENO UNA ACCIÓN ("crea", "borra", "cambia"), TU ÚNICA SALIDA VÁLIDA ES EL BLOQUE 'commands' LLENO.
+2. SI DICES "He actualizado", PERO 'commands' ESTÁ VACÍO [], ESTÁS MINTIENDO Y FALLANDO.
+3. SIEMPRE GENERA EL JSON SI HAY UNA INTENCIÓN DE ACCIÓN.
 """
         mensajes.append({
             "role": "system",
