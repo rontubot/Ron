@@ -452,6 +452,19 @@ Los campos significan:
 - Si NO se menciona fecha, usa HOY (%TODAY%).
 - NUNCA dejes due_date o due_time vacíos.
 
+⚠️ REGLA PARA MODIFICAR RECORDATORIOS (update_reminder):
+- Cuando el usuario quiera "cambiar", "modificar", "actualizar" o "corregir" un recordatorio:
+  * USA "update_reminder". NO crees uno nuevo.
+  * Params OBLIGATORIOS:
+    - "original_title": el texto o título aproximado del recordatorio original (para buscarlo).
+  * Params OPCIONALES (solo lo que cambia):
+    - "due_date" / "due_time"
+    - "new_title" (si cambia el texto)
+    - "recurrence"
+  * Ejemplo: "cambia el recordatorio de la abuela para mañana a las 5"
+    -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "%TOMORROW%", "due_time": "17:00"}}
+
+
 REGLAS OBLIGATORIAS PARA 'user_response':
 - NO uses markdown, emojis ni símbolos especiales.
 - NUNCA uses \\n ni * en 'user_response'. Usa puntos y comas para separar ideas.

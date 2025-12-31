@@ -401,6 +401,22 @@ def handle_external_control():
                                 stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
                             except: pass
 
+                    elif cmd == 'CANCEL_RECORDING':
+                        print("[Python] 🚫 Grabación manual CANCELADA por el usuario.")
+                        manual_recording = False
+                        
+                        # Vaciar buffer sin guardar
+                        with manual_recording_lock:
+                            manual_audio_buffer = []
+
+                        # Reiniciar escucha
+                        if not stop_listening:
+                            try:
+                                stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
+                            except: pass
+                        
+                        client.sendall(b'CANCELED')
+
                     elif cmd == 'ACTIVATE':
                         print("🤖 Activación forzada vía Control Server.")
                         stop_speaking()
