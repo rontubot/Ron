@@ -2022,19 +2022,69 @@ def cmd_add_reminder(params, ctx):
 
 
 def cmd_get_reminders(params, ctx):    
-    username = _username(ctx, params)    
-    category = params.get("category")    
-    status   = params.get("status")    
-    date_query = params.get("date") # "today", "tomorrow", YYYY-MM-DD
+    import json
+    import os
+    from datetime import datetime
     
-    items = list_reminders(username, category=category, status=status)    
+    # 1. Localizar tasks.json (Electron data)
+    user_home = os.path.expanduser("~")
+    # Intentar prod primero, luego dev
+    paths = [
+        os.path.join(user_home, "AppData", "Roaming", "ron-web-app", "tasks.json"),
+        os.path.join(user_home, "AppData", "Roaming", "Electron", "tasks.json")
+    ]
     
+    tasks_file = None
+    for p in paths:
+        if os.path.exists(p):
+            tasks_file = p
+            break
+            
+    items = []
+    if tasks_file:
+        try:
+            with open(tasks_file, 'r', encoding='utf-8') as f:
+                raw_items = json.load(f)
+                # 2. Filtrar igual que la UI (no archived, no deleted)
+                items = [
+                    t for t in raw_items 
+                    if t.get('status') not in ['archived', 'deleted', 'cancelled']
+                ]
+        except Exception as e:
+            print(f"Error leyendo tasks.json: {e}")
+            items = []
+            
+    # 3. Mapear campos Electron -> Campos Python Legacy (para compatibilidad de filtrado)
+    mapped_items = []
+    for t in items:
+        # Extraer fecha/hora de due_at ISO string
+        due_at = t.get('due_at')
+        d_str, t_str = "", ""
+        if due_at:
+            try:
+                dt = datetime.fromisoformat(due_at.replace("Z", "+00:00")) # simple parse
+                d_str = dt.strftime("%Y-%m-%d")
+                t_str = dt.strftime("%H:%M")
+            except: pass
+            
+        mapped_items.append({
+            "title": t.get('description') or t.get('title'),
+            "description": t.get('notes') or "",
+            "due_date": d_str,
+            "due_time": t_str,
+            "status": t.get('status'),
+            "priority": t.get('priority', 1)
+        })
+        
+    items = mapped_items # Usar los mapeados para el filtro de fecha
+
+    date_query = params.get("date")
     # Filtrar por fecha si se solicita
     if date_query:
         target_date = ""
-        if date_query.lower() == "today" or date_query.lower() == "hoy":
+        if date_query.lower() in ["today", "hoy"]:
             target_date = datetime.now().strftime("%Y-%m-%d")
-        elif date_query.lower() == "tomorrow" or date_query.lower() == "mañana":
+        elif date_query.lower() in ["tomorrow", "mañana"]:
             target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         elif re.match(r"\d{4}-\d{2}-\d{2}", date_query):
             target_date = date_query
@@ -2048,35 +2098,39 @@ def cmd_get_reminders(params, ctx):
         date_label = ""
 
     if not items:
+        msg = f"No tienes recordatorios activos {date_label}."
         return {
             "ok": True,
             "reminders": [],
-            "message": f"No tienes recordatorios guardados {date_label}.".strip()
+            "message": msg,
+            "user_response": msg # Feedback explícito
         }
 
     # Armamos una lista legible
-    header = f"Estos son tus recordatorios {date_label}:".strip()
+    total = len(items)
+    header = f"Tienes {total} recordatorios activos {date_label}:"
     lines = [header]
-    for i, item in enumerate(items, start=1):
+    for i, item in enumerate(items[:5], start=1): # Limit to 5 for speech
         title = item.get("title", "(sin título)")
-        desc  = item.get("description") or ""
-        due_d = item.get("due_date") or ""
-        due_t = item.get("due_time") or ""
-        status_txt = item.get("status") or "todo"
+        due_t = item.get("due_time")
+        prio = item.get("priority")
+        
+        extra = ""
+        if due_t: extra += f" a las {due_t}"
+        if prio and prio > 3: extra += " (Alta Importancia)"
+        
+        lines.append(f"{i}. {title}{extra}")
+        
+    if total > 5:
+        lines.append(f"...y {total - 5} más.")
 
-        extra = []
-        if due_d:
-            extra.append(due_d)
-        if due_t:
-            extra.append(due_t)
-        if status_txt and status_txt != "todo":
-            extra.append(f"estado: {status_txt}")
-
-        extra_txt = f" ({', '.join(extra)})" if extra else ""
-        if desc:
-            lines.append(f"{i}. {title}{extra_txt} — {desc}")
-        else:
-            lines.append(f"{i}. {title}{extra_txt}")
+    final_text = "\n".join(lines)
+    return {
+        "ok": True,
+        "reminders": items,
+        "message": final_text,
+        "user_response": final_text # Feedback explícito
+    }
 
     return {
         "ok": True,
