@@ -124,6 +124,11 @@ manual_recording = False
 manual_audio_buffer = []  # List of small audio chunks
 manual_recording_lock = threading.Lock()
 
+# 🔹 Global Recognizer & Microphone (Initialize early for control server)
+recognizer = None
+microphone = None
+stop_listening = None
+
 # =========================================================================================
 # ECHO CANCELLATION BUFFER
 # =========================================================================================
@@ -296,7 +301,7 @@ def handle_external_control():
                         client.sendall(b'OK')
                     
                     elif cmd == 'START_RECORDING':
-                        print("🎙️ Iniciando grabación manual continua...")
+                        print("[Python] 🎙️ Iniciando grabación manual continua...")
                         # 1. Detener el escucha de fondo para liberar el micro
                         if stop_listening:
                             stop_listening(wait_for_stop=True)
@@ -313,7 +318,7 @@ def handle_external_control():
                                 p = pyaudio.PyAudio()
                                 # Usar mismos parámetros que Whisper/Google suelen preferir
                                 stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
-                                print("   [Recorder] Stream abierto.")
+                                print("[Python] [Recorder] Stream abierto.")
                                 while True:
                                     with manual_recording_lock:
                                         if not manual_recording: break
@@ -323,44 +328,90 @@ def handle_external_control():
                                 stream.stop_stream()
                                 stream.close()
                                 p.terminate()
-                                print("   [Recorder] Stream cerrado.")
+                                print("[Python] [Recorder] Stream cerrado.")
                             except Exception as e:
-                                print(f"❌ Error en hilo Recorder: {e}")
+                                print(f"[Python] ❌ Error en hilo Recorder: {e}")
 
                         threading.Thread(target=raw_recorder, daemon=True).start()
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
-                        print("🎙️ Deteniendo grabación manual...")
+                        print("[Python] 🎙️ Deteniendo grabación manual...")
+                        # 🔹 Pequeña espera para asegurar que el último chunk se capture
+                        with manual_recording_lock:
+                            manual_recording = False
+                        
+                        time.sleep(0.3) # "Dale un tiempo" como pidió el usuario
+                        
                         filename = f"rec_{int(time.time())}.wav"
                         filepath = os.path.join(os.getcwd(), 'temp', filename)
                         os.makedirs(os.path.join(os.getcwd(), 'temp'), exist_ok=True)
                         
                         with manual_recording_lock:
-                            manual_recording = False
                             frames = list(manual_audio_buffer) 
                             manual_audio_buffer = []
 
                         try:
                             if not frames:
-                                print("⚠️ Grabación vacía.")
+                                print("[Python] ⚠️ Grabación vacía.")
                                 client.sendall(b'ERROR:EMPTY')
                             else:
-                                wf = wave.open(filepath, 'wb')
-                                wf.setnchannels(1)
-                                wf.setsampwidth(2) # 16-bit
-                                wf.setframerate(16000)
-                                wf.writeframes(b''.join(frames))
-                                wf.close()
-                                print(f"✅ WAV guardado: {filepath}")
-                                client.sendall(f"RECORDED:{filepath}".encode('utf-8'))
+                                # Guardar WAV
+                                with wave.open(filepath, 'wb') as wf:
+                                    wf.setnchannels(1)
+                                    wf.setsampwidth(2) # 16-bit
+                                    wf.setframerate(16000)
+                                    wf.writeframes(b''.join(frames))
+                                
+                                print(f"[Python] ✅ WAV guardado: {filepath}")
+                                
+                                # 🔹 NUEVO: Transcribir y actuar DE UNA VEZ
+                                try:
+                                    import speech_recognition as sr
+                                    with sr.AudioFile(filepath) as source:
+                                        audio_data = recognizer.record(source)
+                                        # Usar el transcriptor interno que ya está configurado (Google/Whisper)
+                                        transcription = transcribe_audio(recognizer, audio_data)
+                                        
+                                        if transcription and len(transcription.strip()) > 1:
+                                            print(f"[USER_VOICE] {transcription}")
+                                            # Lanzar interacción en hilo separado para no bloquear el control server
+                                            def run_auto_interaction(txt):
+                                                process_interaction(txt)
+                                                # Limpieza opcional del archivo temporal
+                                                try: os.remove(filepath)
+                                                except: pass
+
+                                            threading.Thread(target=run_auto_interaction, args=(transcription,), daemon=True).start()
+                                            client.sendall(f"RECORDED_AND_PROCESSING:{transcription}".encode('utf-8'))
+                                        else:
+                                            print("[Python] ⚠️ No se detectó voz en la grabación manual.")
+                                            client.sendall(b'ERROR:NO_SPEECH')
+                                except Exception as te:
+                                    print(f"[Python] ❌ Error transcribiendo grabación manual: {te}")
+                                    client.sendall(b'ERROR:TRANSCRIBE_FAILED')
+
                         except Exception as e:
-                            print(f"❌ Error guardando WAV: {e}")
+                            print(f"[Python] ❌ Error guardando WAV: {e}")
                             client.sendall(b'ERROR')
                         
-                        # 3. Reiniciar el escucha de fondo
+                        # 3. Reiniciar el escucha de fondo (si se detuvo)
                         if not stop_listening:
-                            stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
+                            try:
+                                stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
+                            except: pass
+
+                    elif cmd == 'ACTIVATE':
+                        print("[Python] 🤖 Activación forzada vía Control Server.")
+                        stop_speaking()
+                        interruption_event.clear()
+                        activado = True # Forzar a Ron a escuchar
+                        client.sendall(b'OK')
+
+                    elif cmd == 'DEACTIVATE':
+                        print("[Python] 💤 Desactivación forzada vía Control Server.")
+                        activado = False
+                        client.sendall(b'OK')
 
                     else:
                         client.sendall(b'UNKNOWN')
@@ -696,11 +747,15 @@ def detect_ron_activation(text):
 
 if __name__ == "__main__":
     print("🟢 Ron 24/7 v2.0 (Violent Anti-Echo & Recording) Listo.")
-    handle_external_control()
     task_manager = TaskManager(lambda t: speak_async(t))
     
-    recognizer, microphone = setup_streaming_recognition()
-    # Ponerlo en global para que el control server pueda detenerlo/reiniciarlo
+    # Iniciar hardware de audio primero
+    if not recognizer:
+        recognizer, microphone = setup_streaming_recognition()
+    
+    # Luego el control externo
+    handle_external_control()
+    
     stop_listening = stream_audio_recognition(recognizer, microphone, audio_queue)
     
     # 🔹 Iniciar trabajador de voz
