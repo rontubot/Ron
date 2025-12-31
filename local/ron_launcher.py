@@ -688,8 +688,21 @@ def process_interaction(user_text):
             drain_queue(audio_queue)
             
             # 🔹 Ejecutar comandos si los hay
+            # 🔹 Ejecutar comandos si los hay
             if commands_found:
                 print(f"⚡ Ejecutando {len(commands_found)} comandos...")
+                
+                # Definir comandos que SOLO debe manejar la UI (Electron) para evitar duplicados
+                UI_ONLY_COMMANDS = {
+                    'add_reminder', 'add_reminder_item', 'agregar_recordatorio',
+                    'update_reminder', 'remove_reminder', 
+                    'add_recurring_reminder', 'tasks:update',
+                    'add_multiple_reminders'
+                }
+
+                # 1. Enviar TODOS los comandos a Electron primero para que la UI reaccione
+                print(json.dumps({"type": "commands", "commands": commands_found}))
+                
                 for cmd in commands_found:
                     action = cmd.get('action')
                     params = cmd.get('params', {})
@@ -698,6 +711,11 @@ def process_interaction(user_text):
                         print("💤 Ron se desactiva por orden del cerebro.")
                         activado = False
                         return False
+
+                    # 🔹 Si es un comando de UI, SALTAR ejecución local (ya se envió a Electron)
+                    if action in UI_ONLY_COMMANDS:
+                        print(f"⏭️ Delegando '{action}' a la UI (Electron).")
+                        continue
 
                     try: 
                         # Capture command results to relay to Electron
