@@ -461,7 +461,8 @@ Los campos significan:
 - Parámetros OBLIGATORIOS para add_reminder:
   * "title" o "activity": texto del recordatorio
   * "due_date": formato "YYYY-MM-DD" (ej: "%TOMORROW%" para mañana)
-  * "due_time": formato "HH:MM" en 24h (ej: "15:00" para 3pm, "09:00" para 9am)
+  * "due_time": formato "HH:MM" en 24h (ej: "15:00" para 3pm)
+  * "color": "red", "blue", "green", "yellow", "purple", "orange" (opcional)
 
 - Ejemplos de parsing:
   * "mañana a las 3pm" → due_date="%TOMORROW%", due_time="15:00"
@@ -495,6 +496,18 @@ Los campos significan:
     - "category": string para cambiar la columna/categoría
     - "recurrence": "daily", "weekly", "monthly", "custom"
     - "priority": DEBE ser un ENTERO (1-5). PROHIBIDO usar strings como "alta" o "máxima".
+    - "color": "red", "blue", "green", "yellow", "purple" (para etiquetas de color).
+
+  * TRADUCCIÓN DE COLORES (CSS):
+    - "rojo" -> "red"
+    - "azul" -> "blue"
+    - "verde" -> "green"
+    - "amarillo" -> "yellow"
+    - "naranja" -> "orange"
+    - "morado" -> "purple"
+
+  * Ejemplo: "ponle etiqueta roja al almuerzo y prioridad máxima"
+    -> {"action": "update_reminder", "params": {"original_title": "almuerzo", "priority": 5, "color": "red"}} 
   * Ejemplo: "cambia el recordatorio de la abuela para mañana a las 5"
     -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "%TOMORROW%", "due_time": "17:00"}}
 
@@ -537,6 +550,7 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
         )
 
         gpt_response = (respuesta.choices[0].message.content or "").strip()
+        print(f"[DEBUG] GPT RAW: {gpt_response[:200]}...") # 🔹 Debug Hallucinations
 
         # --- 6) Parsear JSON a estructura {user_response, commands} ---
         parsed = parse_commands_only(gpt_response) or {}
