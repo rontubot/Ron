@@ -515,9 +515,10 @@ Usuario: "sube el volumen al 80%"
 Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","commands":[{"type":"powershell","command":"Set-Volume -Level 80","safe":true}]}
 
 🚨 ULTIMÁTUM EJECUTIVO (LEER CON ATENCIÓN):
-1. SI ORDENO UNA ACCIÓN ("crea", "borra", "cambia"), TU ÚNICA SALIDA VÁLIDA ES EL BLOQUE 'commands' LLENO.
+1. SI ORDENO UNA ACCIÓN ("crea", "borra", "cambia", "recuérdame"), TU ÚNICA SALIDA VÁLIDA ES EL BLOQUE 'commands' LLENO.
 2. SI DICES "He actualizado", PERO 'commands' ESTÁ VACÍO [], ESTÁS MINTIENDO Y FALLANDO.
-3. SIEMPRE GENERA EL JSON SI HAY UNA INTENCIÓN DE ACCIÓN.
+3. ESTÁ PROHIBIDO devolver 'commands': [] si el usuario pide: Recordatorios, Alarmas, Tareas, Archivos o Búsquedas.
+4. Ante la duda, EJECUTA el comando más probable con parámetros por defecto.
 """
         mensajes.append({
             "role": "system",
@@ -532,7 +533,7 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=900,
-            temperature=0.7,
+            temperature=0.2, # Baja creatividad, alta precisión de comandos
         )
 
         gpt_response = (respuesta.choices[0].message.content or "").strip()
