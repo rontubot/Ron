@@ -639,38 +639,14 @@ def stream_audio_recognition(recognizer, microphone, q):
     return recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)
 
 def buffer_speech_sentences(text_stream):
-    buffer = ""
-    # Dividir por puntuación fuerte (. ? ! : ; \n) para que el TTS suene natural
-    endings = re.compile(r'([.?!:;\n])') 
-    
+    # 🔹 MODO BLOQUE: Acumular TODO el texto antes de enviarlo.
+    # Esto elimina los cortes de audio causados por múltiples llamadas al proceso TTS.
+    full_text = ""
     for chunk in text_stream:
-        if not chunk: continue
-        buffer += chunk
-        
-        # 🔹 Threshold aumentado a 450 caracteres (aprox 1 minuto de habla)
-        # Solo dividir a la fuerza si es MUY largo y no hay pausa
-        if len(buffer) > 450 and not endings.search(buffer):
-            parts = buffer.rsplit(' ', 1)
-            if len(parts) > 1:
-                yield parts[0].strip()
-                buffer = parts[1]
-                continue
-                
-        parts = endings.split(buffer)
-        if len(parts) > 1:
-            # Reconstruir oraciones con su puntuación
-            # parts = ["Hola", ".", "Como estas", "?", ""]
-            i = 0
-            while i < len(parts) - 1:
-                # Unir texto + delimitador (ej: "Hola" + ".")
-                sentence = (parts[i] + parts[i+1]).strip()
-                if sentence: yield sentence
-                i += 2
-            
-            # El último fragmento (incompleto) queda en buffer
-            buffer = parts[i] if i < len(parts) else ""
-            
-    if buffer.strip(): yield buffer.strip()
+        if chunk: full_text += chunk
+    
+    if full_text.strip():
+        yield full_text.strip()
 
 def process_interaction(user_text):
     global interruption_event, activado
