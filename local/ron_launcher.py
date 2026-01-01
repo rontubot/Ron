@@ -640,26 +640,36 @@ def stream_audio_recognition(recognizer, microphone, q):
 
 def buffer_speech_sentences(text_stream):
     buffer = ""
-    endings = re.compile(r'([.?!:;])') 
+    # Dividir por puntuación fuerte (. ? ! : ; \n) para que el TTS suene natural
+    endings = re.compile(r'([.?!:;\n])') 
+    
     for chunk in text_stream:
         if not chunk: continue
         buffer += chunk
-        if len(buffer) > 100 and not endings.search(buffer):
+        
+        # 🔹 Threshold aumentado a 450 caracteres (aprox 1 minuto de habla)
+        # Solo dividir a la fuerza si es MUY largo y no hay pausa
+        if len(buffer) > 450 and not endings.search(buffer):
             parts = buffer.rsplit(' ', 1)
             if len(parts) > 1:
                 yield parts[0].strip()
                 buffer = parts[1]
                 continue
+                
         parts = endings.split(buffer)
         if len(parts) > 1:
-            to_process = parts[:-1]
-            new_buffer = parts[-1]
+            # Reconstruir oraciones con su puntuación
+            # parts = ["Hola", ".", "Como estas", "?", ""]
             i = 0
-            while i < len(to_process) - 1:
-               sentence = (to_process[i] + to_process[i+1]).strip()
-               if sentence: yield sentence
-               i += 2
-            buffer = new_buffer
+            while i < len(parts) - 1:
+                # Unir texto + delimitador (ej: "Hola" + ".")
+                sentence = (parts[i] + parts[i+1]).strip()
+                if sentence: yield sentence
+                i += 2
+            
+            # El último fragmento (incompleto) queda en buffer
+            buffer = parts[i] if i < len(parts) else ""
+            
     if buffer.strip(): yield buffer.strip()
 
 def process_interaction(user_text):
