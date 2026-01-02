@@ -2108,14 +2108,20 @@ def cmd_get_reminders(params, ctx):
 
     # Armamos una lista legible
     total = len(items)
-    header = f"Tienes {total} recordatorios activos {date_label}:"
+    today_iso = datetime.now().strftime("%Y-%m-%d")
+    header = f"Se encontraron {total} recordatorios {date_label}:"
     lines = [header]
-    for i, item in enumerate(items[:5], start=1): # Limit to 5 for speech
+    for i, item in enumerate(items[:10], start=1): # Limit to 10
         title = item.get("title", "(sin título)")
+        due_d = item.get("due_date")
         due_t = item.get("due_time")
         prio = item.get("priority")
         
         extra = ""
+        if due_d: 
+             extra += f" el {due_d}"
+             if due_d < today_iso: extra += " [VENCIDO]"
+             elif due_d == today_iso: extra += " [HOY]"
         if due_t: extra += f" a las {due_t}"
         if prio and prio > 3: extra += " (Alta Importancia)"
         
