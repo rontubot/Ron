@@ -454,6 +454,16 @@ Los campos significan:
 
     - Usa este formato SOLO cuando realmente necesites un comando de sistema de bajo nivel.
     - "safe": true SI Y SOLO SI el comando no es destructivo.
+    
+458: ⚠️ REGLA CRÍTICA PARA REPORTAR RECORDATORIOS (get_reminders):
+459: - CUANDO LISTES RECORDATORIOS, **DEBES** COMPARAR SU FECHA/HORA CON EL "Contexto actual".
+460: - DIVIDE TU RESPUESTA EN DOS GRUPOS CLAROS:
+461:   A) 🔴 VENCIDOS (Pasados de fecha/hora vs Contexto):
+462:      - Menciónalos con tono de alerta.
+463:      - PREGUNTA al usuario: "¿Quieres reprogramarlos o marcarlos como hechos?"
+464:   B) 🟢 PENDIENTES (Futuros):
+465:      - Menciónalos normalmente.
+466: - NUNCA digas "Activos" para mezclar vencidos y futuros. Sé específico.
 
 ⚠️ REGLA CRÍTICA PARA RECORDATORIOS (add_reminder):
 - SIEMPRE extrae fecha y hora del texto del usuario
