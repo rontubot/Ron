@@ -657,6 +657,20 @@ def construir_historial_usuario_openai(username: str):
     mensajes.append({"role": "system", "content": STRICT_JSON_SYSTEM})
     # Estilo y personalidad (incluye prohibición de ";")
     mensajes.append({"role": "system", "content": STYLE_GUIDE})
+    # CORRECCIÓN FONÉTICA ACTIVA (Para corregir errores de STT como "bacuman" -> "Bakuman")
+    mensajes.append({
+        "role": "system",
+        "content": (
+            "MODO DE INTERPRETACIÓN DE VOZ: ACTIVADO. "
+            "El input del usuario proviene de transcripción de audio (STT) y puede contener errores fonéticos. "
+            "TU TAREA OBVIA: Antes de procesar la intención, analiza fonéticamente el texto. "
+            "Si detectas una palabra que suena como un título, nombre propio o término técnico conocido (ej: 'bacuman' -> 'Bakuman', 'yutub' -> 'YouTube', 'wasap' -> 'WhatsApp'), "
+            "asume que el usuario quiso decir el término correcto y ACTÚA sobre ese término corregido. "
+            "NO preguntes '¿quisiste decir...?', asúmelo con confianza y ejecuta la acción correcta. "
+            "Si la corrección cambia significativamente el comando, menciona la corrección implícitamente en 'user_response' (ej: 'Abriendo Bakuman...' si el usuario dijo 'bacuman')."
+        )
+    })
+    
     mensajes.append({
         "role": "system",
         "content": (
