@@ -558,8 +558,17 @@ def setup_streaming_recognition():
     r.dynamic_energy_threshold = False
     r.energy_threshold = 350 # More sensitive for better pickup
     try:
+        # 🔹 DEBUG: Listar micrófonos disponibles para diagnosticar error "no escucha"
+        try:
+            mics = sr.Microphone.list_microphone_names()
+            print(f"🎤 Micrófonos detectados ({len(mics)}):")
+            for i, name in enumerate(mics):
+                print(f"   [{i}] {name}")
+        except Exception as e:
+            print(f"⚠️ Error listando micrófonos: {e}")
+
         m = sr.Microphone()
-        print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
+        print(f"🎤 Micrófono listo (Default). Umbral fijo: {r.energy_threshold}")
         return r, m
     except Exception as e:
         print(f"❌ Error de Micrófono: {e}")

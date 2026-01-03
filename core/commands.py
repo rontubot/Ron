@@ -834,17 +834,16 @@ def open_application(app_name, progress_callback=None):
               
         # Intentar abrir aplicación local con mejor manejo      
         cmd = f'start "" "{app_name}"'      
-        logger.info(f"Ejecutando comando: {cmd}")      
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)      
+        logger.info(f"Ejecutando comando (non-blocking): {cmd}")      
+        
+        # 🔹 FIX: Usar Popen con shell=True permite que 'start' funcione y se desprenda.
+        # No capturamos stdout/stderr para evitar bloqueos si la app hereda los pipes.
+        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               
-        if result.returncode == 0:      
-            logger.info(f"Aplicación {app_name} abierta exitosamente")  
-            send_progress(f"✅ {app_name} abierto exitosamente")  
-            return f"Abriendo {app_name}."      
-        else:      
-            logger.error(f"Error al abrir {app_name}: {result.stderr}")  
-            send_progress(f"⚠️ Intentando abrir {app_name}...")  
-            return f"Intentando abrir {app_name}."      
+        # Asumimos éxito inmediato porque 'start' es asíncrono en shell cmd
+        logger.info(f"Aplicación {app_name} lanzada")  
+        send_progress(f"✅ {app_name} abierto exitosamente")  
+        return f"Abriendo {app_name}."      
                   
     except Exception as e:      
         logger.error(f"Excepción al abrir {app_name}: {str(e)}")      
