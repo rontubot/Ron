@@ -559,26 +559,66 @@ def setup_streaming_recognition(device_index=None):
     r.dynamic_energy_threshold = False
     r.energy_threshold = 350 # More sensitive for better pickup
     try:
-        # 🔹 DEBUG: Listar micrófonos disponibles para diagnosticar error "no escucha"
         try:
-            mics = sr.Microphone.list_microphone_names()
-            print(f"🎤 Micrófonos detectados ({len(mics)}):")
-            for i, name in enumerate(mics):
-                is_selected = " [SELECCIONADO]" if device_index is not None and i == device_index else ""
-                print(f"   [{i}] {name}{is_selected}")
+            # 🔹 Optimización: Usar PyAudio directo para filtrar "Outputs" y duplicados
+            import pyaudio
+            p = pyaudio.PyAudio()
+            valid_devices = []
+            seen_names = set()
             
-            # 🔹 Guardar lista para la UI (Electron)
-            # Evita tener que spawnear otro proceso que puede fallar o ser lento
+            # Palabras clave a excluir (drivers genéricos o salidas disfrazadas)
+            EXCLUDE_KEYWORDS = ["mapper", "asignador", "controlador primario", "primary sound", "display audio", "stereo mix", "mezcla estéreo"]
+
+            print(f"🔍 Escaneando dispositivos de audio (Total raw: {p.get_device_count()})...")
+
+            for i in range(p.get_device_count()):
+                try:
+                    info = p.get_device_info_by_index(i)
+                    name = info.get("name", "")
+                    inputs = info.get("maxInputChannels", 0)
+                    
+                    # 1. Filtro básico: Debe ser INPUT
+                    if inputs <= 0: continue
+
+                    # 2. Filtro de nombre: Evitar wrappers genéricos de Windows
+                    lower_name = name.lower()
+                    if any(k in lower_name for k in EXCLUDE_KEYWORDS): continue
+                    
+                    # 3. Deduplicación por nombre exacto (Windows suele listar MME, DirectSound, WASAPI por separado)
+                    # Nos quedamos con la primera ocurrencia (usualmente MME/Default)
+                    if name in seen_names: continue
+                    
+                    seen_names.add(name)
+                    valid_devices.append({"index": i, "name": name})
+
+                except Exception as e:
+                    print(f"⚠️ Error leyendo device {i}: {e}")
+            
+            p.terminate()
+
+            print(f"🎤 Micrófonos ÚTILES detectados ({len(valid_devices)}):")
+            for d in valid_devices:
+                idx, nm = d['index'], d['name']
+                is_selected = " [SELECCIONADO]" if device_index is not None and idx == device_index else ""
+                print(f"   [{idx}] {nm}{is_selected}")
+            
+            # 🔹 Guardar lista filtrada para la UI
             try:
-                device_list = [{"index": i, "name": name} for i, name in enumerate(mics)]
                 json_path = os.path.join(os.getcwd(), 'audio_devices.json')
                 with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(device_list, f)
+                    json.dump(valid_devices, f)
             except Exception as e:
                 print(f"⚠️ Error guardando audio_devices.json: {e}")
 
         except Exception as e:
-            print(f"⚠️ Error listando micrófonos: {e}")
+            print(f"⚠️ Error listando micrófonos (fallback): {e}")
+            # Fallback a lista básica si falla PyAudio filter
+            try:
+                mics = sr.Microphone.list_microphone_names()
+                device_list = [{"index": i, "name": name} for i, name in enumerate(mics)]
+                with open(os.path.join(os.getcwd(), 'audio_devices.json'), 'w', encoding='utf-8') as f:
+                    json.dump(device_list, f)
+            except: pass
 
         # Configurar índice de dispositivo específico si se proporciona
         if device_index is not None:
