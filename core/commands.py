@@ -806,7 +806,7 @@ def execute_autonomous_plan(plan, progress_callback=None):
   
   
 def open_application(app_name, progress_callback=None):      
-    """Función mejorada basada en el código local funcional"""  
+    """Función mejorada: abre apps sin bloquear y reporta errores visibles si fallan."""  
     def send_progress(msg):  
         if progress_callback:  
             progress_callback(msg)  
@@ -817,14 +817,14 @@ def open_application(app_name, progress_callback=None):
         send_progress(f"🚀 Intentando abrir {app_name_clean}...")  
         logger.info(f"Intentando abrir aplicación: {app_name_clean}")      
               
-        # Buscar en aplicaciones web primero      
+        # 1. Buscar en aplicaciones web primero      
         if app_name_clean in web_apps:      
             webbrowser.open(web_apps[app_name_clean])      
             logger.info(f"Abriendo {app_name_clean} en navegador")  
             send_progress(f"✅ {app_name.capitalize()} abierto en el navegador")  
             return f"Abriendo {app_name.capitalize()} en el navegador."      
               
-        # Buscar coincidencias parciales en web apps      
+        # 2. Buscar coincidencias parciales en web apps      
         for key, url in web_apps.items():      
             if key in app_name_clean or app_name_clean in key:      
                 webbrowser.open(url)      
@@ -832,22 +832,66 @@ def open_application(app_name, progress_callback=None):
                 send_progress(f"✅ {key.capitalize()} abierto en el navegador")  
                 return f"Abriendo {key.capitalize()} en el navegador."      
               
-        # Intentar abrir aplicación local con mejor manejo      
+        # 3. Intentar abrir aplicación local      
+        # Intentamos verificar si es un comando conocido o path absoluto simple
+        import shutil
+        
+        # Si es nombre directo (ej: notepad, calc, code)
+        resolved = shutil.which(app_name) or shutil.which(app_name + ".exe")
+        
+        # Aliases comunes de Windows que NO están en PATH pero "start" los conoce (App Paths)
+        # Es difícil validar "start word" sin ejecutarlo.
+        # Estrategia: Ejecutar y si falla (catch), devolver error formateado.
+        
         cmd = f'start "" "{app_name}"'      
         logger.info(f"Ejecutando comando (non-blocking): {cmd}")      
         
-        # 🔹 FIX: Usar Popen con shell=True permite que 'start' funcione y se desprenda.
-        # No capturamos stdout/stderr para evitar bloqueos si la app hereda los pipes.
-        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              
-        # Asumimos éxito inmediato porque 'start' es asíncrono en shell cmd
-        logger.info(f"Aplicación {app_name} lanzada")  
-        send_progress(f"✅ {app_name} abierto exitosamente")  
+        # Usamos Popen pero intentamos detectar si 'start' falló inmediatamente (raro en shell=True)
+        # En Windows con shell=True, si el binario no existe, a veces popup de sistema.
+        # Para evitar el popup y capturar el error, podríamos usar powershell con try/catch?
+        # O mejor: intentar ubicarlo primero.
+        
+        # Truco: Powershell Start-Process -ErrorAction Stop
+        # Si falla, Popen capturará stderr si lo redireccionamos.
+        
+        ps_cmd = f'powershell -Command "try {{ Start-Process \\"{app_name}\\" -ErrorAction Stop }} catch {{ Write-Error $_.Exception.Message; exit 1 }}"'
+        
+        # Ejecutamos con espera CORTA para ver si arranca (los UI apps retornan rápido el control)
+        # NOTA: Start-Process es asíncrono por defecto para GUI apps, así que retorna rápido.
+        
+        proc = subprocess.run(ps_cmd, shell=True, capture_output=True, text=True)
+        
+        if proc.returncode != 0:
+            # Falló el arranque
+            err_msg = proc.stderr.strip() or "Aplicación no encontrada en el sistema."
+            logger.error(f"Error abriendo {app_name}: {err_msg}")
+            
+            # 🔹 RETORNO DE ERROR PARA NOTIFICACIÓN UI
+            # Si contiene "no se encuentra", lo traducimos para el usuario
+            if "no se encuentra" in err_msg or "cannot find" in err_msg or "is not recognized" in err_msg:
+                 return {
+                    "ok": False, 
+                    "error": f"No encuentro la aplicación '{app_name}'. Verifica que esté instalada.",
+                    "show_notification": True
+                }
+            
+            return {
+                "ok": False, 
+                "error": f"Error al abrir '{app_name}': {err_msg}",
+                "show_notification": True
+            }
+
+        logger.info(f"Aplicación {app_name} lanzada correctamente (según Powershell)")  
+        send_progress(f"✅ {app_name} se está abriendo...")  
         return f"Abriendo {app_name}."      
                   
     except Exception as e:      
         logger.error(f"Excepción al abrir {app_name}: {str(e)}")      
-        return f"No pude abrir {app_name}: {e}"  
+        return {
+            "ok": False, 
+            "error": f"Error crítico abriendo '{app_name}': {str(e)}",
+            "show_notification": True
+        }  
   
   
 def close_application(app_name, progress_callback=None):
