@@ -551,7 +551,7 @@ if STT_ENGINE == "whisper":
 else:
     print("🚀 Usando STT básico (Google) para máxima velocidad.")
 
-def setup_streaming_recognition():
+def setup_streaming_recognition(device_index=None):
     r = sr.Recognizer()
     r.pause_threshold = 0.4  
     r.non_speaking_duration = 0.2 
@@ -563,15 +563,22 @@ def setup_streaming_recognition():
             mics = sr.Microphone.list_microphone_names()
             print(f"🎤 Micrófonos detectados ({len(mics)}):")
             for i, name in enumerate(mics):
-                print(f"   [{i}] {name}")
+                is_selected = " [SELECCIONADO]" if device_index is not None and i == device_index else ""
+                print(f"   [{i}] {name}{is_selected}")
         except Exception as e:
             print(f"⚠️ Error listando micrófonos: {e}")
 
-        m = sr.Microphone()
-        print(f"🎤 Micrófono listo (Default). Umbral fijo: {r.energy_threshold}")
+        # Configurar índice de dispositivo específico si se proporciona
+        if device_index is not None:
+            print(f"🎤 Inicializando micrófono con índice específico: {device_index}")
+            m = sr.Microphone(device_index=device_index)
+        else:
+            m = sr.Microphone()
+            
+        print(f"🎤 Micrófono listo. Umbral fijo: {r.energy_threshold}")
         return r, m
     except Exception as e:
-        print(f"❌ Error de Micrófono: {e}")
+        print(f"❌ Error de Micrófono (Idx: {device_index}): {e}")
         sys.exit(1)
 
 def transcribe_audio(recognizer, audio_data):
@@ -839,12 +846,19 @@ def detect_ron_activation(text):
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 if __name__ == "__main__":
-    print("🟢 Ron 24/7 v2.0 (Violent Anti-Echo & Recording) Listo.")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--username", help="Usuario actual")
+    parser.add_argument("--control-port", help="Puerto de control (socket)")
+    parser.add_argument("--microphone-index", type=int, default=None, help="Índice del micrófono a usar")
+    args, unknown = parser.parse_known_args()
+
+    print(f"🟢 Ron 24/7 v2.0 (Violent Anti-Echo & Recording) Listo. User: {args.username}, MicIdx: {args.microphone_index}")
     task_manager = TaskManager(lambda t: speak_async(t))
     
     # Iniciar hardware de audio primero
     if not recognizer:
-        recognizer, microphone = setup_streaming_recognition()
+        recognizer, microphone = setup_streaming_recognition(device_index=args.microphone_index)
     
     # Luego el control externo
     handle_external_control()

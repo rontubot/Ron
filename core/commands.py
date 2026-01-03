@@ -6,6 +6,10 @@ import logging
 import re      
 import psutil    
 import sys   
+try:
+    import speech_recognition as sr
+except ImportError:
+    sr = None
 import csv
 import io
 import time
@@ -2666,6 +2670,43 @@ def reminder_timer(params, ctx):
     return cmd_reminder_timer(params, ctx)
 
 
+def cmd_get_audio_devices(params, ctx):
+    """Retorna la lista de dispositivos de audio (micrófonos)."""
+    if sr is None:
+        return {"ok": False, "error": "SpeechRecognition no instalado"}
+    
+    try:
+        mics = sr.Microphone.list_microphone_names()
+        devices = [{"index": i, "name": name} for i, name in enumerate(mics)]
+        return {"ok": True, "devices": devices}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def cmd_set_audio_device(params, ctx):
+    """
+    Selecciona un micrófono y solicita reinicio del servicio de voz.
+    Params: { "index": int }
+    """
+    try:
+        idx = int(params.get("index", -1))
+        return {
+            "ok": True,
+            "message": f"Seleccionando micrófono {idx}...",
+            "commands": [
+                {
+                    "action": "notify", 
+                    "params": {"title": "Audio", "message": f"Cambiando micrófono a ID {idx}..."}
+                },
+                {
+                    "action": "update-mic-config",
+                    "params": {"index": idx}
+                }
+            ]
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 
 
 COMMANDS = {      
@@ -2731,7 +2772,11 @@ COMMANDS = {
     # ——— Utilidad      
     "get_weather": get_weather,    
     "duck_other_applications": duck_other_applications,    
-    "restore_application_volumes": restore_application_volumes,    
+    "restore_application_volumes": restore_application_volumes,
+    
+    # ——— Audio Configuration
+    "get_audio_devices": cmd_get_audio_devices,
+    "set_audio_device": cmd_set_audio_device,
 }    
   
 def run_command(cmd_name: str, params: dict | None = None, ctx: dict | None = None) -> dict:    
