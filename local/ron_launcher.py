@@ -566,6 +566,17 @@ def setup_streaming_recognition(device_index=None):
             for i, name in enumerate(mics):
                 is_selected = " [SELECCIONADO]" if device_index is not None and i == device_index else ""
                 print(f"   [{i}] {name}{is_selected}")
+            
+            # 🔹 Guardar lista para la UI (Electron)
+            # Evita tener que spawnear otro proceso que puede fallar o ser lento
+            try:
+                device_list = [{"index": i, "name": name} for i, name in enumerate(mics)]
+                json_path = os.path.join(os.getcwd(), 'audio_devices.json')
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(device_list, f)
+            except Exception as e:
+                print(f"⚠️ Error guardando audio_devices.json: {e}")
+
         except Exception as e:
             print(f"⚠️ Error listando micrófonos: {e}")
 
