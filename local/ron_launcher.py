@@ -78,7 +78,8 @@ if hasattr(sys.stdout, "reconfigure"):
 parser = argparse.ArgumentParser(description='Ron 24/7 Voice Assistant')
 parser.add_argument('--username', type=str, help='Username del usuario autenticado')
 parser.add_argument('--control-port', type=int, default=9999, help='Puerto para control externo')
-args = parser.parse_args()
+parser.add_argument("--microphone-index", type=int, default=None, help="Índice del micrófono a usar")
+args = parser.parse_known_args()[0]
 
 current_username = args.username
 control_enabled = True
@@ -846,13 +847,6 @@ def detect_ron_activation(text):
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--username", help="Usuario actual")
-    parser.add_argument("--control-port", help="Puerto de control (socket)")
-    parser.add_argument("--microphone-index", type=int, default=None, help="Índice del micrófono a usar")
-    args, unknown = parser.parse_known_args()
-
     print(f"🟢 Ron 24/7 v2.0 (Violent Anti-Echo & Recording) Listo. User: {args.username}, MicIdx: {args.microphone_index}")
     task_manager = TaskManager(lambda t: speak_async(t))
     
