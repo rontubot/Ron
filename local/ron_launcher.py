@@ -326,7 +326,11 @@ def handle_external_control():
                                 try:
                                     import pyaudio
                                     p = pyaudio.PyAudio()
-                                    stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
+                                    # 🔹 FIX: Usar índice de micrófono seleccionado explícitamente
+                                    dev_idx = args.microphone_index
+                                    print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
+                                    stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
+                                                    frames_per_buffer=1024, input_device_index=dev_idx)
                                     print("[Python] [Recorder] Stream Global ABIERTO y listo.")
                                     
                                     while True:
