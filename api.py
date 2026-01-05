@@ -257,6 +257,10 @@ def get_current_user(authorization: str = Header(None)) -> str:
 
 
 
+class UserChangePassword(BaseModel):
+    currentPassword: str
+    newPassword: str
+
 # Endpoints de autenticación      
 @app.post("/auth/register")      
 def register(user_data: UserRegister):
@@ -279,6 +283,34 @@ def register(user_data: UserRegister):
         return {"message": "Usuario registrado exitosamente"}      
     else:      
         raise HTTPException(status_code=500, detail="Error guardando usuario")    
+
+
+@app.post("/auth/change-password")
+def change_password(data: UserChangePassword, current_user: str = Depends(get_current_user)):
+    ensure_github_ready()
+    
+    users_db = load_users_from_github() or {}
+    user_record = users_db.get(current_user)
+    
+    if not user_record:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    # 1. Verificar contraseña actual
+    if not verify_password(data.currentPassword, user_record["password"]):
+        raise HTTPException(status_code=400, detail="La contraseña actual es incorrecta")
+        
+    # 2. Actualizar con nueva contraseña
+    user_record["password"] = hash_password(data.newPassword)
+    # Actualizar timestamp si quieres (opcional)
+    # user_record["updated_at"] = datetime.utcnow().isoformat()
+    
+    users_db[current_user] = user_record
+    
+    # 3. Guardar y Sincronizar (Commit & Push)
+    if save_users_to_github(users_db):
+        return {"message": "Contraseña actualizada correctamente"}
+    else:
+        raise HTTPException(status_code=500, detail="Error guardando la nueva contraseña en el repositorio")    
       
   
 @app.post("/auth/login")  
