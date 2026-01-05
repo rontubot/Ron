@@ -26,6 +26,7 @@ def get_or_init_profile(mem: dict) -> dict:
     prof.setdefault("facts", [])       # items con ttl ({"key","value","expires_at"})
     prof.setdefault("last_labels", [])
     prof.setdefault("history", [])     # log de operaciones
+    prof.setdefault("custom_instructions", "") # 🔹 NUEVO: Instrucciones manuales del usuario
     mem["profile"] = prof
     return prof
 
@@ -71,12 +72,13 @@ def build_persona(prof: dict) -> str:
     dos = prof.get("dos", [])
     donts = prof.get("donts", [])
     last_labels = prof.get("last_labels", [])
+    custom_instructions = prof.get("custom_instructions", "").strip()
 
     top_tags = ", ".join(sorted(tags, key=tags.get, reverse=True)[:3])
     top_interests = ", ".join(sorted(interests, key=interests.get, reverse=True)[:4])
     top_traits = ", ".join(sorted(traits, key=traits.get, reverse=True)[:2])
 
-    return (
+    base_persona = (
         "[Perfil del usuario]\n"
         f"- Idioma preferido: {prefs.get('language','es')}\n"
         f"- Tono preferido: {prefs.get('tone','directo')}\n"
@@ -89,3 +91,8 @@ def build_persona(prof: dict) -> str:
         "Usa este perfil para ajustar estilo y contenido. "
         "Si hay conflicto con la petición actual, prioriza la petición."
     )
+
+    if custom_instructions:
+        base_persona += f"\n\n🚨 INSTRUCCIONES PERSONALIZADAS DEL USUARIO (PRIORIDAD MÁXIMA):\n{custom_instructions}"
+
+    return base_persona

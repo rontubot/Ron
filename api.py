@@ -189,7 +189,10 @@ def clean_text_for_tts(text: str) -> str:
 
 
 
-# Modelos Pydantic      
+
+class UserProfileUpdate(BaseModel):
+    customInstructions: str | None = None
+
 class UserInput(BaseModel):      
     text: str | None = None   
     message: str | None = None  
@@ -216,7 +219,7 @@ def requires_autonomous_execution(text: str) -> bool:
         "script personalizado", "automatización compleja", "limpia archivos",  
         "reinicia servicio", "configura firewall", "optimiza sistema"  
     ]  
-      
+    
     text_lower = text.lower()  
     return any(keyword in text_lower for keyword in complex_keywords)
         
@@ -310,7 +313,15 @@ def login(credentials: UserCredentials, response: Response):
   
 @app.get("/auth/me")  
 def auth_me(current_user: str = Depends(get_current_user)):  
-    return {"ok": True, "username": current_user}  
+    # Al pedir /auth/me también devolvemos las custom instructions si hay
+    mem = load_user_memory(current_user) or {}
+    prof = get_or_init_profile(mem) # aquí ya están
+    
+    return {
+        "ok": True, 
+        "username": current_user, 
+        "customInstructions": prof.get("custom_instructions", "")
+    } 
   
   
   
@@ -323,6 +334,25 @@ def logout(current_user: str = Depends(get_current_user)):
 @app.get("/")      
 def read_root():      
     return {"message": "Ron API está corriendo con autenticación"}      
+
+# 🔹 NUEVO: Endpoint para guardar Custom Instructions
+from core.profile import get_or_init_profile  # Asegurar import
+@app.put("/user/profile")
+def update_user_profile(data: UserProfileUpdate, current_user: str = Depends(get_current_user)):
+    try:
+        mem = load_user_memory(current_user) or {}
+        prof = get_or_init_profile(mem)
+        
+        # Actualizamos
+        if data.customInstructions is not None:
+            prof["custom_instructions"] = data.customInstructions
+            
+        save_user_memory(current_user, mem)
+        return {"message": "Perfil actualizado correctamente", "profile": prof}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error actualizando perfil: {str(e)}")
+      
       
   
 @app.post("/ron")
