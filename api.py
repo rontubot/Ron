@@ -958,18 +958,26 @@ class ReminderModel(BaseModel):
     description: str | None = None
     category: str | None = "inbox"
     status: str | None = "todo"
-    priority: str | None = "normal"
+    priority: int | str | None = 1
+    color: str | None = "#00f3ff"
     due_date: str | None = None
     due_time: str | None = None
+    days_of_week: list[str] | None = None
+    remind_every_value: int | None = 0
+    remind_every_unit: str | None = "hours"
 
 class ReminderUpdateModel(BaseModel):
     title: str | None = None
     description: str | None = None
     category: str | None = None
     status: str | None = None
-    priority: str | None = None
+    priority: int | str | None = None
+    color: str | None = None
     due_date: str | None = None
     due_time: str | None = None
+    days_of_week: list[str] | None = None
+    remind_every_value: int | None = None
+    remind_every_unit: str | None = "hours"
 
 @app.get("/reminders")
 def get_reminders_endpoint(current_user: str = Depends(get_current_user)):
@@ -984,9 +992,13 @@ def create_reminder_endpoint(reminder: ReminderModel, current_user: str = Depend
         description=reminder.description or "",
         category=reminder.category or "inbox",
         status=reminder.status or "todo",
-        priority=reminder.priority or "normal",
+        priority=reminder.priority or 1,
         due_date=reminder.due_date,
-        due_time=reminder.due_time
+        due_time=reminder.due_time,
+        color=reminder.color,
+        days_of_week=reminder.days_of_week,
+        remind_every_value=reminder.remind_every_value,
+        remind_every_unit=reminder.remind_every_unit
     )
 
 @app.put("/reminders/{reminder_id}")
@@ -1004,3 +1016,7 @@ def delete_reminder_endpoint(reminder_id: str, current_user: str = Depends(get_c
     if not success:
         raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
     return {"status": "deleted", "id": reminder_id}
+
+@app.get("/version")
+def get_version():
+    return {"version": "1.0.6-b", "name": "Ron Assistant"}

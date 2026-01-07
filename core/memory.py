@@ -150,12 +150,17 @@ def _load_electron_tasks():
             mapped.append({
                 "id": t.get("id"),
                 "title": t.get("description", "Recordatorio"),
-                "description": "", # TaskManager no suele usar desc separada en el board
+                "description": t.get("notes") or "", 
                 "category": t.get("category", "General"),
                 "status": t.get("status", "todo"),
                 "due_date": d_date,
                 "due_time": d_time,
                 "recurrence": t.get("recurrence"),
+                "days_of_week": t.get("daysOfWeek") or [],
+                "color": t.get("color") or "#00f3ff",
+                "priority": t.get("priority") or 1,
+                "remind_every_value": t.get("remindEveryValue") or 0,
+                "remind_every_unit": t.get("remindEveryUnit") or "hours",
                 "created_at": t.get("created_at")
             })
         return mapped
@@ -307,10 +312,14 @@ def add_reminder_item(
     description: str = "",
     category: str = "inbox",
     status: str = "todo",
-    priority: str = "normal",
+    priority: int | str = 1,
     due_date: str | None = None,   # "YYYY-MM-DD"
     due_time: str | None = None,   # "HH:MM"
     tags: list[str] | None = None,
+    color: str | None = "#00f3ff",
+    days_of_week: list[str] | None = None,
+    remind_every_value: int | None = 0,
+    remind_every_unit: str | None = "hours"
 ) -> dict:
     """
     Crea y guarda un recordatorio en storage local por usuario.
@@ -325,10 +334,14 @@ def add_reminder_item(
         "description": (description or "").strip(),
         "category": (category or "inbox").strip().lower(),
         "status": (status or "todo").strip().lower(),
-        "priority": (priority or "normal").strip().lower(),
+        "priority": priority,
         "due_date": (due_date or None),
         "due_time": (due_time or None),
         "tags": list(tags or []),
+        "color": color or "#00f3ff",
+        "days_of_week": days_of_week or [],
+        "remind_every_value": remind_every_value or 0,
+        "remind_every_unit": remind_every_unit or "hours",
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -374,7 +387,7 @@ def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
 
-    allowed = {"title","description","category","status","priority","due_date","due_time","tags","position"}
+    allowed = {"title","description","category","status","priority","due_date","due_time","tags","position", "color", "days_of_week", "remind_every_value", "remind_every_unit"}
     updated_item = None
 
     for idx, r in enumerate(items):
