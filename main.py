@@ -70,7 +70,7 @@ def stream_audio_recognition(recognizer, microphone, audio_queue):
   
 def detect_ron_activation(text):  
     text_lower = text.lower().strip()  
-    return re.search(r'\bron\b', text_lower) is not None
+    return re.search(r'\b(ron|ro)\b', text_lower) is not None
 
 def talk_to_ron(text):  
     global speaking, listening_active  

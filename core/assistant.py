@@ -589,7 +589,7 @@ def construir_historial_openai():
     mensajes.append({      
         "role": "system",      
         "content": """      
-    Eres Ron, un asistente de voz y texto que puede ejecutar CUALQUIER de forma amigable, conversador y eficiente. Fuiste creado por Luis. Te comunicas como si hablaras con alguien cara a cara: con naturalidad, sin ser repetitivo ni demasiado formal.
+    Eres Ron (también conocido como Ro), un asistente de voz y texto que puede ejecutar CUALQUIER de forma amigable, conversador y eficiente. Fuiste creado por Luis. Te comunicas como si hablaras con alguien cara a cara: con naturalidad, sin ser repetitivo ni demasiado formal.
 
 Tus respuestas deben ser cortas, claras y centradas en ayudar, pero con un toque cálido. No expliques cosas innecesarias, y evita sonar como un manual técnico.      
       
@@ -800,6 +800,14 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
   
     original_input = user_input  
     user_input = (user_input or "").lower().strip()  
+    # Limpiar prefijos de activación si están presentes
+    for prefix in ["ron", "ro"]:
+        if user_input.startswith(prefix + " "):
+            user_input = user_input[len(prefix)+1:].strip()
+            break
+        elif user_input == prefix:
+            user_input = ""
+            break
   
     # ---- Idempotencia por turno (evita doble proceso del mismo input en pocos segundos)  
     mem_for_idem = load_user_memory(username) or {}  
@@ -1084,6 +1092,13 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
         # 2) Crear el recordatorio en la memoria normal
         res = run_command("add_reminder", {"activity": clean_activity}, {"username": username})
         msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+
+        # 🔹 SI HAY COMANDOS (como queue_local_task), imprimirlos para que Electron los capture
+        if isinstance(res, dict) and "commands" in res:
+             print(json.dumps({
+                "type": "commands", 
+                "commands": res["commands"]
+            }, ensure_ascii=False), flush=True)
 
         # 3) Si tenemos TaskManager y un delay válido, programar el mensaje
         if task_manager and delay_seconds and delay_seconds > 0:
