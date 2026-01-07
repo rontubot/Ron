@@ -801,7 +801,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
     original_input = user_input  
     user_input = (user_input or "").lower().strip()  
     # Limpiar prefijos de activación si están presentes
-    for prefix in ["ron", "ro"]:
+    for prefix in ["ron", "ro", "rum", "run", "ru", "rom"]:
         if user_input.startswith(prefix + " "):
             user_input = user_input[len(prefix)+1:].strip()
             break

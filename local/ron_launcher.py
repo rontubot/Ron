@@ -85,8 +85,8 @@ current_username = args.username
 control_enabled = True
 
 # Constants
-SILENCE_TIMEOUT_SEC = 0.8
-ALLOWED_WAKE_WORDS = {"ron", "rom", "rron", "ronn", "ram"}
+SILENCE_TIMEOUT_SEC = 1.5 # Tiempo de silencio para detener auto-grabación
+ALLOWED_WAKE_WORDS = {"ron", "ro", "rum", "run", "ru", "rom"}
 
 
 # 🔹 DEACTIVATE: Palabras que apagan la escucha activa
@@ -122,7 +122,9 @@ last_speech_at = 0.0 # 🔹 Para evitar eco inmediato
 
 # MANUAL RECORDING STATE
 manual_recording = False
+auto_record_mode = False # Nueva bandera para grabación activada por voz
 manual_audio_buffer = []  # List of small audio chunks
+recording_start_time = 0
 manual_recording_lock = threading.Lock()
 
 # 🔹 Global Recognizer & Microphone (Initialize early for control server)
@@ -242,6 +244,41 @@ def stop_speaking():
 # =========================================================================================
 # CONTROL SERVER (Audio Recording & Status)
 # =========================================================================================
+def trigger_internal_stop():
+    """Simula un comando STOP_RECORDING vía socket local para disparar el procesamiento."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(('127.0.0.1', args.control_port))
+        s.sendall(b'STOP_RECORDING')
+        s.close()
+    except: pass
+
+def start_smart_recording():
+    """Inicia la grabación de alta calidad por voz con auto-silencio."""
+    global auto_record_mode, manual_audio_buffer, stop_listening, manual_recording
+    print("[Python] 🎙️ Activando grabación inteligente (Smart Record)...")
+    if stop_listening:
+        stop_listening(wait_for_stop=False)
+        stop_listening = None
+    with manual_recording_lock:
+        manual_recording = False
+        auto_record_mode = True
+        manual_audio_buffer = []
+    ensure_recorder_thread()
+    # Notificar a Electron que estamos grabando por voz
+    print(json.dumps({"type": "recording_state", "state": "auto_recording"}), flush=True)
+
+def ensure_recorder_thread():
+    """Asegura que el hilo de grabación global esté activo."""
+    global_recorder_thread = [t for t in threading.enumerate() if t.name == 'GlobalRawRecorder']
+    if not global_recorder_thread:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(('127.0.0.1', args.control_port))
+            s.sendall(b'START_RECORDING')
+            s.close()
+        except: pass
+
 def handle_external_control():    
     def control_server():    
         global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer, activado, stop_listening
@@ -309,44 +346,65 @@ def handle_external_control():
                             stop_listening = None
                         
                         # 2. Activar flag de grabación
-                        # El stream YA DEBE ESTAR ABIERTO globalmente o iniciarse una sola vez.
-                        # Para este fix rápido, iniciamos el hilo UNA VEZ si no existe, o simplemente seteamos el flag.
-                        
                         with manual_recording_lock:
                             manual_recording = True
                             manual_audio_buffer = [] 
                             
                         # Si el hilo 'global_raw_recorder' no está corriendo, iniciarlo.
-                        # (Implementación simplificada: Asumimos que START inicia el heavy lifting si no existe)
-                        
                         global_recorder_thread = [t for t in threading.enumerate() if t.name == 'GlobalRawRecorder']
                         if not global_recorder_thread:
                              print("[Python] [Recorder] Iniciando Hilo Global de Grabación...")
                              def raw_recorder_loop():
+                                global manual_recording, auto_record_mode, manual_audio_buffer
                                 try:
                                     import pyaudio
+                                    import numpy as np
                                     p = pyaudio.PyAudio()
-                                    # 🔹 FIX: Usar índice de micrófono seleccionado explícitamente
                                     dev_idx = args.microphone_index
                                     print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
                                     stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
                                                     frames_per_buffer=1024, input_device_index=dev_idx)
-                                    print("[Python] [Recorder] Stream Global ABIERTO y listo.")
+                                    
+                                    silence_start = None
+                                    has_spoken = False
                                     
                                     while True:
-                                        # Leemos SIEMPRE para vaciar el buffer del hardware
                                         try:
                                             data = stream.read(1024, exception_on_overflow=False)
                                         except:
                                             continue
                                             
-                                        # Solo guardamos si el flag está activo
+                                        is_recording = False
+                                        is_auto = False
                                         with manual_recording_lock:
-                                            if manual_recording:
+                                            is_recording = manual_recording
+                                            is_auto = auto_record_mode
+                                            if is_recording or is_auto:
                                                 manual_audio_buffer.append(data)
-                                                
-                                        # Pequeño sleep para no quemar CPU? No, read es bloqueante.
                                         
+                                        if is_auto:
+                                            # Calcular RMS para VAD
+                                            audio_data = np.frombuffer(data, dtype=np.int16)
+                                            rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
+                                            
+                                            if rms > 450:
+                                                silence_start = None
+                                                has_spoken = True
+                                            else:
+                                                if silence_start is None:
+                                                     silence_start = time.time()
+                                                
+                                                # Si detectamos silencio tras hablar o tras mucho tiempo esperando
+                                                timeout = SILENCE_TIMEOUT_SEC if has_spoken else 5.0
+                                                if (time.time() - silence_start) > timeout:
+                                                    print(f"[Python] [VAD] Silencio detectado ({'post-habla' if has_spoken else 'timeout'}). Procesando...")
+                                                    threading.Thread(target=trigger_internal_stop, daemon=True).start()
+                                                    silence_start = None
+                                                    has_spoken = False
+                                        else:
+                                            silence_start = None
+                                            has_spoken = False
+                                            
                                 except Exception as e:
                                     print(f"[Python] ❌ Error en Global Recorder: {e}")
 
@@ -356,10 +414,10 @@ def handle_external_control():
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
-                        print("🎙️ Deteniendo grabación manual (Flag)...")
-                        # 🔹 Pequeña espera para asegurar que el último chunk se capture
+                        print("🎙️ Deteniendo grabación (Manual/Auto)...")
                         with manual_recording_lock:
                             manual_recording = False
+                            auto_record_mode = False
                                                 
                         # El hilo sigue corriendo, pero ya no escribe en el buffer.
                         # No cerramos nada.
@@ -431,11 +489,10 @@ def handle_external_control():
                             except: pass
 
                     elif cmd == 'CANCEL_RECORDING':
-                        print("[Python] 🚫 Grabación manual CANCELADA por el usuario.")
-                        manual_recording = False
-                        
-                        # Vaciar buffer sin guardar
+                        print("[Python] 🚫 Grabación CANCELADA.")
                         with manual_recording_lock:
+                            manual_recording = False
+                            auto_record_mode = False
                             manual_audio_buffer = []
 
                         # Reiniciar escucha
@@ -795,7 +852,8 @@ def process_interaction(user_text):
                     'add_reminder', 'add_reminder_item', 'agregar_recordatorio',
                     'update_reminder', 'remove_reminder', 
                     'add_recurring_reminder', 'tasks:update',
-                    'add_multiple_reminders'
+                    'add_multiple_reminders', 'notify', 'browse', 'search',
+                    'open_url', 'minimize', 'update-mic-config'
                 }
 
                 # 🔹 CONTEXTO: Guardar tema del último recordatorio interactuado
@@ -917,6 +975,9 @@ if __name__ == "__main__":
     # 🔹 Iniciar trabajador de voz
     TTSWorker().start()
     
+    # Asegurar que el recorder thread esté listo para START_RECORDING inmediato
+    ensure_recorder_thread()
+    
     print("👂 Escuchando...")
     
     try:
@@ -945,8 +1006,11 @@ if __name__ == "__main__":
                         while speaking: time.sleep(0.01)
                         drain_queue(audio_queue)
                         
-                        activado = True
+                        activado = True # Mantenemos el flag para el flujo pero...
                         last_interaction = time.time()
+                        
+                        # 🔹 CAMBIO V2: Activamos grabadora inteligente de alta calidad
+                        start_smart_recording()
                 else:
                     if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
                         print(f"💤 Comando de reposo detectado: '{norm_text}'")
