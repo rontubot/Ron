@@ -494,6 +494,7 @@ Los campos significan:
     - "search_google"
     - "add_reminder"
     - "add_recurring_reminder"
+    - "add_multiple_reminders"
     - "get_reminders"
     - "remove_reminder"
     - "update_reminder"
@@ -586,6 +587,11 @@ Los campos significan:
   * Ejemplo: "ponle prioridad alta (5) al de sacar la basura"
     -> {"action": "update_reminder", "params": {"original_title": "basura", "priority": 5}}
 
+⚠️ REGLA PARA MÚLTIPLES RECORDATORIOS (add_multiple_reminders):
+- ÚSALO SIEMPRE QUE EL USUARIO PIDA DOS O MÁS COSAS A LA VEZ (ej: "ponme alarma a las 8 y otra a las 9").
+- Params OBLIGATORIOS:
+  * "reminders": lista de objetos, donde cada uno sigue las reglas de "add_reminder" o "add_recurring_reminder".
+
 REGLAS OBLIGATORIAS PARA 'user_response':
 - NO uses markdown, emojis ni símbolos especiales.
 - NUNCA uses \\n ni * en 'user_response'. Usa puntos y comas para separar ideas.
@@ -614,7 +620,7 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
 
         # --- 5) Llamada al modelo en modo JSON ---
         respuesta = client.chat.completions.create(
-            model="gpt-5-chat-latest",
+            model="gpt-4o",
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=900,

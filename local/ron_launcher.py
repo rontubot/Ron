@@ -85,7 +85,7 @@ current_username = args.username
 control_enabled = True
 
 # Constants
-SILENCE_TIMEOUT_SEC = 1.5 # Tiempo de silencio para detener auto-grabación
+SILENCE_TIMEOUT_SEC = 2.0 # Tiempo de silencio para detener auto-grabación ("silencio grande")
 ALLOWED_WAKE_WORDS = {"ron", "ro", "rum", "run", "ru", "rom"}
 
 
@@ -268,16 +268,69 @@ def start_smart_recording():
     # Notificar a Electron que estamos grabando por voz
     print(json.dumps({"type": "recording_state", "state": "auto_recording"}), flush=True)
 
-def ensure_recorder_thread():
-    """Asegura que el hilo de grabación global esté activo."""
+def ensure_recorder_thread_internal():
+    """Asegura que el hilo de grabación global esté activo sin disparar una grabación."""
     global_recorder_thread = [t for t in threading.enumerate() if t.name == 'GlobalRawRecorder']
     if not global_recorder_thread:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect(('127.0.0.1', args.control_port))
-            s.sendall(b'START_RECORDING')
-            s.close()
-        except: pass
+        print("[Python] [Recorder] Iniciando Hilo Global de Grabación...")
+        def raw_recorder_loop():
+            global manual_recording, auto_record_mode, manual_audio_buffer
+            try:
+                import pyaudio
+                import numpy as np
+                p = pyaudio.PyAudio()
+                dev_idx = args.microphone_index
+                print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
+                stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
+                                frames_per_buffer=1024, input_device_index=dev_idx)
+                
+                silence_start = None
+                has_spoken = False
+                
+                while True:
+                    try:
+                        data = stream.read(1024, exception_on_overflow=False)
+                    except:
+                        continue
+                        
+                    is_recording = False
+                    is_auto = False
+                    with manual_recording_lock:
+                        is_recording = manual_recording
+                        is_auto = auto_record_mode
+                        if is_recording or is_auto:
+                            manual_audio_buffer.append(data)
+                    
+                    if is_auto:
+                        audio_data = np.frombuffer(data, dtype=np.int16)
+                        rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
+                        
+                        if rms > 450:
+                            silence_start = None
+                            has_spoken = True
+                        else:
+                            if silence_start is None:
+                                 silence_start = time.time()
+                            
+                            timeout = SILENCE_TIMEOUT_SEC if has_spoken else 5.0
+                            if (time.time() - silence_start) > timeout:
+                                print(f"[Python] [VAD] Silencio detectado ({'post-habla' if has_spoken else 'timeout'}). Procesando...")
+                                threading.Thread(target=trigger_internal_stop, daemon=True).start()
+                                silence_start = None
+                                has_spoken = False
+                    else:
+                        silence_start = None
+                        has_spoken = False
+                        
+            except Exception as e:
+                print(f"[Python] ❌ Error en Global Recorder: {e}")
+
+        t = threading.Thread(target=raw_recorder_loop, name='GlobalRawRecorder', daemon=True)
+        t.start()
+
+def ensure_recorder_thread():
+    """Versión que puede llamarse internamente o desde el main loop."""
+    ensure_recorder_thread_internal()
 
 def handle_external_control():    
     def control_server():    
@@ -340,77 +393,15 @@ def handle_external_control():
                     
                     elif cmd == 'START_RECORDING':
                         print("[Python] 🎙️ Iniciando grabación manual continua (INSTANT)...")
-                        # 1. Detener escucha de fondo (si aplica)
                         if stop_listening:
-                            stop_listening(wait_for_stop=False) # ⚡ INSTANT STOP
+                            stop_listening(wait_for_stop=False)
                             stop_listening = None
                         
-                        # 2. Activar flag de grabación
                         with manual_recording_lock:
                             manual_recording = True
                             manual_audio_buffer = [] 
-                            
-                        # Si el hilo 'global_raw_recorder' no está corriendo, iniciarlo.
-                        global_recorder_thread = [t for t in threading.enumerate() if t.name == 'GlobalRawRecorder']
-                        if not global_recorder_thread:
-                             print("[Python] [Recorder] Iniciando Hilo Global de Grabación...")
-                             def raw_recorder_loop():
-                                global manual_recording, auto_record_mode, manual_audio_buffer
-                                try:
-                                    import pyaudio
-                                    import numpy as np
-                                    p = pyaudio.PyAudio()
-                                    dev_idx = args.microphone_index
-                                    print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
-                                    stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
-                                                    frames_per_buffer=1024, input_device_index=dev_idx)
-                                    
-                                    silence_start = None
-                                    has_spoken = False
-                                    
-                                    while True:
-                                        try:
-                                            data = stream.read(1024, exception_on_overflow=False)
-                                        except:
-                                            continue
-                                            
-                                        is_recording = False
-                                        is_auto = False
-                                        with manual_recording_lock:
-                                            is_recording = manual_recording
-                                            is_auto = auto_record_mode
-                                            if is_recording or is_auto:
-                                                manual_audio_buffer.append(data)
-                                        
-                                        if is_auto:
-                                            # Calcular RMS para VAD
-                                            audio_data = np.frombuffer(data, dtype=np.int16)
-                                            rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
-                                            
-                                            if rms > 450:
-                                                silence_start = None
-                                                has_spoken = True
-                                            else:
-                                                if silence_start is None:
-                                                     silence_start = time.time()
-                                                
-                                                # Si detectamos silencio tras hablar o tras mucho tiempo esperando
-                                                timeout = SILENCE_TIMEOUT_SEC if has_spoken else 5.0
-                                                if (time.time() - silence_start) > timeout:
-                                                    print(f"[Python] [VAD] Silencio detectado ({'post-habla' if has_spoken else 'timeout'}). Procesando...")
-                                                    threading.Thread(target=trigger_internal_stop, daemon=True).start()
-                                                    silence_start = None
-                                                    has_spoken = False
-                                        else:
-                                            silence_start = None
-                                            has_spoken = False
-                                            
-                                except Exception as e:
-                                    print(f"[Python] ❌ Error en Global Recorder: {e}")
-
-                             t = threading.Thread(target=raw_recorder_loop, name='GlobalRawRecorder', daemon=True)
-                             t.start()
-                             
+                        
+                        ensure_recorder_thread_internal()
                         client.sendall(b'OK')
                         
                     elif cmd == 'STOP_RECORDING':
@@ -464,7 +455,14 @@ def handle_external_control():
                                             print(f"[USER_VOICE] {transcription}")
                                             # Lanzar interacción en hilo separado para no bloquear el control server
                                             def run_auto_interaction(txt):
-                                                process_interaction(txt)
+                                                stay_active = process_interaction(txt)
+                                                
+                                                # 🔹 CADENEO: Si Ron sigue "activado", volver a iniciar grabación automáticamente
+                                                global activado
+                                                if activado:
+                                                    print("[Python] 🔄 Cadeneando grabación: Ron sigue activo.")
+                                                    start_smart_recording()
+                                                
                                                 # Limpieza opcional del archivo temporal
                                                 try: os.remove(filepath)
                                                 except: pass
@@ -921,10 +919,9 @@ def process_interaction(user_text):
                         print(f"⚠️ Error ejec. comando: {ce}")
                 
                 # Si se ejecutaron comandos que NO son stop_listening, 
-                # actualmente Ron se desactiva. Esto es comportamiento por defecto.
-                print("💤 Comando completado. Ron vuelve a reposo.")
-                activado = False
-                return False
+                # Ron se mantiene activo para permitir seguimiento.
+                print("✨ Interacción completada. Ron permanece atento.")
+                return True
 
             if full_response:
                 # Explicitly print Ron's voice for Electron interceptor
@@ -1006,10 +1003,14 @@ if __name__ == "__main__":
                         while speaking: time.sleep(0.01)
                         drain_queue(audio_queue)
                         
-                        activado = True # Mantenemos el flag para el flujo pero...
+                        activado = True 
                         last_interaction = time.time()
                         
-                        # 🔹 CAMBIO V2: Activamos grabadora inteligente de alta calidad
+                        # Esperar a que Ron termine de saludar para no grabarse a sí mismo
+                        while speaking: time.sleep(0.01)
+                        drain_queue(audio_queue)
+
+                        # 🔹 ACTIVACIÓN: Ron ahora es el disparador de la grabadora inteligente
                         start_smart_recording()
                 else:
                     if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
