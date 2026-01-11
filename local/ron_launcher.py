@@ -131,6 +131,7 @@ manual_recording_lock = threading.Lock()
 recognizer = None
 microphone = None
 stop_listening = None
+last_ron_response = "" # Para filtro anti-eco directo
 
 # =========================================================================================
 # ECHO CANCELLATION BUFFER
@@ -454,20 +455,35 @@ def handle_external_control():
                                         if transcription and len(transcription.strip()) > 1:
                                             print(f"[USER_VOICE] {transcription}")
                                             # Lanzar interacción en hilo separado para no bloquear el control server
-                                            def run_auto_interaction(txt):
+                                            def run_auto_interaction(txt, wav_path):
+                                                # 🔹 FILTRO ANTI-ECO: Si el texto es idéntico a lo que Ron acaba de decir, ignorar
+                                                global last_ron_response
+                                                if txt.lower().strip() == (last_ron_response or "").lower().strip():
+                                                    print(f"[Python] 🔇 Eco detectado e ignorado: '{txt}'")
+                                                    if os.path.exists(wav_path): os.remove(wav_path)
+                                                    if activado: start_smart_recording() # Re-activar por si acaso
+                                                    return
+
+                                                # Notificar que estamos procesando
+                                                print(json.dumps({"type": "recording_state", "state": "processing"}), flush=True)
                                                 stay_active = process_interaction(txt)
                                                 
                                                 # 🔹 CADENEO: Si Ron sigue "activado", volver a iniciar grabación automáticamente
                                                 global activado
                                                 if activado:
+                                                    # Pequeño margen para que el sistema "respire" tras procesar
+                                                    time.sleep(0.3)
                                                     print("[Python] 🔄 Cadeneando grabación: Ron sigue activo.")
                                                     start_smart_recording()
                                                 
-                                                # Limpieza opcional del archivo temporal
-                                                try: os.remove(filepath)
+                                                # 🔹 LIMPIEZA: Borrar archivo temporal siempre
+                                                try: 
+                                                    if os.path.exists(wav_path):
+                                                        os.remove(wav_path)
+                                                        print(f"[Python] 🗑️ Archivo temporal borrado: {wav_path}")
                                                 except: pass
 
-                                            threading.Thread(target=run_auto_interaction, args=(transcription,), daemon=True).start()
+                                            threading.Thread(target=run_auto_interaction, args=(transcription, filepath), daemon=True).start()
                                             client.sendall(f"RECORDED_AND_PROCESSING:{transcription}".encode('utf-8'))
                                         else:
                                             print("[Python] ⚠️ No se detectó voz en la grabación manual.")
@@ -475,6 +491,10 @@ def handle_external_control():
                                 except Exception as te:
                                     print(f"[Python] ❌ Error transcribiendo grabación manual: {te}")
                                     client.sendall(b'ERROR:TRANSCRIBE_FAILED')
+                                    # Cleanup even on failure
+                                    try: 
+                                        if os.path.exists(filepath): os.remove(filepath)
+                                    except: pass
 
                         except Exception as e:
                             print(f"[Python] ❌ Error guardando WAV: {e}")
@@ -789,6 +809,16 @@ def process_interaction(user_text):
     now_str = get_internet_time()
     context_prefix = f"[Contexto actual: {now_str}] "
     
+    # 🔹 0. Detectar hibernación manual (Keyword check rápido)
+    norm_text = user_text.lower().strip()
+    if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
+        print(f"💤 Hibernación por comando: '{user_text}'")
+        speak_async("Entendido, ya no escucho.")
+        global activado
+        activado = False
+        print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
+        return False
+
     payload = {
         "text": context_prefix + user_text, 
         "username": user_to_send,
@@ -835,6 +865,8 @@ def process_interaction(user_text):
                     speak_async(sentence)
 
             full_response = full_content.strip()
+            global last_ron_response
+            last_ron_response = full_response
             
             # 🔹 Esperar a que termine de hablar antes de purgar eco
             while speaking: time.sleep(0.01)
@@ -975,6 +1007,17 @@ if __name__ == "__main__":
     # Asegurar que el recorder thread esté listo para START_RECORDING inmediato
     ensure_recorder_thread()
     
+    # 🔹 LIMPIEZA INICIAL: Borrar wavs viejos de sesiones previas
+    try:
+        temp_dir = os.path.join(os.getcwd(), 'temp')
+        if os.path.exists(temp_dir):
+            for f in os.listdir(temp_dir):
+                if f.endswith(".wav"):
+                    try: os.remove(os.path.join(temp_dir, f))
+                    except: pass
+            print(f"🧹 Carpeta temporal '{temp_dir}' purgada.")
+    except: pass
+
     print("👂 Escuchando...")
     
     try:
@@ -1008,27 +1051,17 @@ if __name__ == "__main__":
                         
                         # Esperar a que Ron termine de saludar para no grabarse a sí mismo
                         while speaking: time.sleep(0.01)
+                        time.sleep(0.5) # 🔹 Margen extra anti-eco
                         drain_queue(audio_queue)
 
                         # 🔹 ACTIVACIÓN: Ron ahora es el disparador de la grabadora inteligente
                         start_smart_recording()
                 else:
-                    if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
-                        print(f"💤 Comando de reposo detectado: '{norm_text}'")
-                        print("[RON_VOICE] Entendido.")
-                        speak_async("Entendido.")
-                        activado = False
-                        continue
-
-                    # 2. Procesar interacción normal
-                    # print(f"[USER_VOICE] {text}") # Quitado: ya se imprimió en el handler
-                    stay = process_interaction(text)
-                    
-                    # 🔹 CRÍTICO: Limpiar audio acumulado mientras Ron hablaba (Anti-Echo/Noise)
-                    while speaking: time.sleep(0.01)
-                    drain_queue(audio_queue)
-                    
-                    last_interaction = time.time() 
+                    # 🔹 MODO ACTIVO: En este modo NO usamos audio_queue (pasivo)
+                    # Porque la Grabadora Inteligente es la que provee el audio de alta calidad.
+                    # Así evitamos duplicidades de transcripción.
+                    time.sleep(0.5)
+                    continue
             except KeyboardInterrupt: break
             except Exception as e: print(f"❌ Loop: {e}")
     finally:
