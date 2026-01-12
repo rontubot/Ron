@@ -94,7 +94,8 @@ DEACTIVATE_KEYWORDS = {
     "descansa", "reposo", "dormir", "adios", "adiós", "hasta luego", 
     "terminamos", "ya está", "ya esta", "nada más", "nada mas", "silencio",
     "desactivar", "desactívate", "desactivarse", "apágate", "cierra la boca",
-    "nos vemos", "chao", "bye", "nos vimos", "corta", "cortala"
+    "nos vemos", "chao", "bye", "nos vimos", "corta", "cortala",
+    "listo", "vale", "entendido", "okey", "ok", "perfecto", "suficiente"
 }
 
 # 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
@@ -457,7 +458,7 @@ def handle_external_control():
                                             # Lanzar interacción en hilo separado para no bloquear el control server
                                             def run_auto_interaction(txt, wav_path):
                                                 # 🔹 FILTRO ANTI-ECO: Si el texto es idéntico a lo que Ron acaba de decir, ignorar
-                                                global last_ron_response
+                                                global last_ron_response, activado
                                                 if txt.lower().strip() == (last_ron_response or "").lower().strip():
                                                     print(f"[Python] 🔇 Eco detectado e ignorado: '{txt}'")
                                                     if os.path.exists(wav_path): os.remove(wav_path)
@@ -469,7 +470,6 @@ def handle_external_control():
                                                 stay_active = process_interaction(txt)
                                                 
                                                 # 🔹 CADENEO: Si Ron sigue "activado", volver a iniciar grabación automáticamente
-                                                global activado
                                                 if activado:
                                                     # Pequeño margen para que el sistema "respire" tras procesar
                                                     time.sleep(0.3)
@@ -814,7 +814,6 @@ def process_interaction(user_text):
     if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
         print(f"💤 Hibernación por comando: '{user_text}'")
         speak_async("Entendido, ya no escucho.")
-        global activado
         activado = False
         print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
         return False
@@ -922,6 +921,7 @@ def process_interaction(user_text):
                     if action == 'stop_listening':
                         print("💤 Ron se desactiva por orden del cerebro.")
                         activado = False
+                        print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
                         return False
 
                     # 🔹 Si es un comando de UI, SALTAR ejecución local (ya se envió a Electron)
@@ -965,12 +965,16 @@ def process_interaction(user_text):
 
                 # 🔹 AUTO-DEACTIVATE: Si la respuesta del LLM sugiere despedida
                 low_response = full_response.lower()
-                farewell_phrases = ["hasta luego", "nos vemos", "me mantendré inactivo", "estaré aquí cuando me necesites", 
-                                    "me desactivaré", "modo reposo", "si necesitas algo más", "estaré inactivo", "me quedo a la espera"]
+                farewell_phrases = [
+                    "hasta luego", "nos vemos", "me mantendré inactivo", "estaré aquí cuando me necesites", 
+                    "me desactivaré", "modo reposo", "si necesitas algo más", "estaré inactivo", "me quedo a la espera",
+                    "que tengas un buen día", "adiós", "hasta pronto", "chau", "estoy a la espera", "en reposo"
+                ]
                 
                 if any(phrase in low_response for phrase in farewell_phrases):
                     print(f"💤 Auto-desactivación por respuesta del LLM: '{full_response[:30]}...'")
                     activado = False
+                    print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
                     return False
 
     except Exception as e:
