@@ -727,9 +727,10 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
             "ron": fallback_msg,  # alias de compat
         }
 
-    # --- 10) Guardar conversación en memoria ---
+    # --- 10) Guardar conversación en memoria (Limpiando prefijos técnicos) ---
     try:
-        add_to_memory(current_user, user_text, user_response)
+        clean_user_text = re.sub(r"^\[Contexto actual:.*?\]\s*", "", user_text, flags=re.IGNORECASE)
+        add_to_memory(current_user, clean_user_text, user_response)
     except Exception as e:
         # Si falla la memoria, igual devolvemos respuesta al usuario
         return {

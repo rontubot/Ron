@@ -960,8 +960,9 @@ def process_interaction(user_text):
                 # Serialize newlines
                 safe_resp = full_response.replace('\n', '\\n')
                 print(f"[RON_VOICE] {safe_resp}")
-                try: add_to_memory(current_username, user_text, full_response)
-                except: pass
+                # Memory is now handled by the API centrally to avoid duplicates and metadata noise
+                # try: add_to_memory(current_username, user_text, full_response)
+                # except: pass
 
                 # 🔹 AUTO-DEACTIVATE: Si la respuesta del LLM sugiere despedida
                 low_response = full_response.lower()

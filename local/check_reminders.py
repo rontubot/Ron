@@ -36,36 +36,46 @@ def check_due_reminders(username):
         reminders = list_reminders(username, status="todo")
         now = datetime.now()
         
-        due_reminders = []
+        due_now = [] # Real-time alerts (missed by less than 1 hour)
+        overdue_old = [] # Background notifications (missed by more than 1 hour)
         
         for rem in reminders:
-            # Skip si no tiene fecha/hora
             if not rem.get("due_date") or not rem.get("due_time"):
                 continue
             
             try:
-                # Parse la fecha/hora del recordatorio
                 due_dt_str = f"{rem['due_date']}T{rem['due_time']}"
                 due_dt = datetime.fromisoformat(due_dt_str)
                 
-                # Si ya pasó la hora, agregar a la lista
                 if now >= due_dt:
-                    due_reminders.append({
+                    from datetime import timedelta
+                    diff = now - due_dt
+                    
+                    item = {
                         "id": rem["id"],
                         "title": rem["title"],
                         "description": rem.get("description", ""),
                         "due_date": rem["due_date"],
-                        "due_time": rem["due_time"]
-                    })
+                        "due_time": rem["due_time"],
+                        "missed_by_hours": int(diff.total_seconds() // 3600)
+                    }
                     
-                    # Marcar como completado
+                    # Si tiene más de 5 minutos de retraso, lo consideramos "vencido por ausencia"
+                    if diff > timedelta(minutes=5):
+                        overdue_old.append(item)
+                    else:
+                        due_now.append(item)
+                    
+                    # Marcar como completado (o 'notified') para que no se repita
                     update_reminder(username, rem["id"], status="done")
                     
-            except (ValueError, TypeError) as e:
-                # Si hay error parseando la fecha, skip
+            except (ValueError, TypeError):
                 continue
         
-        return due_reminders
+        return {
+            "due_now": due_now,
+            "overdue_old": overdue_old
+        }
         
     except Exception as e:
         # En caso de error, retornar lista vacía
