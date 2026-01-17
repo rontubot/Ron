@@ -13,6 +13,7 @@ from core.profile import (
     build_persona,
     purge_expired_facts,
 )
+from core.location import get_now_localized
 from core.memory import (
     add_to_memory,
     load_user_memory,
@@ -649,9 +650,25 @@ def construir_historial_usuario_openai(username: str):
     purge_expired_facts(prof)
     persona = build_persona(prof) if prof.get("enabled", True) else None
 
+    # NUEVO: Inyectar tiempo localizado
+    user_tz = prof.get("timezone", "UTC")
+    now_localized = get_now_localized(user_tz)
+    today_str = now_localized.strftime("%Y-%m-%d")
+    now_time_str = now_localized.strftime("%H:%M:%S")
+
     mensajes = []
     if persona:
         mensajes.append({"role": "system", "content": persona})
+
+    # Inyectar contexto temporal
+    time_context = (
+        "🚨 CONTEXTO TEMPORAL LOCALIZADO:\n"
+        f"- Fecha de hoy: {today_str}\n"
+        f"- Hora actual: {now_time_str}\n"
+        f"- Zona horaria: {user_tz}\n"
+        "Usa estos datos para calcular fechas relativas (mañana, el lunes, hace una hora, etc.)."
+    )
+    mensajes.append({"role": "system", "content": time_context})
 
     # Tu system base y el STRICT_JSON_SYSTEM
     mensajes.append({"role": "system", "content": STRICT_JSON_SYSTEM})

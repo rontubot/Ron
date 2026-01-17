@@ -22,6 +22,7 @@ from core.assistant import (
     construir_historial_usuario_openai, responder_a_usuario_streaming,
     parse_and_execute_commands_dynamic
 )
+from core.location import get_location_from_ip, get_now_localized, format_localized_now
 MD_BLOCK = re.compile(r"```.+?```", re.DOTALL)                # bloque ```code```
 MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)   # ### heading
 MD_BOLD = re.compile(r"\*\*(.*?)\*\*")
@@ -388,7 +389,7 @@ def update_user_profile(data: UserProfileUpdate, current_user: str = Depends(get
       
   
 @app.post("/ron")
-def chat_with_ron(data: UserInput, authorization: str = Header(None)):
+def chat_with_ron(data: UserInput, request: Request, authorization: str = Header(None)):
     """
     Endpoint principal de Ron (modo no streaming).
     Siempre devuelve JSON con este formato:
@@ -412,6 +413,34 @@ def chat_with_ron(data: UserInput, authorization: str = Header(None)):
     if not user_text:
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
 
+    # --- 2.1) Detección de Ubicación y Zona Horaria ---
+    user_ip = request.headers.get("x-forwarded-for") or request.client.host
+    if "," in str(user_ip): user_ip = user_ip.split(",")[0].strip() # Manejar proxies
+    
+    try:
+        mem = load_user_memory(current_user)
+        prof = get_or_init_profile(mem)
+        
+        # Solo buscamos si no tenemos zona o si queremos actualizar (cada 24h p.ej.)
+        if not prof.get("timezone"):
+            loc_info = get_location_from_ip(user_ip)
+            if loc_info:
+                prof["timezone"] = loc_info.get("timezone")
+                prof["location_info"] = loc_info
+                save_user_memory(current_user, mem)
+                print(f"🌍 Ubicación detectada para {current_user}: {loc_info.get('city')}, {loc_info.get('country')} ({prof['timezone']})")
+        
+        user_tz = prof.get("timezone", "UTC")
+        now_localized = get_now_localized(user_tz)
+        today_str = now_localized.strftime("%Y-%m-%d")
+        now_time_str = now_localized.strftime("%H:%M:%S")
+        
+    except Exception as e:
+        print(f"⚠️ Error procesando ubicación: {e}")
+        user_tz = "UTC"
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        now_time_str = datetime.utcnow().strftime("%H:%M:%S")
+
     try:
         # --- 3) Historial por usuario ---
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -434,6 +463,12 @@ Si el usuario pregunta "¿qué puedes hacer?", "ayuda", "qué sabes hacer" o sim
 - Responde de forma breve y genérica.
 - Invita al usuario a hacer una solicitud específica.
 - Intenta que todas tus respuestas sean rápidas: si te piden ejecutar algo y es seguro, hazlo sin pedir confirmación adicional.
+
+🚨 CONTEXTO TEMPORAL LOCALIZADO:
+- Fecha de hoy: {today_str}
+- Hora actual: {now_time_str}
+- Zona horaria: {user_tz}
+- Todos tus cálculos de "hoy", "mañana", "lunes", etc., deben basarse en estos datos.
 """
 
         # 🔹 Inyección de Contexto Dinámico (Memoria a Corto Plazo)
@@ -539,9 +574,8 @@ Los campos significan:
 
 - Ejemplos de parsing:
   * "mañana a las 3pm" → due_date="%TOMORROW%", due_time="15:00"
-  * "hoy 5pm" → due_date="%TODAY%", due_time="17:00"
-  * "el lunes 10am" → calcular próximo lunes, due_time="10:00"  
-  * "en 2 horas" → calcular desde ahora
+  * "due_date": "{today_str}"
+  * "due_time": "{now_time_str.split(':')[0]}:{now_time_str.split(':')[1]}" (calculado desde ahora)
   * "18 de diciembre 9am" → due_date="2025-12-18", due_time="09:00"
   
 - Si NO se menciona hora, usa "09:00" por defecto.
@@ -582,7 +616,7 @@ Los campos significan:
   * Ejemplo: "ponle etiqueta roja al almuerzo y prioridad máxima"
     -> {"action": "update_reminder", "params": {"original_title": "almuerzo", "priority": 5, "color": "red"}} 
   * Ejemplo: "cambia el recordatorio de la abuela para mañana a las 5"
-    -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "%TOMORROW%", "due_time": "17:00"}}
+    -> {"action": "update_reminder", "params": {"original_title": "abuela", "due_date": "mañana", "due_time": "17:00"}}
 
   * Ejemplo: "ponle prioridad alta (5) al de sacar la basura"
     -> {"action": "update_reminder", "params": {"original_title": "basura", "priority": 5}}

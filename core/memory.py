@@ -13,7 +13,8 @@ from datetime import datetime as _dt
 import re as _re
 from pathlib import Path as _Path
 import os as _os
-import logging, time
+import logging, time, uuid, base64, requests, json
+from core.location import get_now_localized
 log = logging.getLogger(__name__)
 
 
@@ -87,8 +88,20 @@ def load_user_memory(username: str):
 
 # === RECORDATORIOS: STORAGE LOCAL POR USUARIO ================================
 
-def _now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _now(username: str | None = None) -> str:
+    tz = "UTC"
+    if username:
+        # Intentamos obtener la zona horaria del perfil del usuario
+        try:
+            from core.profile import get_or_init_profile
+            # load_user_memory ya está disponible en este módulo
+            mem = load_user_memory(username)
+            prof = get_or_init_profile(mem)
+            tz = prof.get("timezone", "UTC")
+        except:
+            pass
+    
+    return get_now_localized(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _reminders_base_dir() -> str:
@@ -342,8 +355,8 @@ def add_reminder_item(
         "days_of_week": days_of_week or [],
         "remind_every_value": remind_every_value or 0,
         "remind_every_unit": remind_every_unit or "hours",
-        "created_at": _now(),
-        "updated_at": _now(),
+        "created_at": _now(username),
+        "updated_at": _now(username),
     }
 
     items.append(item)
@@ -395,7 +408,7 @@ def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
             for k, v in fields.items():
                 if k in allowed and v is not None:
                     r[k] = v
-            r["updated_at"] = _now()
+            r["updated_at"] = _now(username)
             items[idx] = r
             updated_item = r
             break
