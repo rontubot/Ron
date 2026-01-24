@@ -95,7 +95,8 @@ DEACTIVATE_KEYWORDS = {
     "terminamos", "ya está", "ya esta", "nada más", "nada mas", "silencio",
     "desactivar", "desactívate", "desactivarse", "apágate", "cierra la boca",
     "nos vemos", "chao", "bye", "nos vimos", "corta", "cortala",
-    "listo", "vale", "entendido", "okey", "ok", "perfecto", "suficiente"
+    "listo", "vale", "entendido", "okey", "ok", "perfecto", "suficiente",
+    "hasta mañana", "vete a dormir", "apaga", "silencio por favor"
 }
 
 # 🔹 STRICT BARGE-IN: Palabras que permiten interrumpir a Ron
@@ -977,6 +978,15 @@ def process_interaction(user_text):
                     activado = False
                     print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
                     return False
+                
+                # 🔹 NUEVO: Hibernación si la conversación se considera terminada (sin comandos ni prompts pendientes)
+                # Si llegamos aquí y no hubo comandos de desactivación, pero tampoco hubo comandos de acción,
+                # e incluimos un pequeño chequeo de "ayuda" o similar.
+                if not commands_found and len(full_response) > 5:
+                    # Si la respuesta es conclusiva, podemos optar por hibernar tras un pequeño delay
+                    # o simplemente dejar que el timeout de 30s del loop principal actúe.
+                    # Por ahora confiaremos en los keywords y el timeout de 30s.
+                    pass
 
     except Exception as e:
         print(f"❌ Backend Error: {e}")
