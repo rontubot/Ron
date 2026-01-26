@@ -132,6 +132,16 @@ def _resolve_standard_path(raw_path: str) -> str:
         return raw_path
 
 
+def open_url_in_browser(url: str, **kwargs):
+    """Abre una URL en el navegador predeterminado."""
+    if not url: return {"ok": False, "error": "No URL provided"}
+    try:
+        import webbrowser
+        webbrowser.open(url)
+        return {"ok": True, "message": f"Opening {url} in browser"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
     # Normalizamos separadores pero mantenemos el string original para no perder mayúsculas
     raw = str(raw_path).strip()
     raw = raw.replace("\\", "/")
@@ -2733,6 +2743,9 @@ COMMANDS = {
     "try_web_fallback": try_web_fallback,      
     "search_google": search_google,      
     "search_youtube": search_youtube,      
+    "search": search_google,
+    "browse": open_url_in_browser,
+    "execute_autonomous_plan": execute_autonomous_plan,
       
     # ——— Sistema      
     "shutdown": shutdown,      

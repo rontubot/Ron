@@ -832,11 +832,11 @@ def process_interaction(user_text):
 
     try:
         # 🔹 Usar streamed response para obtener texto lo antes posible
-        with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=15) as r:
+        with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=60) as r:
             if r.status_code != 200:
                 print(f"❌ Error API: {r.status_code} (User: {user_to_send})")
-                speak_async("No pude conectarme con mi cerebro.")
-                return False
+                # Fallback to non-streaming
+                return _process_interaction_fallback(user_text, api_url, headers, user_to_send)
 
             full_content = ""
             # 🔹 Procesar por oraciones para que hable mientras descarga
@@ -849,20 +849,31 @@ def process_interaction(user_text):
                             data = json.loads(line_str[6:])
                             if data['type'] == 'chunk':
                                 chunk = data['chunk']
-                                print(f"[RON_PARTIAL] {chunk}") # Newline for Electron split('\n')
+                                print(f"[RON_PARTIAL] {chunk}")
                                 yield chunk
-                            elif data['type'] in ('result', 'done'):
+                                has_any_chunk = True
+                            elif data.get('type') == 'done' or data.get('done'):
+                                # Extract full text or commands from done event
+                                if not has_any_chunk and data.get('full_text'):
+                                    yield data['full_text']
+                                has_any_chunk = True
                                 cmds = data.get('commands', [])
                                 if cmds: 
                                     commands_found.extend(cmds)
                         except: continue
 
             # 🔹 Enviar a TTS por oraciones
+            has_any_content = False
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if sentence:
-                    print(f"[RON_VOICE] {sentence}") # Interceptado por Electron para Chat en vivo
+                    has_any_content = True
+                    print(f"[RON_VOICE] {sentence}")
                     full_content += " " + sentence
                     speak_async(sentence)
+
+            if not has_any_content:
+                print("⚠️ Stream finished with no content. Trying fallback...")
+                return _process_interaction_fallback(user_text, api_url, headers, user_to_send)
 
             full_response = full_content.strip()
             global last_ron_response
@@ -990,10 +1001,47 @@ def process_interaction(user_text):
 
     except Exception as e:
         print(f"❌ Backend Error: {e}")
-        speak_async("Error de conexión.")
-        return False
+        # Try fallback on connection error too
+        return _process_interaction_fallback(user_text, api_url, headers, user_to_send)
 
     return True
+
+def _process_interaction_fallback(user_text, api_url, headers, user_to_send):
+    """Fallback to non-streaming /ron endpoint if stream fails."""
+    global last_ron_response
+    print(f"📡 Fallback Solicitando: {user_text[:40]}...")
+    try:
+        now_str = get_internet_time()
+        payload = {
+            "text": f"[Contexto actual: {now_str}] {user_text}",
+            "username": user_to_send,
+            "source": "desktop",
+            "return_json": True
+        }
+        r = requests.post(f"{api_url}/ron", json=payload, headers=headers, timeout=60)
+        if r.status_code == 200:
+            data = r.json()
+            full_response = data.get("user_response") or data.get("ron") or ""
+            if full_response:
+                safe_resp = full_response.replace('\n', '\\n')
+                print(f"[RON_VOICE] {safe_resp}")
+                speak_async(full_response)
+                last_ron_response = full_response
+                
+                cmds = data.get("commands", [])
+                if cmds:
+                    # Treat as safe commands and send to Electron
+                    json_str = json.dumps({"type": "commands", "commands": cmds})
+                    print(f"\n<<RON_CMD>>{json_str}<<END_CMD>>\n", flush=True)
+                return True
+        print(f"❌ Fallback API Error: {r.status_code}")
+    except Exception as e:
+        print(f"❌ Fallback Exception: {e}")
+    
+    speak_async("Error de conexión.")
+    # Reset UI state on total failure
+    print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
+    return False
 
 # =========================================================================================
 # MAIN
