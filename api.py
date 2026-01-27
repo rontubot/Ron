@@ -443,7 +443,15 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
 
     try:
         # --- 3) Historial por usuario ---
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return {
+                "user_response": "Lo siento; no tengo configurada mi llave de API de OpenAI en este Cerebro Local. Por favor; configúrala para que pueda responderte.",
+                "commands": [],
+                "ron": "Error: OPENAI_API_KEY missing"
+            }
+        
+        client = OpenAI(api_key=api_key)
         mensajes = construir_historial_usuario_openai(current_user)
 
         # --- 4) System prompt unificado con MEMORIA DE CONTEXTO ---

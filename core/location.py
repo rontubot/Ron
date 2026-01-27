@@ -42,7 +42,32 @@ def get_now_localized(timezone_str: str = "UTC") -> datetime:
     try:
         if not timezone_str:
             timezone_str = "UTC"
-        return datetime.now(ZoneInfo(timezone_str))
+        
+        # 🔹 Normalización de zonas comunes que pueden fallar
+        tz_map = {
+            "America/Argentina/Buenos_Aires": "America/Buenos_Aires",
+            "America/Argentina/Cordoba": "America/Cordoba",
+            "America/Argentina/Salta": "America/Salta",
+            "America/Argentina/Jujuy": "America/Jujuy",
+            "America/Argentina/Tucuman": "America/Tucuman",
+            "America/Argentina/Catamarca": "America/Catamarca",
+            "America/Argentina/La_Rioja": "America/La_Rioja",
+            "America/Argentina/San_Juan": "America/San_Juan",
+            "America/Argentina/Mendoza": "America/Mendoza",
+            "America/Argentina/San_Luis": "America/San_Luis",
+            "America/Argentina/Rio_Gallegos": "America/Rio_Gallegos",
+            "America/Argentina/Ushuaia": "America/Ushuaia"
+        }
+        
+        target_tz = tz_map.get(timezone_str, timezone_str)
+        
+        try:
+            return datetime.now(ZoneInfo(target_tz))
+        except:
+            # Si falla la mapeada, intentar con UTC como último recurso
+            if target_tz != "UTC":
+                return datetime.now(ZoneInfo("UTC"))
+            raise
     except Exception as e:
         logger.warning(f"Error al obtener hora para zona {timezone_str}, usando UTC: {e}")
         return datetime.now(ZoneInfo("UTC"))
