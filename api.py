@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse, StreamingResponse
-import os, json, base64, traceback, re, logging
+import os, json, base64, traceback, re, logging, time
 import jwt, bcrypt
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -737,7 +737,7 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
             )  
   
             # 2) Obtener la respuesta completa de /ron  
-            core_payload = chat_with_ron(data_model, authorization)  
+            core_payload = chat_with_ron(data_model, request, authorization)  
   
             # 3) Extraer y sanitizar SOLO el user_response  
             user_response_only = core_payload.get("user_response") or ""  
