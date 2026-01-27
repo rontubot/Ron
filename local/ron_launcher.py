@@ -892,9 +892,9 @@ def process_interaction(user_text):
                 UI_ONLY_COMMANDS = {
                     'add_reminder', 'add_reminder_item', 'agregar_recordatorio',
                     'update_reminder', 'remove_reminder', 
-                    'add_recurring_reminder', 'tasks:update',
+                    'add_recurring_reminder', 'tasks:update', 'tasks:delete',
                     'add_multiple_reminders', 'notify', 'browse', 'search',
-                    'open_url', 'minimize', 'update-mic-config'
+                    'open_url', 'minimize', 'update-mic-config', 'queue_local_task'
                 }
 
                 # 🔹 CONTEXTO: Guardar tema del último recordatorio interactuado
