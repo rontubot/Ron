@@ -469,15 +469,21 @@ def handle_external_control():
                                                 if transcription.lower().strip() == (last_ron_response or "").lower().strip():
                                                     print(f"[Python] 🔇 Eco detectado e ignorado: '{transcription}'")
                                                     if os.path.exists(wav_path): os.remove(wav_path)
-                                                    if activado: start_smart_recording()
+                                                    # if activado: start_smart_recording() # Quitamos el auto-reinicio agresivo
                                                     return
 
                                                 stay_active = process_interaction(transcription)
                                                 
-                                                # 🔹 CADENEO
-                                                if activado:
-                                                    time.sleep(0.3)
-                                                    print("[Python] 🔄 Cadeneando grabación: Ron sigue activo.")
+                                                # 🔹 ELIMINADO: Cadeneo automático agresivo. 
+                                                # Ahora dejaremos que Ron vuelva a su estado pasivo o active Smart Record 
+                                                # solo si el loop principal lo decide (basado en 'activado').
+                                                if not stay_active:
+                                                    activado = False
+                                                    print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
+                                                else:
+                                                    # Ron sigue activo, reiniciar grabadora para el siguiente turno del usuario
+                                                    print(json.dumps({"type": "recording_state", "state": "idle"}), flush=True)
+                                                    time.sleep(0.2) # Pequeña respiración
                                                     start_smart_recording()
                                             else:
                                                 print("[Python] ⚠️ No se detectó voz.")
@@ -635,10 +641,10 @@ else:
 
 def setup_streaming_recognition(device_index=None):
     r = sr.Recognizer()
-    r.pause_threshold = 0.5  
-    r.non_speaking_duration = 0.1 
+    r.pause_threshold = 0.8  
+    r.non_speaking_duration = 0.2 
     r.dynamic_energy_threshold = False
-    r.energy_threshold = 300 # More sensitive for better pickup
+    r.energy_threshold = 250 # More sensitive for better pickup in different environments
     try:
         try:
             # 🔹 Optimización: Usar PyAudio directo para filtrar "Outputs" y duplicados
@@ -906,7 +912,13 @@ def process_interaction(user_text):
             last_ron_response = full_response
             
             # 🔹 Esperar a que termine de hablar antes de purgar eco
-            while speaking: time.sleep(0.01)
+            # Debemos esperar a que el hilo de habla termine TODA la cola
+            while speaking or not tts_queue.empty(): 
+                time.sleep(0.01)
+            
+            # Pequeño margen extra de "respiración" para el motor de audio
+            # para que el eco se disipe y el VAD no se active solo.
+            time.sleep(0.5)
             drain_queue(audio_queue)
             
             # 🔹 Ejecutar comandos si los hay
@@ -1132,15 +1144,15 @@ if __name__ == "__main__":
                         print(f"[RON_VOICE] {phrase}")
                         speak_async(phrase)
                         
-                        while speaking: time.sleep(0.01)
+                        while speaking or not tts_queue.empty(): time.sleep(0.01)
                         drain_queue(audio_queue)
                         
                         activado = True 
                         last_interaction = time.time()
                         
                         # Esperar a que Ron termine de saludar para no grabarse a sí mismo
-                        while speaking: time.sleep(0.01)
-                        time.sleep(0.5) # 🔹 Margen extra anti-eco
+                        while speaking or not tts_queue.empty(): time.sleep(0.01)
+                        time.sleep(1.0) # 🔹 Margen extra anti-eco para activación (Metodo Seguro)
                         drain_queue(audio_queue)
 
                         # 🔹 ACTIVACIÓN: Ron ahora es el disparador de la grabadora inteligente
