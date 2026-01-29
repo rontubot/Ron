@@ -85,7 +85,7 @@ current_username = args.username
 control_enabled = True
 
 # Constants
-SILENCE_TIMEOUT_SEC = 2.0 # Tiempo de silencio para detener auto-grabación ("silencio grande")
+SILENCE_TIMEOUT_SEC = 0.8 # Tiempo de silencio para detener auto-grabación ("silencio grande")
 ALLOWED_WAKE_WORDS = {"ron", "ro", "rum", "run", "ru", "rom"}
 
 
@@ -315,7 +315,7 @@ def ensure_recorder_thread_internal():
                             if silence_start is None:
                                  silence_start = time.time()
                             
-                            timeout = SILENCE_TIMEOUT_SEC if has_spoken else 5.0
+                            timeout = SILENCE_TIMEOUT_SEC if has_spoken else 4.0
                             if (time.time() - silence_start) > timeout:
                                 print(f"[Python] [VAD] Silencio detectado ({'post-habla' if has_spoken else 'timeout'}). Procesando...")
                                 threading.Thread(target=trigger_internal_stop, daemon=True).start()
@@ -438,64 +438,65 @@ def handle_external_control():
                                 print("[Python] ⚠️ Grabación vacía (Buffer < 2 chunks).")
                                 client.sendall(b'ERROR:EMPTY')
                             else:
-                                # Guardar WAV
-                                with wave.open(filepath, 'wb') as wf:
-                                    wf.setnchannels(1)
-                                    wf.setsampwidth(2) # 16-bit
-                                    wf.setframerate(16000)
-                                    wf.writeframes(b''.join(frames))
-                                
-                                print(f"✅ WAV guardado: {filepath}")
-                                
-                                # 🔹 Transcribir
-                                try:
-                                    import speech_recognition as sr
-                                    with sr.AudioFile(filepath) as source:
-                                        audio_data = recognizer.record(source)
-                                        transcription = transcribe_audio(recognizer, audio_data)
+                                # 🔹 RESPUESTA INSTANTÁNEA: Avisamos que recibimos la data y procesamos en hilo
+                                client.sendall(b'OK:PROCESSING')
+
+                                def async_transcribe_and_process(audio_frames, wav_path):
+                                    try:
+                                        # Guardar WAV
+                                        with wave.open(wav_path, 'wb') as wf:
+                                            wf.setnchannels(1)
+                                            wf.setsampwidth(2) # 16-bit
+                                            wf.setframerate(16000)
+                                            wf.writeframes(b''.join(audio_frames))
                                         
-                                        if transcription and len(transcription.strip()) > 1:
-                                            print(f"[USER_VOICE] {transcription}")
-                                            # Lanzar interacción en hilo separado para no bloquear el control server
-                                            def run_auto_interaction(txt, wav_path):
-                                                # 🔹 FILTRO ANTI-ECO: Si el texto es idéntico a lo que Ron acaba de decir, ignorar
+                                        print(f"✅ WAV guardado: {wav_path}")
+                                        
+                                        # 🔹 Transcribir
+                                        import speech_recognition as sr
+                                        with sr.AudioFile(wav_path) as source:
+                                            audio_data = recognizer.record(source)
+                                            transcription = transcribe_audio(recognizer, audio_data)
+                                            
+                                            if transcription and len(transcription.strip()) > 1:
+                                                print(f"[USER_VOICE] {transcription}")
+                                                
+                                                # Notificar que estamos procesando (para que la UI ponga el spinner de processing si no estaba ya)
+                                                print(json.dumps({"type": "recording_state", "state": "processing"}), flush=True)
+                                                
+                                                # 🔹 FILTRO ANTI-ECO
                                                 global last_ron_response, activado
-                                                if txt.lower().strip() == (last_ron_response or "").lower().strip():
-                                                    print(f"[Python] 🔇 Eco detectado e ignorado: '{txt}'")
+                                                if transcription.lower().strip() == (last_ron_response or "").lower().strip():
+                                                    print(f"[Python] 🔇 Eco detectado e ignorado: '{transcription}'")
                                                     if os.path.exists(wav_path): os.remove(wav_path)
-                                                    if activado: start_smart_recording() # Re-activar por si acaso
+                                                    if activado: start_smart_recording()
                                                     return
 
-                                                # Notificar que estamos procesando
-                                                print(json.dumps({"type": "recording_state", "state": "processing"}), flush=True)
-                                                stay_active = process_interaction(txt)
+                                                stay_active = process_interaction(transcription)
                                                 
-                                                # 🔹 CADENEO: Si Ron sigue "activado", volver a iniciar grabación automáticamente
+                                                # 🔹 CADENEO
                                                 if activado:
-                                                    # Pequeño margen para que el sistema "respire" tras procesar
                                                     time.sleep(0.3)
                                                     print("[Python] 🔄 Cadeneando grabación: Ron sigue activo.")
                                                     start_smart_recording()
-                                                
-                                                # 🔹 LIMPIEZA: Borrar archivo temporal siempre
-                                                try: 
-                                                    if os.path.exists(wav_path):
-                                                        os.remove(wav_path)
-                                                        print(f"[Python] 🗑️ Archivo temporal borrado: {wav_path}")
-                                                except: pass
+                                            else:
+                                                print("[Python] ⚠️ No se detectó voz.")
+                                                # Reset record status in UI
+                                                print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
+                                                if activado: start_smart_recording() # Re-activar escucha pasiva si estaba ON
+                                    except Exception as ex:
+                                        print(f"[Python] ❌ Error en proceso asíncrono: {ex}")
+                                    finally:
+                                        # 🔹 LIMPIEZA
+                                        try: 
+                                            if os.path.exists(wav_path): os.remove(wav_path)
+                                        except: pass
 
-                                            threading.Thread(target=run_auto_interaction, args=(transcription, filepath), daemon=True).start()
-                                            client.sendall(f"RECORDED_AND_PROCESSING:{transcription}".encode('utf-8'))
-                                        else:
-                                            print("[Python] ⚠️ No se detectó voz en la grabación manual.")
-                                            client.sendall(b'ERROR:NO_SPEECH')
-                                except Exception as te:
-                                    print(f"[Python] ❌ Error transcribiendo grabación manual: {te}")
-                                    client.sendall(b'ERROR:TRANSCRIBE_FAILED')
-                                    # Cleanup even on failure
-                                    try: 
-                                        if os.path.exists(filepath): os.remove(filepath)
-                                    except: pass
+                                threading.Thread(target=async_transcribe_and_process, args=(frames, filepath), daemon=True).start()
+
+                        except Exception as e:
+                            print(f"[Python] ❌ Error enviando ACK: {e}")
+                            client.sendall(b'ERROR')
 
                         except Exception as e:
                             print(f"[Python] ❌ Error guardando WAV: {e}")
@@ -634,10 +635,10 @@ else:
 
 def setup_streaming_recognition(device_index=None):
     r = sr.Recognizer()
-    r.pause_threshold = 0.4  
-    r.non_speaking_duration = 0.2 
+    r.pause_threshold = 0.5  
+    r.non_speaking_duration = 0.1 
     r.dynamic_energy_threshold = False
-    r.energy_threshold = 350 # More sensitive for better pickup
+    r.energy_threshold = 300 # More sensitive for better pickup
     try:
         try:
             # 🔹 Optimización: Usar PyAudio directo para filtrar "Outputs" y duplicados
@@ -787,14 +788,39 @@ def stream_audio_recognition(recognizer, microphone, q):
     return recognizer.listen_in_background(microphone, callback, phrase_time_limit=10)
 
 def buffer_speech_sentences(text_stream):
-    # 🔹 MODO BLOQUE: Acumular TODO el texto antes de enviarlo.
-    # Esto elimina los cortes de audio causados por múltiples llamadas al proceso TTS.
-    full_text = ""
+    """
+    Yields full sentences as soon as they are completed in the stream.
+    Sentence delimiters: . ! ? \n
+    """
+    buffer = ""
     for chunk in text_stream:
-        if chunk: full_text += chunk
+        if not chunk: continue
+        buffer += chunk
+        
+        # Detectar delimitadores de fin de oración
+        # Usamos regex para no romper decimales (ej: 3.5) idealmente, 
+        # pero para velocidad buscaremos espacio tras el punto o fin de linea.
+        
+        while True:
+            # Buscar el primer delimitador que tenga un espacio después o sea el final
+            match = re.search(r'([.!?])(?:\s+|$)', buffer)
+            if match:
+                end_pos = match.end()
+                sentence = buffer[:end_pos].strip()
+                if sentence:
+                    yield sentence
+                buffer = buffer[end_pos:]
+            elif '\n' in buffer:
+                idx = buffer.find('\n')
+                sentence = buffer[:idx].strip()
+                if sentence:
+                    yield sentence
+                buffer = buffer[idx+1:]
+            else:
+                break
     
-    if full_text.strip():
-        yield full_text.strip()
+    if buffer.strip():
+        yield buffer.strip()
 
 def process_interaction(user_text):
     global interruption_event, activado
