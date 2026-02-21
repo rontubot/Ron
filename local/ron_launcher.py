@@ -203,7 +203,7 @@ class TTSWorker(threading.Thread):
                 import base64
                 b64_text = base64.b64encode(text.encode('utf-8')).decode('utf-8')
 
-                print(f"🤖 Ron hablando: {text[:60]}...")
+                # print(f"🤖 Ron hablando: {text[:60]}...") # ❌ Removido para evitar redundancia en Electron
                 
                 tts_script = f"""
 import pyttsx3, sys, base64, os
@@ -592,10 +592,10 @@ else:
 
 def setup_streaming_recognition(device_index=None):
     r = sr.Recognizer()
-    r.pause_threshold = 0.8  
-    r.non_speaking_duration = 0.2 
-    r.dynamic_energy_threshold = False
-    r.energy_threshold = 250 # More sensitive for better pickup in different environments
+    r.pause_threshold = 1.2 # Aumentado para dar más margen al hablar
+    r.non_speaking_duration = 0.3 # Ajustado
+    r.dynamic_energy_threshold = True # Habilitado para adaptarse al entorno
+    r.energy_threshold = 180 # Más sensible
     try:
         try:
             # 🔹 Optimización: Usar PyAudio directo para filtrar "Outputs" y duplicados
