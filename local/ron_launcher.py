@@ -360,6 +360,8 @@ def handle_external_control():
                         client.sendall(b'OK')
                     
                     elif cmd == 'START_RECORDING':
+                        client.sendall(b'OK') # ACK Inmediato para evitar timeouts en Electron
+                        print("[Python] START_RECORDING: Ack enviado.")
                         print("[Python] 🎙️ Iniciando grabación manual continua (INSTANT)...")
                         if stop_listening:
                             stop_listening(wait_for_stop=False)
@@ -370,11 +372,10 @@ def handle_external_control():
                             manual_audio_buffer = [] 
                         
                         ensure_recorder_thread_internal()
-                        client.sendall(b'OK')
                         print("[Python] Ack START_RECORDING enviado.")
                         
                     elif cmd == 'STOP_RECORDING':
-                        client.sendall(b'OK:PROCESSING') # ACK Inmediato para evitar timeouts en Electron
+                        client.sendall(b'OK:PROCESSING') # ACK Inmediato
                         print("[Python] STOP_RECORDING: Ack enviado.")
                         print("🎙️ Deteniendo grabación (Manual/Auto)...")
                         
@@ -401,9 +402,9 @@ def handle_external_control():
                             # 🔹 Relaxed threshold: Si hay al menos un poco de data
                             if not frames or len(frames) < 2: 
                                 print("[Python] ⚠️ Grabación vacía (Buffer < 2 chunks).")
-                                # Ya mandamos OK:PROCESSING arriba, así que este error se verá en logs de console
                             else:
-                                # Ya mandamos ACK arriba
+                                # Notificar que estamos procesando
+                                print(json.dumps({"type": "recording_state", "state": "processing"}), flush=True)
 
                                 def async_transcribe_and_process(audio_frames, wav_path):
                                     try:
