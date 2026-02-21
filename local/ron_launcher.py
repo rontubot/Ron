@@ -371,9 +371,13 @@ def handle_external_control():
                         
                         ensure_recorder_thread_internal()
                         client.sendall(b'OK')
+                        print("[Python] Ack START_RECORDING enviado.")
                         
                     elif cmd == 'STOP_RECORDING':
+                        client.sendall(b'OK:PROCESSING') # ACK Inmediato para evitar timeouts en Electron
+                        print("[Python] STOP_RECORDING: Ack enviado.")
                         print("🎙️ Deteniendo grabación (Manual/Auto)...")
+                        
                         with manual_recording_lock:
                             manual_recording = False
                                                 
@@ -397,10 +401,9 @@ def handle_external_control():
                             # 🔹 Relaxed threshold: Si hay al menos un poco de data
                             if not frames or len(frames) < 2: 
                                 print("[Python] ⚠️ Grabación vacía (Buffer < 2 chunks).")
-                                client.sendall(b'ERROR:EMPTY')
+                                # Ya mandamos OK:PROCESSING arriba, así que este error se verá en logs de console
                             else:
-                                # 🔹 RESPUESTA INSTANTÁNEA: Avisamos que recibimos la data y procesamos en hilo
-                                client.sendall(b'OK:PROCESSING')
+                                # Ya mandamos ACK arriba
 
                                 def async_transcribe_and_process(audio_frames, wav_path):
                                     try:
@@ -595,7 +598,7 @@ def setup_streaming_recognition(device_index=None):
     r.pause_threshold = 1.2 # Aumentado para dar más margen al hablar
     r.non_speaking_duration = 0.3 # Ajustado
     r.dynamic_energy_threshold = True # Habilitado para adaptarse al entorno
-    r.energy_threshold = 180 # Más sensible
+    r.energy_threshold = 150 # Reducido un poco más para máxima sensibilidad
     try:
         try:
             # 🔹 Optimización: Usar PyAudio directo para filtrar "Outputs" y duplicados
