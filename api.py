@@ -410,6 +410,7 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
 
     # --- 2) Texto de usuario ---
     user_text = (data.text or data.message or "").strip()
+    print(f"[API] Solicitud recibida de {current_user}: '{user_text[:50]}...'")
     if not user_text:
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
 
@@ -562,7 +563,7 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
         )
 
         gpt_response = (respuesta.choices[0].message.content or "").strip()
-        print(f"[DEBUG] GPT RAW: {gpt_response[:200]}...") # 🔹 Debug Hallucinations
+        print(f"[API] GPT respondio ({len(gpt_response)} chars)")
 
         # --- 6) Parsear JSON a estructura {user_response, commands} ---
         parsed = parse_commands_only(gpt_response) or {}
@@ -745,7 +746,9 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
             )  
   
             # 2) Obtener la respuesta completa de /ron  
+            print(f"[API_STREAM] Procesando para {current_user}...")
             core_payload = chat_with_ron(data_model, request, authorization)  
+            print(f"[API_STREAM] Payload listo, enviando chunks...")
   
             # 3) Extraer y sanitizar SOLO el user_response  
             user_response_only = core_payload.get("user_response") or ""  

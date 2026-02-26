@@ -287,8 +287,38 @@ def ensure_recorder_thread_internal():
                     is_recording = False
                     with manual_recording_lock:
                         is_recording = manual_recording
-                        if is_recording:
-                            manual_audio_buffer.append(data)
+                    
+                    if is_recording:
+                        if stream is None:
+                            try:
+                                print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
+                                stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
+                                                frames_per_buffer=1024, input_device_index=dev_idx)
+                            except Exception as e:
+                                print(f"[Python] ❌ Error abriendo stream: {e}")
+                                time.sleep(0.5)
+                                continue
+                        
+                        try:
+                            data = stream.read(1024, exception_on_overflow=False)
+                            with manual_recording_lock:
+                                manual_audio_buffer.append(data)
+                        except Exception as e:
+                            print(f"[Python] ❌ Error leyendo stream: {e}")
+                            if stream:
+                                try: stream.stop_stream(); stream.close()
+                                except: pass
+                                stream = None
+                            time.sleep(0.1)
+                    else:
+                        if stream is not None:
+                            print("[Python] [Recorder] Cerrando stream (reposo)")
+                            try:
+                                stream.stop_stream()
+                                stream.close()
+                            except: pass
+                            stream = None
+                        time.sleep(0.1) # Reposo cuando no graba
                         
             except Exception as e:
                 print(f"[Python] ❌ Error en Global Recorder: {e}")
@@ -372,11 +402,11 @@ def handle_external_control():
                             manual_audio_buffer = [] 
                         
                         ensure_recorder_thread_internal()
-                        print("[Python] Ack START_RECORDING enviado.")
+                        print("[Python] Ack START_RECORDING enviado.", flush=True)
                         
                     elif cmd == 'STOP_RECORDING':
                         client.sendall(b'OK:PROCESSING') # ACK Inmediato
-                        print("[Python] STOP_RECORDING: Ack enviado.")
+                        print("[Python] STOP_RECORDING: Ack enviado.", flush=True)
                         print("🎙️ Deteniendo grabación (Manual/Auto)...")
                         
                         with manual_recording_lock:
@@ -811,8 +841,9 @@ def process_interaction(user_text):
     try:
         # 🔹 Usar streamed response para obtener texto lo antes posible
         with requests.post(f"{api_url}/ron/stream", json=payload, headers=headers, stream=True, timeout=60) as r:
+            print(f"[Python] 📡 Respuesta HTTP recibida: {r.status_code}", flush=True)
             if r.status_code != 200:
-                print(f"❌ Error API: {r.status_code} (User: {user_to_send})")
+                print(f"❌ Error API: {r.status_code} (User: {user_to_send})", flush=True)
                 # Fallback to non-streaming
                 return _process_interaction_fallback(user_text, api_url, headers, user_to_send)
 
@@ -827,7 +858,7 @@ def process_interaction(user_text):
                             data = json.loads(line_str[6:])
                             if data['type'] == 'chunk':
                                 chunk = data['chunk']
-                                print(f"[RON_PARTIAL] {chunk}")
+                                print(f"[RON_PARTIAL] {chunk}", flush=True)
                                 yield chunk
                                 has_any_chunk = True
                             elif data.get('type') == 'done' or data.get('done'):
@@ -845,7 +876,7 @@ def process_interaction(user_text):
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if sentence:
                     has_any_content = True
-                    print(f"[RON_VOICE] {sentence}")
+                    print(f"[RON_VOICE] {sentence}", flush=True)
                     full_content += " " + sentence
                     speak_async(sentence)
 
@@ -996,6 +1027,7 @@ def _process_interaction_fallback(user_text, api_url, headers, user_to_send):
     print(f"📡 Fallback Solicitando: {user_text[:40]}...")
     try:
         now_str = get_internet_time()
+        print(f"[Python] [Fallback] Enviando a /ron para {user_to_send}", flush=True)
         payload = {
             "text": f"[Contexto actual: {now_str}] {user_text}",
             "username": user_to_send,
@@ -1097,7 +1129,7 @@ if __name__ == "__main__":
                         last_interaction = time.time()
                 else:
                     # SI ESTA ACTIVADO, CUALQUIER TEXTO ES UNA INTERACCION
-                    print(f"[USER_VOICE] {text}")
+                    print(f"[USER_VOICE] {text}", flush=True)
                     last_interaction = time.time()
                     
                     # 🔹 El filtro de despedida / hibernación se hace dentro de process_interaction
@@ -1107,7 +1139,7 @@ if __name__ == "__main__":
                     
                     # Tras interactuar, limpiamos el audio pendiente de lo que Ron acaba de decir
                     while speaking or not tts_queue.empty(): time.sleep(0.01)
-                    time.sleep(0.3)
+                    time.sleep(0.5) # Aumentado para seguridad de eco
                     drain_queue(audio_queue)
                     last_interaction = time.time()
             except KeyboardInterrupt: break
