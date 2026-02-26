@@ -268,43 +268,34 @@ def ensure_recorder_thread_internal():
             global manual_recording, manual_audio_buffer
             try:
                 import pyaudio
-                import numpy as np
                 p = pyaudio.PyAudio()
                 dev_idx = args.microphone_index
-                print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
-                stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
-                                frames_per_buffer=1024, input_device_index=dev_idx)
-                
-                silence_start = None
-                has_spoken = False
+                stream = None
                 
                 while True:
-                    try:
-                        data = stream.read(1024, exception_on_overflow=False)
-                    except:
-                        continue
-                        
-                    is_recording = False
+                    is_rec = False
                     with manual_recording_lock:
-                        is_recording = manual_recording
+                        is_rec = manual_recording
                     
-                    if is_recording:
+                    if is_rec:
                         if stream is None:
                             try:
-                                print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}")
+                                print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}", flush=True)
                                 stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, 
                                                 frames_per_buffer=1024, input_device_index=dev_idx)
                             except Exception as e:
-                                print(f"[Python] ❌ Error abriendo stream: {e}")
+                                print(f"[Python] ❌ Error abriendo stream: {e}", flush=True)
                                 time.sleep(0.5)
                                 continue
                         
                         try:
+                            # Leemos en trozos pequeños para no bloquear mucho
                             data = stream.read(1024, exception_on_overflow=False)
-                            with manual_recording_lock:
-                                manual_audio_buffer.append(data)
+                            if data:
+                                with manual_recording_lock:
+                                    manual_audio_buffer.append(data)
                         except Exception as e:
-                            print(f"[Python] ❌ Error leyendo stream: {e}")
+                            print(f"[Python] ❌ Error leyendo stream: {e}", flush=True)
                             if stream:
                                 try: stream.stop_stream(); stream.close()
                                 except: pass
@@ -312,16 +303,15 @@ def ensure_recorder_thread_internal():
                             time.sleep(0.1)
                     else:
                         if stream is not None:
-                            print("[Python] [Recorder] Cerrando stream (reposo)")
+                            print("[Python] [Recorder] Cerrando stream (reposo)", flush=True)
                             try:
                                 stream.stop_stream()
                                 stream.close()
                             except: pass
                             stream = None
                         time.sleep(0.1) # Reposo cuando no graba
-                        
             except Exception as e:
-                print(f"[Python] ❌ Error en Global Recorder: {e}")
+                print(f"[Python] ❌ Error en Global Recorder: {e}", flush=True)
 
         t = threading.Thread(target=raw_recorder_loop, name='GlobalRawRecorder', daemon=True)
         t.start()
@@ -735,8 +725,8 @@ def stream_audio_recognition(recognizer, microphone, q):
     def callback(recognizer, audio):
         global speaking, interruption_event, manual_recording, manual_audio_buffer, last_speech_at
 
-        # 🔹 1. ECHO COOLDOWN (0.5s)
-        if time.time() - last_speech_at < 0.5:
+        # 🔹 1. ECHO COOLDOWN & SPEAKING CHECK
+        if speaking or (time.time() - last_speech_at < 0.5):
             return
 
         # 🔹 2. HANDLE MANUAL RECORDING (Deprecated via background callback)
@@ -749,7 +739,12 @@ def stream_audio_recognition(recognizer, microphone, q):
             text = transcribe_audio(recognizer, audio).lower().strip()
             if not text or len(text) < 2: return # Evitar micro-ruidos
 
-            # 🔹 4. PRINT USER VOICE FOR UI LOGGER
+            # 🔹 4. ECHO FILTER (Fuzzy match with recent history)
+            if speech_buffer.is_echo(text):
+                print(f"[Python] 🔇 Eco detectado e ignorado: '{text}'")
+                return
+
+            # 🔹 5. PRINT USER VOICE FOR UI LOGGER
             if not activado:
                 print(f"[USER_PASSIVE] {text}")
             else:
