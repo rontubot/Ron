@@ -344,7 +344,7 @@ def ensure_recorder_thread():
 
 def handle_external_control():    
     def control_server():    
-        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer, activado
+        global listening_active, speaking, control_enabled, manual_recording, manual_audio_buffer, activado, stop_listening, recognizer, microphone
         try:    
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)    
@@ -403,18 +403,25 @@ def handle_external_control():
                     
                     elif cmd == 'START_RECORDING':
                         client.sendall(b'OK') # ACK Inmediato para evitar timeouts en Electron
-                        print("[Python] START_RECORDING: Ack enviado.")
-                        print("[Python] 🎙️ Iniciando grabación manual continua (INSTANT)...")
-                        if stop_listening:
-                            stop_listening(wait_for_stop=False)
-                            stop_listening = None
+                        print("[Python] START_RECORDING: Ack enviado.", flush=True)
                         
+                        # 1. Detener escucha de fondo SI existe
+                        if stop_listening:
+                            print("[Python] 👂 Deteniendo escucha de fondo para grabación manual...", flush=True)
+                            try:
+                                stop_listening(wait_for_stop=False)
+                            except: pass
+                            stop_listening = None
+                            time.sleep(0.3) # 🔹 Margen para que Windows libere el driver
+                        
+                        # 2. Iniciar grabación
                         with manual_recording_lock:
                             manual_recording = True
                             manual_audio_buffer = [] 
                         
+                        # Asegurar que el hilo existe y empezará a grabar
                         ensure_recorder_thread_internal()
-                        print("[Python] Ack START_RECORDING enviado.", flush=True)
+                        print("[Python] 🎙️ Grabación manual INICIADA.", flush=True)
                         
                     elif cmd == 'STOP_RECORDING':
                         client.sendall(b'OK:PROCESSING') # ACK Inmediato
@@ -457,7 +464,7 @@ def handle_external_control():
                                             wf.setframerate(16000)
                                             wf.writeframes(b''.join(audio_frames))
                                         
-                                        print(f"✅ WAV guardado: {wav_path}")
+                                        print(f"[Python] ✅ WAV guardado ({len(audio_frames)} chunks): {wav_path}", flush=True)
                                         
                                         # 🔹 Transcribir
                                         import speech_recognition as sr
