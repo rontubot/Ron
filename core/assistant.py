@@ -114,7 +114,7 @@ IMPORTANTE:
   - Úsalo para alarmas diarias o recordatorios periódicos.
 - Para add_multiple_reminders:
   - Params: "reminders" (lista de objetos con los params de add_reminder).
-  - Úsalo si el usuario pide varias cosas a la vez (ej: "ponme una alarma a las 8, otra a las 9 y recuérdame comprar pan").
+  - Úsalo si el usuario pide varias cosas a la vez (ej: "ponme una alarma a las 8, otra a la 9 y recuérdame comprar pan").
 - Para update_reminder:
   - Params: "reminder_id" (obligatorio), y los campos a cambiar ("title", "status": "done"|"todo", etc).
 - Para remove_reminder:

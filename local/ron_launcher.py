@@ -36,6 +36,15 @@ from core.commands import (
     restore_application_volumes
 )
 from core.memory import add_to_memory, get_display_name, set_display_name
+
+# 🔹 Set Electron tasks path for memory synchronization
+if not os.getenv("RON_TASKS_PATH"):
+    app_data = os.getenv("APPDATA")
+    if app_data:
+        tasks_path = os.path.join(app_data, "ron-web-app", "tasks.json")
+        if os.path.exists(tasks_path):
+            os.environ["RON_TASKS_PATH"] = tasks_path
+            logging.info(f"🔗 RON_TASKS_PATH set to: {tasks_path}")
 from core.tts import speak as tts_speak
 
 # =========================================================================================
@@ -451,11 +460,13 @@ def handle_external_control():
                             # 🔹 Relaxed threshold: Si hay al menos un poco de data
                             if not frames or len(frames) < 2: 
                                 print("[Python] ⚠️ Grabación vacía (Buffer < 2 chunks).")
+                                print(json.dumps({"type": "recording_state", "state": "idle" if activado else "inactive"}), flush=True)
                             else:
-                                # Notificar que estamos procesando
+                                # Notificar que estamos procesando inmediatamente tras el STOP
                                 print(json.dumps({"type": "recording_state", "state": "processing"}), flush=True)
 
                                 def async_transcribe_and_process(audio_frames, wav_path):
+                                    global activado
                                     try:
                                         # Guardar WAV
                                         with wave.open(wav_path, 'wb') as wf:
@@ -475,8 +486,7 @@ def handle_external_control():
                                             if transcription and len(transcription.strip()) > 1:
                                                 print(f"[USER_VOICE] {transcription}")
                                                 
-                                                # Notificar que estamos procesando (para que la UI ponga el spinner de processing si no estaba ya)
-                                                print(json.dumps({"type": "recording_state", "state": "processing"}), flush=True)
+                                                # (Redundancia eliminada: ya estamos en 'processing' desde el STOP)
                                                 
                                                 # 🔹 FILTRO ANTI-ECO
                                                 global last_ron_response, activado
@@ -500,9 +510,11 @@ def handle_external_control():
                                                     time.sleep(0.2)
                                             else:
                                                 print("[Python] ⚠️ No se detectó voz.")
-                                                print(json.dumps({"type": "recording_state", "state": "inactive"}), flush=True)
+                                                # En caso de no detectar nada, volver a reposo
+                                                print(json.dumps({"type": "recording_state", "state": "idle" if activado else "inactive"}), flush=True)
                                     except Exception as ex:
                                         print(f"[Python] ❌ Error en proceso asíncrono: {ex}")
+                                        print(json.dumps({"type": "recording_state", "state": "idle" if activado else "inactive"}), flush=True)
                                     finally:
                                         # 🔹 LIMPIEZA
                                         try: 
@@ -899,6 +911,10 @@ def process_interaction(user_text):
             has_any_content = False
             for sentence in buffer_speech_sentences(generate_chunks()):
                 if sentence:
+                    if not has_any_content:
+                        # 🔹 Liberar a la UI del estado 'processing' en cuanto Ron empieza a hablar
+                        print(json.dumps({"type": "recording_state", "state": "idle" if activado else "inactive"}), flush=True)
+                    
                     has_any_content = True
                     print(f"[RON_VOICE] {sentence}", flush=True)
                     full_content += " " + sentence

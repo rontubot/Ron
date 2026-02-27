@@ -131,17 +131,6 @@ def _resolve_standard_path(raw_path: str) -> str:
     if not raw_path:
         return raw_path
 
-
-def open_url_in_browser(url: str, **kwargs):
-    """Abre una URL en el navegador predeterminado."""
-    if not url: return {"ok": False, "error": "No URL provided"}
-    try:
-        import webbrowser
-        webbrowser.open(url)
-        return {"ok": True, "message": f"Opening {url} in browser"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
     # Normalizamos separadores pero mantenemos el string original para no perder mayúsculas
     raw = str(raw_path).strip()
     raw = raw.replace("\\", "/")
@@ -191,6 +180,17 @@ def open_url_in_browser(url: str, **kwargs):
 
     # Fallback: interpretamos la ruta como relativa al home del usuario
     return os.path.join(home, expanded)
+
+
+def open_url_in_browser(url: str, **kwargs):
+    """Abre una URL en el navegador predeterminado."""
+    if not url: return {"ok": False, "error": "No URL provided"}
+    try:
+        import webbrowser
+        webbrowser.open(url)
+        return {"ok": True, "message": f"Opening {url} in browser"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def get_standard_path(path=None, directory=None, base=None, progress_callback=None):
     """
@@ -602,8 +602,8 @@ def analyze_file(file_path, analysis_type="general", progress_callback=None, max
             send_progress(f"⚠️ {msg}")
             return msg
 
-        # Permitir ~, variables de entorno, etc.
-        expanded_path = os.path.expandvars(os.path.expanduser(file_path))
+        # Resolver alias (escritorio, documentos, {username}, etc.)
+        expanded_path = _resolve_standard_path(file_path)
 
         if not os.path.exists(expanded_path):
             msg = f"El archivo no existe: {expanded_path}"
@@ -1576,11 +1576,8 @@ def list_files(directory_path=None, progress_callback=None):
 
     try:
         # Default: Escritorio del usuario
-        if not directory_path:
-            base = os.path.join(os.path.expanduser("~"), "Desktop")
-            resolved = base
-        else:
-            resolved = _resolve_standard_path(directory_path)
+        # Resolver alias (escritorio, documentos, {username}, etc.)
+        resolved = _resolve_standard_path(directory_path or "escritorio")
 
         send_progress(f"📂 Listando archivos en: {resolved}")
         logger.info(f"Listando archivos en: {resolved}")
@@ -2079,64 +2076,17 @@ def cmd_add_reminder(params, ctx):
 
 
 def cmd_get_reminders(params, ctx):    
-    import json
-    import os
-    from datetime import datetime
+    username = _username(ctx, params)
+    from core.memory import list_reminders
+    from datetime import datetime, timedelta
     
-    # 1. Localizar tasks.json (Electron data)
-    user_home = os.path.expanduser("~")
-    # Intentar prod primero, luego dev
-    paths = [
-        os.path.join(user_home, "AppData", "Roaming", "ron-web-app", "tasks.json"),
-        os.path.join(user_home, "AppData", "Roaming", "Electron", "tasks.json")
-    ]
-    
-    tasks_file = None
-    for p in paths:
-        if os.path.exists(p):
-            tasks_file = p
-            break
+    # 1. Obtener recordatorios centralizados (puede venir de Electron o GitHub)
+    items = list_reminders(username)
+    # Filtrar igual que la UI (no archived, no deleted)
+    items = [t for t in items if t.get('status') not in ['archived', 'deleted', 'cancelled']]
             
-    items = []
-    if tasks_file:
-        try:
-            with open(tasks_file, 'r', encoding='utf-8') as f:
-                raw_items = json.load(f)
-                # 2. Filtrar igual que la UI (no archived, no deleted)
-                items = [
-                    t for t in raw_items 
-                    if t.get('status') not in ['archived', 'deleted', 'cancelled']
-                ]
-        except Exception as e:
-            print(f"Error leyendo tasks.json: {e}")
-            items = []
-            
-    # 3. Mapear campos Electron -> Campos Python Legacy (para compatibilidad de filtrado)
-    mapped_items = []
-    for t in items:
-        # Extraer fecha/hora de due_at ISO string
-        due_at = t.get('due_at')
-        d_str, t_str = "", ""
-        if due_at:
-            try:
-                dt = datetime.fromisoformat(due_at.replace("Z", "+00:00")) # simple parse
-                d_str = dt.strftime("%Y-%m-%d")
-                t_str = dt.strftime("%H:%M")
-            except: pass
-            
-        mapped_items.append({
-            "title": t.get('description') or t.get('title'),
-            "description": t.get('notes') or "",
-            "due_date": d_str,
-            "due_time": t_str,
-            "status": t.get('status'),
-            "priority": t.get('priority', 1)
-        })
-        
-    items = mapped_items # Usar los mapeados para el filtro de fecha
-
+    # 2. Filtrar por fecha si se solicita
     date_query = params.get("date")
-    # Filtrar por fecha si se solicita
     if date_query:
         target_date = ""
         if date_query.lower() in ["today", "hoy"]:
@@ -2160,15 +2110,15 @@ def cmd_get_reminders(params, ctx):
             "ok": True,
             "reminders": [],
             "message": msg,
-            "user_response": msg # Feedback explícito
+            "user_response": msg
         }
 
-    # Armamos una lista legible
+    # 3. Armar lista legible
     total = len(items)
     today_iso = datetime.now().strftime("%Y-%m-%d")
     header = f"Se encontraron {total} recordatorios {date_label}:"
     lines = [header]
-    for i, item in enumerate(items[:10], start=1): # Limit to 10
+    for i, item in enumerate(items[:10], start=1): 
         title = item.get("title", "(sin título)")
         due_d = item.get("due_date")
         due_t = item.get("due_time")
@@ -2180,25 +2130,24 @@ def cmd_get_reminders(params, ctx):
              if due_d < today_iso: extra += " [VENCIDO]"
              elif due_d == today_iso: extra += " [HOY]"
         if due_t: extra += f" a las {due_t}"
-        if prio and prio > 3: extra += " (Alta Importancia)"
+        
+        # Prioridad visual
+        prio_high = False
+        if isinstance(prio, (int, float)): prio_high = prio >= 3
+        elif isinstance(prio, str): prio_high = prio.lower() in ["urgent", "high", "alta"]
+        if prio_high: extra += " (Alta Importancia)"
         
         lines.append(f"{i}. {title}{extra}")
         
-    if total > 5:
-        lines.append(f"...y {total - 5} más.")
+    if total > 10:
+        lines.append(f"...y {total - 10} más.")
 
     final_text = "\n".join(lines)
     return {
         "ok": True,
         "reminders": items,
         "message": final_text,
-        "user_response": final_text # Feedback explícito
-    }
-
-    return {
-        "ok": True,
-        "reminders": items,
-        "message": "\n".join(lines)
+        "user_response": final_text 
     }
 
     

@@ -6,6 +6,7 @@ DEFAULT_PREFS = {
     "language": "es",
     "tone": "directo, técnico, con ejemplos",
     "formats": ["paso-a-paso","snippet","patch"],
+    "timezone": "America/Buenos_Aires",  # 🔹 Default timezone for the user
 }
 
 def now_iso():
@@ -21,6 +22,7 @@ def get_or_init_profile(mem: dict) -> dict:
     prof.setdefault("traits", {})
     prof.setdefault("interests", {})
     prof.setdefault("preferences", DEFAULT_PREFS.copy())
+    prof.setdefault("timezone", prof.get("preferences", {}).get("timezone", "America/Buenos_Aires"))
     prof.setdefault("dos", [])
     prof.setdefault("donts", [])
     prof.setdefault("facts", [])       # items con ttl ({"key","value","expires_at"})

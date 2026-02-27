@@ -182,6 +182,78 @@ def _load_electron_tasks():
         return []
 
 
+def _save_electron_tasks(items: list[dict]):
+    """
+    Guarda los recordatorios de vuelta en tasks.json de Electron.
+    Mantiene los otros tipos de tareas (no-recordatorios) intactos.
+    """
+    path = os.getenv("RON_TASKS_PATH")
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        # 1. Cargar datos actuales
+        with open(path, "r", encoding="utf-8") as f:
+            all_data = json.load(f)
+        if not isinstance(all_data, list):
+            all_data = []
+            
+        # 2. Filtrar lo que NO es recordatorio
+        non_reminders = [t for t in all_data if t.get("kind") != "reminder"]
+        
+        # 3. Mapear items de Python -> Electron
+        new_electron_items = []
+        for r in items:
+            # Reconstruir due_at (ISO)
+            due_at = None
+            if r.get("due_date"):
+                d = r["due_date"]
+                t = r.get("due_time") or "00:00"
+                due_at = f"{d}T{t}:00" # Formato simple compatible con Electron
+                
+            e_item = {
+                "id": r.get("id"),
+                "user": "default",
+                "kind": "reminder",
+                "description": r.get("title", "Recordatorio"),
+                "source": "local",
+                "status": r.get("status", "queued"),
+                "progress": 100,
+                "params": {},
+                "result_summary": None,
+                "error": None,
+                "created_at": r.get("created_at"),
+                "updated_at": r.get("updated_at") or r.get("created_at"),
+                "due_at": due_at,
+                "category": r.get("category", "General"),
+                "color": r.get("color", "#00f3ff"),
+                "daysOfWeek": r.get("days_of_week") or [],
+                "notes": r.get("description") or "",
+                "priority": r.get("priority") or 1,
+                "remindEveryValue": r.get("remind_every_value") or 0,
+                "remindEveryUnit": r.get("remind_every_unit") or "hours",
+                "recurrence": r.get("recurrence"),
+                "original_task_id": None
+            }
+            # Preservar position si existía en Electron previamente? 
+            # Es difícil sin mapear IDs primero, pero podemos intentar buscarlo en original
+            old_match = next((x for x in all_data if x.get("id") == r.get("id")), None)
+            if old_match and "position" in old_match:
+                e_item["position"] = old_match["position"]
+                
+            new_electron_items.append(e_item)
+            
+        final_list = non_reminders + new_electron_items
+        
+        # 4. Guardar
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(final_list, f, ensure_ascii=False, indent=2)
+        log.info(f"✅ Electron tasks.json sincronizado ({len(new_electron_items)} recordatorios)")
+        return True
+    except Exception as e:
+        log.error(f"Error sincronizando con Electron: {e}")
+        return False
+
+
 def _load_reminders(username: str) -> list[dict]:
     """
     Carga recordatorios desde GitHub (primaria) con fallback a local.
@@ -296,6 +368,10 @@ def _save_reminders(username: str, items: list[dict]) -> bool:
     except Exception as e:
         log.warning(f"⚠️ No se pudieron guardar recordatorios en {path}: {e}")
     
+    # 🔹 SI ESTAMOS EN ELECTRON, sincronizar también tasks.json
+    if os.getenv("RON_TASKS_PATH"):
+        _save_electron_tasks(items)
+
     # Retornar True si al menos uno tuvo éxito
     return success_github or success_local
 
