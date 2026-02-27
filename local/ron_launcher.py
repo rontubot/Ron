@@ -237,13 +237,15 @@ except:
                             break
                         time.sleep(0.01)
                     p.wait()
-                except:
-                    pass
-
+                except Exception as ex:
+                    print(f"❌ Error al lanzar TTS: {ex}")
+                
                 speaking = False
                 last_speech_at = time.time()
             except Exception as e:
-                print(f"❌ TTS Worker Error: {e}")
+                print(f"❌ TTS Worker exception: {e}")
+                import traceback
+                traceback.print_exc()
                 speaking = False
                 last_speech_at = time.time()
 

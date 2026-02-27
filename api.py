@@ -415,14 +415,18 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
         raise HTTPException(status_code=400, detail="Falta 'text' o 'message' en el body")
 
     # --- 2.1) Detección de Ubicación y Zona Horaria ---
-    user_ip = request.headers.get("x-forwarded-for") or request.client.host
-    if "," in str(user_ip): user_ip = user_ip.split(",")[0].strip() # Manejar proxies
+    user_ip = "127.0.0.1"
+    try:
+        if request.client:
+            user_ip = request.headers.get("x-forwarded-for") or request.client.host
+            if "," in str(user_ip): user_ip = user_ip.split(",")[0].strip()
+    except: pass
     
     try:
         mem = load_user_memory(current_user)
         prof = get_or_init_profile(mem)
         
-        # Solo buscamos si no tenemos zona o si queremos actualizar (cada 24h p.ej.)
+        # Solo buscamos si no tenemos zona o si queremos actualizar
         if not prof.get("timezone"):
             loc_info = get_location_from_ip(user_ip)
             if loc_info:
@@ -439,8 +443,9 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
     except Exception as e:
         print(f"⚠️ Error procesando ubicación: {e}")
         user_tz = "UTC"
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        now_time_str = datetime.utcnow().strftime("%H:%M:%S")
+        now_localized = datetime.utcnow()
+        today_str = now_localized.strftime("%Y-%m-%d")
+        now_time_str = now_localized.strftime("%H:%M:%S")
 
     try:
         # --- 3) Historial por usuario ---
@@ -453,113 +458,20 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
             }
         
         client = OpenAI(api_key=api_key)
+        # 🔹 Obtener historial y sistema base desde assistant.py
         mensajes = construir_historial_usuario_openai(current_user)
 
-        # --- 4) System prompt unificado con MEMORIA DE CONTEXTO ---
-        system_prompt_content = """
-Eres Ron, el asistente personal definitivo diseñado para organizar la vida del usuario de manera integral y proactiva. Tu objetivo no es solo ejecutar comandos, sino ser un compañero inteligente que anticipa necesidades, sugiere mejoras y construye un perfil profundo del usuario basado en sus actividades diarias.
-
-[IDENTIDAD Y PROPOSITO]
-1. ORGANIZADOR DE VIDA: Eres capaz de tomar un relato largo de actividades y desglosarlo en múltiples recordatorios y tareas organizadas. Si un usuario te cuenta su día, extrae CADA actividad relevante y agéndala.
-2. PROACTIVIDAD: No esperas órdenes pasivamente. Si ves una mejora posible en la rutina del usuario, sugiérela. Si notas que una actividad se repite, propón convertirla en recordatorio recurrente.
-3. INTERES GENUINO: Muestra curiosidad por las actividades del usuario. Pregunta detalles ("¿Qué tal estuvo la reunión?", "¿Necesitas que te prepare algo para el gimnasio?") para enriquecer tu perfil de él.
-4. APRENDIZAJE CONTINUO: Cada interacción sirve para entender mejor las preferencias, horarios y metas del usuario. Usa este "perfil" para dar sugerencias personalizadas de nuevas actividades o hábitos.
-
-[REGLAS DE EJECUCION EJECUTIVA]
-1. ACCION >>> PALABRAS: Tu prioridad absoluta es generar comandos JSON correctos.
-2. MULTI-TAREA: Puedes y debes enviar múltiples comandos en la lista "commands" si la solicitud lo amerita (ej: agendar 5 cosas a la vez).
-3. NO CONFIRMAR EN EXCESO: Si la acción es clara y segura, ejecútala directamente. Confirma con un "Hecho" o similar en 'user_response'.
-
-[CONTEXTO TEMPORAL LOCALIZADO]
-- Fecha de hoy: {today_str}
-- Hora actual: {now_time_str}
-- Zona horaria: {user_tz}
-- Cálculos temporales basados estrictamente en estos datos.
-"""
-
-        # 🔹 Inyección de Contexto Dinámico (Memoria a Corto Plazo)
-        try:
-            ctx_path = os.path.join(os.getcwd(), 'temp', 'context_memory.json')
-            if os.path.exists(ctx_path):
-                import json
-                with open(ctx_path, 'r', encoding='utf-8') as f:
-                    ctx_data = json.load(f)
-                    param_topic = ctx_data.get('last_reminder_topic')
-                    ts = ctx_data.get('timestamp', 0)
-                    
-                    # Solo valido si fue en los últimos 300 segundos (contexto ampliado)
-                    if param_topic and (time.time() - ts < 300):
-                        system_prompt_content += f"\n\n[CONTEXTO ACTIVO DE ULTIMA TAREA]: \nRecientemente interactuaste sobre: '{param_topic}'.\nSi el usuario usa pronombres o referencias vagas, se refiere a esto."
-        except Exception: pass
-
-        system_prompt_content += """
-
-⚠️ REGLA PARA SUGERENCIAS Y ESTUDIOS (NOTIFICACIONES):
-Si identificas una oportunidad de mejora, un estudio de hábitos o una sugerencia proactiva:
-- Usa el comando "notify" con un título llamativo (ej: "Sugerencia de salud", "Optimización de agenda").
-- En el 'message' de la notificación, plantea la idea de forma breve.
-- Asegúrate de que tu 'user_response' invite al usuario a abrir la notificación o comentar la idea.
-
-FORMATO DE RESPUESTA (OBLIGATORIO - JSON PURO):
-{
-  "user_response": "Texto amable, directo, sin markdown ni emojis. Usa puntos y comas.",
-  "commands": [
-    {
-       "action": "...",
-       "params": { ... }
-    }
-  ]
-}
-
-ACCIONES DISPONIBLES:
-- "add_reminder": { "title", "due_date", "due_time", "category", "priority" }
-- "notify": { "title", "message", "type": "info|success|warning|error", "click_prompt" } - USAR PARA SUGERENCIAS PROACTIVAS. 'click_prompt' es el texto que enviará el usuario al hacer clic en la notificación para entrar en contexto.
-- "add_recurring_reminder": { "title", "recurrence": "daily|weekly|monthly", "time" }
-- "update_reminder": { "original_title", "patch": { ... } }
-- "browse", "search", "open_application", "set_volume", "diagnose_system_performance", "execute_autonomous_plan".
-
-PRINCIPIOS DE RESPUESTA:
-1. Si te piden "organizar mi vida" o listar actividades, genera un 'add_reminder' por cada ítem.
-2. Si detectas cansancio o estrés en el audio/texto, sugiere un descanso vía notificación.
-3. Si el usuario te pregunta detalles de algo que agendó, busca en su memoria y responde con interés.
-
-EJEMPLOS DE FLUJO INTELIGENTE:
-- Usuario: "Ponme recordatorio mañana a las 10 para comprar pan"
-  Respuesta: {"commands": [{"action": "add_reminder", "params": {...}}, {"action": "stop_listening"}], "user_response": "Recordatorio creado para comprar pan mañana a las diez."}
-- Usuario: "Ponme un recordatorio"
-  Respuesta: {"commands": [], "user_response": "¿De qué quieres que sea el recordatorio?"} (Mantiene activo para captar la respuesta)
-- Usuario: "Busca cuánto mide Messi"
-  Respuesta: {"commands": [{"action": "browse", "params": {...}}, {"action": "stop_listening"}], "user_response": "Según los registros actuales, Messi mide uno con setenta metros."}
-- Usuario: "Hola Ron"
-  Respuesta: {"commands": [], "user_response": "Hola, ¿qué necesitas que haga por ti?"} (Mantiene activo)
-
-EJEMPLOS - PREGUNTAS SOBRE CAPACIDADES:
-Usuario: "¿qué puedes hacer?"
-Asistente: {"user_response":"Puedo ayudarte con tareas del sistema, búsquedas, recordatorios y más; dime qué necesitas y lo hago","commands":[]}
-
-EJEMPLOS - COMANDOS AVANZADOS (SISTEMA):
-Usuario: "sube el volumen al 80%"
-Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","commands":[{"type":"powershell","command":"Set-Volume -Level 80","safe":true}]}
-
-[ULTIMATUM EJECUTIVO]
-1. SI ORDENO UNA ACCION ("crea", "borra", "cambia", "recuerdame"), TU UNICA SALIDA VALIDA ES EL BLOQUE 'commands' LLENO.
-2. SI DICES "He actualizado", PERO 'commands' ESTA VACIO [], ESTAS MINTIENDO Y FALLANDO.
-3. ANTE LA DUDA, EJECUTA el comando mas probable con parametros por defecto.
-"""
-        mensajes.append({
-            "role": "system",
-            "content": system_prompt_content
-        })
-
+        # 🔹 Inyectar el mensaje del usuario al final
         mensajes.append({"role": "user", "content": user_text})
 
         # --- 5) Llamada al modelo en modo JSON ---
+        model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
         respuesta = client.chat.completions.create(
-            model="gpt-4o",
+            model=model_name,
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=900,
-            temperature=0.2, # Baja creatividad, alta precisión de comandos
+            max_tokens=1024,
+            temperature=0.2, 
         )
 
         gpt_response = (respuesta.choices[0].message.content or "").strip()
@@ -629,8 +541,9 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
                     }]
 
     except Exception as e:
+        import traceback
         traceback.print_exc()
-        fallback_msg = "Tuve un problema técnico al generar la respuesta; intenta de nuevo."
+        fallback_msg = "Tuve un problema técnico al generar la respuesta. Por favor, intenta de nuevo."
         try:
             add_to_memory(current_user, user_text, f"[error] {fallback_msg}")
         except Exception:
