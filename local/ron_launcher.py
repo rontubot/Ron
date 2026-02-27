@@ -266,11 +266,11 @@ def ensure_recorder_thread_internal():
         print("[Python] [Recorder] Iniciando Hilo Global de Grabación...")
         def raw_recorder_loop():
             global manual_recording, manual_audio_buffer
+            p = None
+            stream = None
             try:
                 import pyaudio
-                p = pyaudio.PyAudio()
                 dev_idx = args.microphone_index
-                stream = None
                 
                 while True:
                     is_rec = False
@@ -278,6 +278,15 @@ def ensure_recorder_thread_internal():
                         is_rec = manual_recording
                     
                     if is_rec:
+                        if p is None:
+                            try:
+                                print("[Python] [Recorder] Inicializando PyAudio lazily...", flush=True)
+                                p = pyaudio.PyAudio()
+                            except Exception as e:
+                                print(f"[Python] ❌ Error inicializando PyAudio: {e}", flush=True)
+                                time.sleep(1)
+                                continue
+
                         if stream is None:
                             try:
                                 print(f"[Python] [Recorder] Abriendo stream en device_index={dev_idx}", flush=True)
@@ -303,15 +312,28 @@ def ensure_recorder_thread_internal():
                             time.sleep(0.1)
                     else:
                         if stream is not None:
-                            print("[Python] [Recorder] Cerrando stream (reposo)", flush=True)
+                            print("[Python] [Recorder] Cerrando stream y liberando PyAudio (reposo)", flush=True)
                             try:
                                 stream.stop_stream()
                                 stream.close()
                             except: pass
                             stream = None
+                        
+                        if p is not None:
+                            try: p.terminate()
+                            except: pass
+                            p = None
+                            
                         time.sleep(0.1) # Reposo cuando no graba
             except Exception as e:
-                print(f"[Python] ❌ Error en Global Recorder: {e}", flush=True)
+                print(f"[Python] ❌ Error en Global Recorder loop: {e}", flush=True)
+            finally:
+                if stream:
+                    try: stream.stop_stream(); stream.close()
+                    except: pass
+                if p:
+                    try: p.terminate()
+                    except: pass
 
         t = threading.Thread(target=raw_recorder_loop, name='GlobalRawRecorder', daemon=True)
         t.start()

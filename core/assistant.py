@@ -1340,7 +1340,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 "donts": prof.get("donts", []),  
             }  
             try:  
-                cls = run_turn_classifier(_get_openai_client(), "gpt-5-chat-latest", original_input, snapshot)  
+                cls = run_turn_classifier(_get_openai_client(), "gpt-5.2", original_input, snapshot)  
                 ops = cls.get("ops") if isinstance(cls, dict) else None  
                 if ops:  
                     apply_ops(prof, ops, confidence_threshold=0.65)  
@@ -1350,7 +1350,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)  
             if do_batch:  
                 try:  
-                    batch = run_batch_profiler(_get_openai_client(), "gpt-5-chat-latest", prof["recent_window"])  
+                    batch = run_batch_profiler(_get_openai_client(), "gpt-5.2", prof["recent_window"])  
                     apply_batch_result(prof, batch)  
                 except Exception:  
                     pass  
@@ -1363,11 +1363,10 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
     mensajes.append({"role": "user", "content": original_input})    
         
     try:    
-        # STREAMING SIN response_format (para recibir texto progresivo)  
         respuesta = client.chat.completions.create(    
-            model="gpt-5.1",    
+            model="gpt-5.2",    
             messages=mensajes,    
-            max_tokens=10000,
+            max_tokens=1024, # Reducido para mayor velocidad en streaming
             temperature=0.2,    
             stream=True  # SIN response_format para streaming real  
         )    
