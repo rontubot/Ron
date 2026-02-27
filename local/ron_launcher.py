@@ -1082,6 +1082,8 @@ def _process_interaction_fallback(user_text, api_url, headers, user_to_send):
             full_response = data.get("user_response") or data.get("ron") or ""
             if full_response:
                 safe_resp = full_response.replace('\n', '\\n')
+                # 🔹 Liberar UI en el fallback
+                print(json.dumps({"type": "recording_state", "state": "idle" if activado else "inactive"}), flush=True)
                 print(f"[RON_VOICE] {safe_resp}")
                 speak_async(full_response)
                 last_ron_response = full_response
