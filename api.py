@@ -555,7 +555,7 @@ Asistente: {"user_response":"Subiendo el volumen al ochenta por ciento","command
 
         # --- 5) Llamada al modelo en modo JSON ---
         respuesta = client.chat.completions.create(
-            model="gpt-5.2",
+            model="gpt-4o",
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=900,
