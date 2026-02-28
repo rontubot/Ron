@@ -896,7 +896,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
                 "donts": prof.get("donts", []),
             }
             try:
-                model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+                model_name = "gpt-4o"
                 cls = run_turn_classifier(_get_openai_client(), model_name, original_input, snapshot)
                 ops = cls.get("ops") if isinstance(cls, dict) else None
                 if ops:
@@ -909,7 +909,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)
             if do_batch:
                 try:
-                    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+                    model_name = "gpt-4o"
                     batch = run_batch_profiler(_get_openai_client(), model_name, prof["recent_window"])
                     apply_batch_result(prof, batch)
                 except Exception as _e:
@@ -1178,7 +1178,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
 
     try:
         respuesta = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+            model="gpt-4o",
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=10000,
