@@ -896,8 +896,8 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
                 "donts": prof.get("donts", []),
             }
             try:
-                model_name = os.getenv("OPENAI_MODEL", "gpt-5.2")
-                cls = run_turn_classifier(_get_openai_client(), "gpt-5-chat-latest", original_input, snapshot)
+                model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+                cls = run_turn_classifier(_get_openai_client(), model_name, original_input, snapshot)
                 ops = cls.get("ops") if isinstance(cls, dict) else None
                 if ops:
                     apply_ops(prof, ops, confidence_threshold=0.65)
@@ -909,8 +909,8 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)
             if do_batch:
                 try:
-                    model_name = os.getenv("OPENAI_MODEL", "gpt-5.2")
-                    batch = run_batch_profiler(_get_openai_client(), "gpt-5-chat-latest", prof["recent_window"])
+                    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+                    batch = run_batch_profiler(_get_openai_client(), model_name, prof["recent_window"])
                     apply_batch_result(prof, batch)
                 except Exception as _e:
                     logger.debug(f"Batch profiler falló (no crítico): {_e}")
@@ -1178,7 +1178,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
 
     try:
         respuesta = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.2"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             messages=mensajes,
             response_format={"type": "json_object"},
             max_tokens=10000,
@@ -1342,7 +1342,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                 "donts": prof.get("donts", []),  
             }  
             try:  
-                cls = run_turn_classifier(_get_openai_client(), "gpt-5-chat-latest", original_input, snapshot)  
+                cls = run_turn_classifier(_get_openai_client(), "gpt-4o", original_input, snapshot)  
                 ops = cls.get("ops") if isinstance(cls, dict) else None  
                 if ops:  
                     apply_ops(prof, ops, confidence_threshold=0.65)  
@@ -1352,7 +1352,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)  
             if do_batch:  
                 try:  
-                    batch = run_batch_profiler(_get_openai_client(), "gpt-5-chat-latest", prof["recent_window"])  
+                    batch = run_batch_profiler(_get_openai_client(), "gpt-4o", prof["recent_window"])  
                     apply_batch_result(prof, batch)  
                 except Exception:  
                     pass  
@@ -1366,7 +1366,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         
     try:    
         respuesta = client.chat.completions.create(    
-            model=os.getenv("OPENAI_MODEL", "gpt-5.2"),    
+            model=os.getenv("OPENAI_MODEL", "gpt-4o"),    
             messages=mensajes,    
             max_tokens=1024, # Reducido para mayor velocidad en streaming
             temperature=0.2,    
