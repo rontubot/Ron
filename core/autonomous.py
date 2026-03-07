@@ -59,7 +59,7 @@ IMPORTANTE:
     try:
         client = _get_openai_client()  # Lazy load del cliente OpenAI
         resp = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4-pro",
             messages=[
                 {
                     "role": "system",

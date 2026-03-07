@@ -465,15 +465,14 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
         mensajes.append({"role": "user", "content": user_text})
 
         # --- 5) Llamada al modelo en modo JSON ---
-        # 🔹 Forzamos gpt-4o para estabilidad absoluta por ahora
-        model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
-        if "gpt-5" in model_name: model_name = "gpt-4o"
+        # 🔹 Usando gpt-5.4 (Actualizado Marzo 2026)
+        model_name = os.getenv("OPENAI_MODEL", "gpt-5.4")
 
         respuesta = client.chat.completions.create(
             model=model_name,
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=1024,
+            max_tokens=2048,
             temperature=0.2, 
         )
 
