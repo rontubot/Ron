@@ -465,14 +465,14 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
         mensajes.append({"role": "user", "content": user_text})
 
         # --- 5) Llamada al modelo en modo JSON ---
-        # 🔹 Volviendo a gpt-5.1 (Más estable para todos los Tiers)
-        model_name = os.getenv("OPENAI_MODEL", "gpt-5.1")
+        # 🔹 Hardcoded gpt-5.1 para evitar conflictos de variables de entorno
+        model_name = "gpt-5.1"
 
         respuesta = client.chat.completions.create(
             model=model_name,
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=2048,
+            max_tokens=4096,
             temperature=0.2, 
         )
 
@@ -545,7 +545,7 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
     except Exception as e:
         import traceback
         traceback.print_exc()
-        fallback_msg = f"Tuve un problema técnico (Error: {type(e).__name__}). Por favor, intenta de nuevo."
+        fallback_msg = f"Tuve un problema técnico (Error: {type(e).__name__} - {str(e)[:100]}). Por favor, intenta de nuevo."
         try:
             add_to_memory(current_user, user_text, f"[error] {fallback_msg}")
         except Exception:

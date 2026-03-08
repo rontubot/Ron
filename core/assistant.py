@@ -1181,7 +1181,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             model="gpt-5.1",
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=10000,
+            max_tokens=4096,
             temperature=0.2,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
@@ -1366,7 +1366,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         
     try:    
         respuesta = client.chat.completions.create(    
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),    
+            model="gpt-5.1",    
             messages=mensajes,    
             max_tokens=1024, # Reducido para mayor velocidad en streaming
             temperature=0.2,    
