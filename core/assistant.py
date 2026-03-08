@@ -180,7 +180,7 @@ CLASSIFIER_SYSTEM = (
 " No inventes campos ni copies el texto completo del usuario."
 )
 
-def run_turn_classifier(_get_openai_client, model, last_message: str, profile_snapshot: dict) -> dict:
+def run_turn_classifier(client, model, last_message: str, profile_snapshot: dict) -> dict:
     u = json.dumps({"last_message": last_message, "profile_snapshot": profile_snapshot}, ensure_ascii=False)
     resp = client.chat.completions.create(
         model=model,
@@ -188,7 +188,7 @@ def run_turn_classifier(_get_openai_client, model, last_message: str, profile_sn
                   {"role":"user","content": u}],
         response_format={"type":"json_object"},
         temperature=0.2,
-        max_tokens=10000,
+        max_completion_tokens=10000,
     )
     return json.loads(resp.choices[0].message.content)
 
@@ -200,7 +200,7 @@ BATCH_SYSTEM = (
 "interests:[hasta 5 temas snake_case], dos:[hasta 3], donts:[hasta 3]}."
 )
 
-def run_batch_profiler(_get_openai_client, model, recent_window: list) -> dict:
+def run_batch_profiler(client, model, recent_window: list) -> dict:
     import json
     u = json.dumps({"messages": recent_window}, ensure_ascii=False)
     resp = client.chat.completions.create(
@@ -209,7 +209,7 @@ def run_batch_profiler(_get_openai_client, model, recent_window: list) -> dict:
                   {"role":"user","content": u}],
         response_format={"type":"json_object"},
         temperature=0.2,
-        max_tokens=10000,
+        max_completion_tokens=10000,
     )
     return json.loads(resp.choices[0].message.content)
 
@@ -1181,7 +1181,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             model="gpt-5.1",
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=4096,
+            max_completion_tokens=4096,
             temperature=0.2,
         )
         gpt_response = respuesta.choices[0].message.content.strip()
@@ -1368,7 +1368,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         respuesta = client.chat.completions.create(    
             model="gpt-5.1",    
             messages=mensajes,    
-            max_tokens=1024, # Reducido para mayor velocidad en streaming
+            max_completion_tokens=1024, # Reducido para mayor velocidad en streaming
             temperature=0.2,    
             stream=True  # SIN response_format para streaming real  
         )    

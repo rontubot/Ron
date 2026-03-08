@@ -472,7 +472,7 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
             model=model_name,
             messages=mensajes,
             response_format={"type": "json_object"},
-            max_tokens=4096,
+            max_completion_tokens=4096,
             temperature=0.2, 
         )
 
