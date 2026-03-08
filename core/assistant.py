@@ -909,7 +909,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)
             if do_batch:
                 try:
-                    model_name = "gpt-5.1"
+                    model_name = "gpt-5.4"
                     batch = run_batch_profiler(_get_openai_client(), "gpt-5-mini", prof["recent_window"])
                     apply_batch_result(prof, batch)
                 except Exception as _e:
@@ -1178,7 +1178,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
 
     try:
         respuesta = client.chat.completions.create(
-            model="gpt-5.1",
+            model="gpt-5.4",
             messages=mensajes,
             response_format={"type": "json_object"},
             max_completion_tokens=4096,
@@ -1366,7 +1366,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         
     try:    
         respuesta = client.chat.completions.create(    
-            model="gpt-5.1",    
+            model="gpt-5.4",    
             messages=mensajes,    
             max_completion_tokens=1024, # Reducido para mayor velocidad en streaming
             temperature=0.2,    

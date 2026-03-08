@@ -465,8 +465,8 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
         mensajes.append({"role": "user", "content": user_text})
 
         # --- 5) Llamada al modelo en modo JSON ---
-        # 🔹 Hardcoded gpt-5.1 para evitar conflictos de variables de entorno
-        model_name = "gpt-5.1"
+        # 🔹 Usando gpt-5.4 (La versión más reciente de Marzo 2026)
+        model_name = os.getenv("OPENAI_MODEL", "gpt-5.4")
 
         respuesta = client.chat.completions.create(
             model=model_name,
