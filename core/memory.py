@@ -531,18 +531,30 @@ def archive_expired_reminders(username: str) -> int:
     """
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
-    now_str = _now(username) # "YYYY-MM-DD HH:MM:SS"
+    now_dt = get_now_localized("UTC") # Usaremos UTC por seguridad si no hay tz
+    try:
+        from core.profile import get_or_init_profile
+        mem = load_user_memory(username)
+        prof = get_or_init_profile(mem)
+        tz = prof.get("timezone", "UTC")
+        now_dt = get_now_localized(tz)
+    except:
+        pass
+
     count = 0
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M")
     
     for r in items:
         # Si ya está en historial o borrado, ignorar
         if r.get("status") in ["history", "archived", "deleted", "cancelled"]:
             continue
         
-        # Si tiene recurrencia, NO se archiva automáticamente (regla del usuario)
+        # Si tiene recurrencia, NO se archiva automáticamente
         if r.get("recurrence") and r.get("recurrence") != "none":
             continue
         if r.get("remind_every_value") and r.get("remind_every_value") > 0:
+            continue
+        if r.get("days_of_week") and len(r.get("days_of_week", [])) > 0:
             continue
             
         due_date = r.get("due_date")
@@ -550,18 +562,35 @@ def archive_expired_reminders(username: str) -> int:
         
         if due_date:
             try:
-                # Comparamos strings ISO (YYYY-MM-DD HH:MM < YYYY-MM-DD HH:MM:SS)
-                due_val = f"{due_date} {due_time[:5]}"
-                now_val = now_str[:16]
-                if due_val < now_val:
+                # Intentar parsear la fecha. Soportar YYYY-MM-DD y DD/MM/YYYY
+                d_parts = due_date.split('-')
+                if len(d_parts) == 3 and len(d_parts[0]) == 4:
+                    # YYYY-MM-DD
+                    due_val = f"{due_date} {due_time[:5]}"
+                else:
+                    d_parts = due_date.split('/')
+                    if len(d_parts) == 3:
+                        if len(d_parts[2]) == 4: # DD/MM/YYYY
+                            due_val = f"{d_parts[2]}-{d_parts[1].zfill(2)}-{d_parts[0].zfill(2)} {due_time[:5]}"
+                        elif len(d_parts[0]) == 4: # YYYY/MM/DD
+                            due_val = f"{d_parts[0]}-{d_parts[1].zfill(2)}-{d_parts[2].zfill(2)} {due_time[:5]}"
+                        else:
+                            due_val = f"{due_date} {due_time[:5]}"
+                    else:
+                        due_val = f"{due_date} {due_time[:5]}"
+
+                # Ahora comparamos con now_str (que está en ISO YYYY-MM-DD HH:MM)
+                if due_val < now_str:
                     r["status"] = "history"
-                    r["updated_at"] = now_str
+                    r["updated_at"] = now_dt.isoformat()
                     count += 1
-            except:
+            except Exception as e:
+                log.warning(f"Error parseando fecha para archivo: {due_date} -> {e}")
                 continue
                 
     if count > 0:
         _save_reminders(username, items)
+        log.info(f"📦 Se archivaron {count} recordatorios vencidos para {username}")
     return count
 
 def renew_reminder(username: str, reminder_id: str, new_due_date: str, new_due_time: str = "09:00") -> dict | None:
