@@ -523,6 +523,66 @@ def find_reminder_by_title(username: str, query: str) -> list[dict]:
         if q in (r.get("title", "").lower() + " " + r.get("description", "").lower())
     ]
 
+def archive_expired_reminders(username: str) -> int:
+    """
+    Busca recordatorios que ya pasaron su fecha/hora y no tienen recurrencia,
+    y los marca como 'history'.
+    Retorna la cantidad de elementos archivados.
+    """
+    username = (username or "default").strip() or "default"
+    items = _load_reminders(username)
+    now_str = _now(username) # "YYYY-MM-DD HH:MM:SS"
+    count = 0
+    
+    for r in items:
+        # Si ya está en historial o borrado, ignorar
+        if r.get("status") in ["history", "archived", "deleted", "cancelled"]:
+            continue
+        
+        # Si tiene recurrencia, NO se archiva automáticamente (regla del usuario)
+        if r.get("recurrence") and r.get("recurrence") != "none":
+            continue
+        if r.get("remind_every_value") and r.get("remind_every_value") > 0:
+            continue
+            
+        due_date = r.get("due_date")
+        due_time = r.get("due_time") or "23:59"
+        
+        if due_date:
+            try:
+                # Comparamos strings ISO (YYYY-MM-DD HH:MM < YYYY-MM-DD HH:MM:SS)
+                due_val = f"{due_date} {due_time[:5]}"
+                now_val = now_str[:16]
+                if due_val < now_val:
+                    r["status"] = "history"
+                    r["updated_at"] = now_str
+                    count += 1
+            except:
+                continue
+                
+    if count > 0:
+        _save_reminders(username, items)
+    return count
+
+def renew_reminder(username: str, reminder_id: str, new_due_date: str, new_due_time: str = "09:00") -> dict | None:
+    """Toma un recordatorio del historial y lo devuelve a 'todo' con nueva fecha."""
+    return update_reminder(username, reminder_id, status="todo", category="inbox", due_date=new_due_date, due_time=new_due_time)
+
+def count_archived_reminders(username: str) -> int:
+    """Cuenta cuántos recordatorios hay con status 'history'"""
+    items = _load_reminders(username)
+    return len([r for r in items if r.get("status") == "history"])
+
+def clear_reminder_history(username: str) -> int:
+    """Elimina permanentemente todos los recordatorios con status 'history'"""
+    username = (username or "default").strip() or "default"
+    items = _load_reminders(username)
+    new_items = [r for r in items if r.get("status") != "history"]
+    count = len(items) - len(new_items)
+    if count > 0:
+        _save_reminders(username, new_items)
+    return count
+
 
 
 

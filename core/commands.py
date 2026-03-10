@@ -26,6 +26,10 @@ from core.memory import (
     list_reminders,    
     update_reminder,    
     remove_reminder_item,    
+    archive_expired_reminders,
+    renew_reminder,
+    count_archived_reminders,
+    clear_reminder_history,
 )     
     
 # Configurar logging      
@@ -2080,10 +2084,13 @@ def cmd_get_reminders(params, ctx):
     from core.memory import list_reminders
     from datetime import datetime, timedelta
     
+    # 0. Archivar automáticamente lo vencido antes de listar
+    archive_expired_reminders(username)
+    
     # 1. Obtener recordatorios centralizados (puede venir de Electron o GitHub)
     items = list_reminders(username)
-    # Filtrar igual que la UI (no archived, no deleted)
-    items = [t for t in items if t.get('status') not in ['archived', 'deleted', 'cancelled']]
+    # Filtrar igual que la UI (no archived, no deleted, no history)
+    items = [t for t in items if t.get('status') not in ['archived', 'deleted', 'cancelled', 'history']]
             
     # 2. Filtrar por fecha si se solicita
     date_query = params.get("date")
@@ -2149,6 +2156,36 @@ def cmd_get_reminders(params, ctx):
         "message": final_text,
         "user_response": final_text 
     }
+
+
+def cmd_get_reminder_history(params, ctx):
+    """Obtiene los recordatorios que están en el historial (status='history')"""
+    username = _username(ctx, params)
+    items = list_reminders(username, status="history")
+    return {"ok": True, "reminders": items}
+
+
+def cmd_renew_reminder(params, ctx):
+    """Renueva un recordatorio del historial dándole una nueva fecha/hora"""
+    username = _username(ctx, params)
+    rid = params.get("id") or params.get("reminder_id")
+    new_date = params.get("due_date")
+    new_time = params.get("due_time") or "09:00"
+    
+    if not rid or not new_date:
+        return {"ok": False, "error": "Faltan parámetros 'id' y 'due_date'"}
+    
+    item = renew_reminder(username, rid, new_date, new_time)
+    if item:
+        return {"ok": True, "reminder": item, "message": f"Recordatorio '{item['title']}' renovado para el {new_date}"}
+    return {"ok": False, "error": "No se pudo renovar el recordatorio"}
+
+
+def cmd_clear_reminder_history(params, ctx):
+    """Limpia todo el historial de recordatorios (status='history')"""
+    username = _username(ctx, params)
+    count = clear_reminder_history(username)
+    return {"ok": True, "count": count, "message": f"Se han eliminado {count} recordatorios del historial"}
 
     
     

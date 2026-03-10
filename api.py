@@ -840,7 +840,32 @@ class ReminderUpdateModel(BaseModel):
 
 @app.get("/reminders")
 def get_reminders_endpoint(current_user: str = Depends(get_current_user)):
-    return list_reminders(current_user)
+    from core.memory import archive_expired_reminders
+    archive_expired_reminders(current_user)
+    items = list_reminders(current_user)
+    return [r for r in items if r.get("status") != "history"]
+
+@app.get("/reminders/history")
+def get_reminder_history_endpoint(current_user: str = Depends(get_current_user)):
+    return list_reminders(current_user, status="history")
+
+@app.post("/reminders/history/clear")
+def clear_reminder_history_endpoint(current_user: str = Depends(get_current_user)):
+    from core.memory import clear_reminder_history
+    count = clear_reminder_history(current_user)
+    return {"ok": True, "count": count}
+
+class RenewModel(BaseModel):
+    due_date: str
+    due_time: str = "09:00"
+
+@app.post("/reminders/{reminder_id}/renew")
+def renew_reminder_endpoint(reminder_id: str, data: RenewModel, current_user: str = Depends(get_current_user)):
+    from core.memory import renew_reminder
+    item = renew_reminder(current_user, reminder_id, data.due_date, data.due_time)
+    if not item:
+        raise HTTPException(status_code=404, detail="Reminder not found or could not be renewed")
+    return item
 
 @app.post("/reminders")
 def create_reminder_endpoint(reminder: ReminderModel, current_user: str = Depends(get_current_user)):

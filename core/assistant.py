@@ -58,8 +58,9 @@ Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 
 Nunca digas que no puedes hacer algo si existe un comando que lo haga.    
 SOLO puedes usar estas acciones en 'commands':      
  ["search_youtube","open_application","close_application","search_google","get_weather",      
- "add_reminder","add_recurring_reminder","add_multiple_reminders","get_reminders","remove_reminder",
- "update_reminder","diagnose_system_performance",      
+  "add_reminder","add_recurring_reminder","add_multiple_reminders","get_reminders","remove_reminder",
+  "get_reminder_history","renew_reminder","clear_reminder_history",
+  "update_reminder","diagnose_system_performance",      
  "check_system_services","restart_critical_services","clean_temp_files","flush_dns",      
  "shutdown","restart","suspend","set_volume","create_file","create_folder",      
  "move_file","copy_file","create_shortcut","delete_file","list_files",      
@@ -98,6 +99,14 @@ IMPORTANTE:
 - "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis", "reminder_timer")
 - "description": una frase corta pensada para el usuario, describiendo qué hará la tarea (ejemplo: "Recordatorio en 5 minutos: mandar el informe").
 - Si la tarea involucra archivos locales, incluye también:
+  - "file_path": ruta del archivo.
+
+REGLAS DE RECORDATORIOS:
+- Al listar recordatorios pendientes (get_reminders), NO menciones actividades en el "Historial" (vencidas/archivadas).
+- Si el usuario pregunta por tareas pasadas, vencidas o el historial, usa "get_reminder_history".
+- Para renovar una tarea del historial, usa "renew_reminder" con 'reminder_id', 'due_date' y 'due_time'.
+- Para limpiar TODO el historial de vencidos, usa "clear_reminder_history".
+- NO menciones el historial a menos que el usuario lo pida explícitamente o haya más de 10 acumulados.
 - "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
 - Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".
 - Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), PREFIERE usar "add_reminder" con "delay_seconds".
