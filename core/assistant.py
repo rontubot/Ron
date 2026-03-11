@@ -112,7 +112,7 @@ REGLAS DE RECORDATORIOS:
 - Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), PREFIERE usar "add_reminder" con "delay_seconds".
 - Para add_reminder:
   - add_reminder(title: str, description: str = "", due_date: str = None, due_time: str = None, recurrence: str = None, daysOfWeek: list = None, notes: str = "", priority: int = 1, remindEveryValue: int = 0, remindEveryUnit: str = 'hours', category: str = 'inbox')
-  - **AUTONOMÍA: Clasifica automáticamente como category: "daily" (Día a día)** si la actividad es una rutina básica (bañarse, comer, cepillarse, tareas domésticas simples, etc.). El usuario no tiene que pedírtelo, debes deducirlo tú.
+  - **AUTONOMÍA: Clasifica como category: "daily" (Día a día)** si la actividad es una rutina básica (bañarse, comer, cepillarse). **EXCEPCIÓN CRÍTICA:** Si el usuario te pide un recordatorio de ÚNICA VEZ con un tiempo exacto, retraso o cuenta regresiva (ej: "recuérdame en 20 min" o "a las 5 hacer comida"), pon `category: "inbox"`, NUNCA "daily".
   - Usa 'recurrence: "days"' y 'daysOfWeek: ["Lun", "Mie"]' para alarmas en días específicos.
   - Usa 'remindEveryValue' y 'remindEveryUnit' para que Ron te recuerde periódicamente.
   - USA TU RAZONAMIENTO: Si el usuario pide algo "más seguido" o "cada cierto tiempo", deduce el intervalo apropiado.
