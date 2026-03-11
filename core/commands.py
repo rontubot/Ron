@@ -1,4 +1,4 @@
-﻿import os      
+import os      
 import subprocess      
 import webbrowser      
 import requests      
@@ -2087,10 +2087,22 @@ def cmd_get_reminders(params, ctx):
     # 0. Archivar automáticamente lo vencido antes de listar
     archive_expired_reminders(username)
     
-    # 1. Obtener recordatorios centralizados (puede venir de Electron o GitHub)
+    # 1. Obtener recordatorios centralizados
     items = list_reminders(username)
-    # Filtrar igual que la UI (no archived, no deleted, no history)
-    items = [t for t in items if t.get('status') not in ['archived', 'deleted', 'cancelled', 'history']]
+    
+    show_history = params.get("show_history", False)
+    category_filter = params.get("category")
+    
+    # Filtrar por categoría si se especifica (ej: "daily")
+    if category_filter:
+        items = [t for t in items if t.get('category') == category_filter]
+        
+    # Filtrar por estado (no mostrar history a menos que se pida)
+    exclude_statuses = ['archived', 'deleted', 'cancelled']
+    if not show_history:
+        exclude_statuses.append('history')
+        
+    items = [t for t in items if t.get('status') not in exclude_statuses]
             
     # 2. Filtrar por fecha si se solicita
     date_query = params.get("date")

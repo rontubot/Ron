@@ -28,7 +28,19 @@ def get_or_init_profile(mem: dict) -> dict:
     prof.setdefault("facts", [])       # items con ttl ({"key","value","expires_at"})
     prof.setdefault("last_labels", [])
     prof.setdefault("history", [])     # log de operaciones
-    prof.setdefault("custom_instructions", "") # 🔹 NUEVO: Instrucciones manuales del usuario
+    prof.setdefault("custom_instructions", "") # 🔹 Instrucciones manuales del usuario
+    
+    # 🧠 NUEVO: Sistema de Psicoanálisis Autónomo
+    prof.setdefault("psychological_analysis", "El usuario es una persona nueva. Ron está empezando a conocer sus patrones.")
+    prof.setdefault("last_mood", "neutral")
+    prof.setdefault("analysis_traits", {
+        "paciencia": 0.5,
+        "energia": 0.5,
+        "ansiedad": 0.1,
+        "formalidad": 0.5,
+        "empatia_requerida": 0.7
+    })
+    
     mem["profile"] = prof
     return prof
 
@@ -80,18 +92,24 @@ def build_persona(prof: dict) -> str:
     top_interests = ", ".join(sorted(interests, key=interests.get, reverse=True)[:4])
     top_traits = ", ".join(sorted(traits, key=traits.get, reverse=True)[:2])
 
+    psych_analysis = prof.get("psychological_analysis", "Analizando al usuario...")
+    last_mood = prof.get("last_mood", "neutral")
+    analysis_traits = prof.get("analysis_traits", {})
+
+    traits_str = ", ".join([f"{k}: {v:.1f}" for k, v in analysis_traits.items()])
+
     base_persona = (
         "[Perfil del usuario]\n"
         f"- Idioma preferido: {prefs.get('language','es')}\n"
         f"- Tono preferido: {prefs.get('tone','directo')}\n"
-        f"- Formatos preferidos: {', '.join(prefs.get('formats',[]))}\n"
+        f"- Análisis Psicológico de Ron: {psych_analysis}\n"
+        f"- Humor reciente: {last_mood}\n"
+        f"- Rasgos analizados: {traits_str}\n"
         f"- Intereses recientes: {top_interests}\n"
-        f"- Rasgos inferidos: {top_traits}\n"
-        f"- Últimas etiquetas: {', '.join(last_labels)}\n"
         f"- DO: {', '.join(dos)}\n"
         f"- DON'T: {', '.join(donts)}\n"
-        "Usa este perfil para ajustar estilo y contenido. "
-        "Si hay conflicto con la petición actual, prioriza la petición."
+        "Usa este análisis para adaptar tu empatía, paciencia y lenguaje. "
+        "Si el usuario parece ansioso, sé resolutivo y calmado. Si parece con poca energía, sé breve."
     )
 
     if custom_instructions:

@@ -574,6 +574,11 @@ def archive_expired_reminders(username: str) -> int:
                 # Reconstruir due_val en formato ISO para comparación de strings
                 # d_parts extraído de dt garantiza YYYY-MM-DD
                 due_val = f"{dt.strftime('%Y-%m-%d')} {due_time_str[:5]}"
+                
+                # NO archivar si es de la categoría "daily" (Día a día)
+                if r.get("category") == "daily":
+                    continue
+                    
                 if due_val < now_thresh:
                     r["status"] = "history"
                     r["updated_at"] = now_dt.isoformat()

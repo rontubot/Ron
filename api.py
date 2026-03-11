@@ -716,14 +716,20 @@ def get_user_profile(current_user: str = Depends(get_current_user)):
     users_db = load_users_from_github()      
     user_data = users_db.get(current_user)      
           
-    if not user_data:      
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")      
+    if not user_data:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    # Cargar perfil detallado (psicoanálisis, traits, etc)
+    from core.profile import get_or_init_profile
+    mem = load_user_memory(current_user)
+    prof = get_or_init_profile(mem)
           
     return {      
         "username": current_user,      
         "email": user_data["email"],      
-        "created_at": user_data["created_at"]      
-    }     
+        "created_at": user_data["created_at"],
+        "profile": prof
+    }
       
 @app.get("/user/conversations")      
 def get_user_conversations(current_user: str = Depends(get_current_user)):      

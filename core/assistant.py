@@ -110,12 +110,12 @@ REGLAS DE RECORDATORIOS:
 - "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
 - Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".
 - Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), PREFIERE usar "add_reminder" con "delay_seconds".
-
 - Para add_reminder:
-  - add_reminder(title: str, description: str = "", due_date: str = None, due_time: str = None, recurrence: str = None, daysOfWeek: list = None, notes: str = "", priority: int = 1, remindEveryValue: int = 0, remindEveryUnit: str = 'hours')
-  Usa 'recurrence: "days"' y 'daysOfWeek: ["Lun", "Mie"]' para alarmas en días específicos.
-  Usa 'remindEveryValue' y 'remindEveryUnit' para que Ron te recuerde periódicamente (ej: "tomar agua cada 1 hora").
-  USA TU RAZONAMIENTO: Si el usuario pide algo "más seguido" o "cada cierto tiempo", deduce el intervalo apropiado.
+  - add_reminder(title: str, description: str = "", due_date: str = None, due_time: str = None, recurrence: str = None, daysOfWeek: list = None, notes: str = "", priority: int = 1, remindEveryValue: int = 0, remindEveryUnit: str = 'hours', category: str = 'inbox')
+  - **AUTONOMÍA: Clasifica automáticamente como category: "daily" (Día a día)** si la actividad es una rutina básica (bañarse, comer, cepillarse, tareas domésticas simples, etc.). El usuario no tiene que pedírtelo, debes deducirlo tú.
+  - Usa 'recurrence: "days"' y 'daysOfWeek: ["Lun", "Mie"]' para alarmas en días específicos.
+  - Usa 'remindEveryValue' y 'remindEveryUnit' para que Ron te recuerde periódicamente.
+  - USA TU RAZONAMIENTO: Si el usuario pide algo "más seguido" o "cada cierto tiempo", deduce el intervalo apropiado.
   Ej: "Recuérdame tomar agua cada hora" -> { "remindEveryValue": 1, "remindEveryUnit": "hours", "priority": 3 }
   Ej: "Pon una alarma para los lunes y jueves a las 8am" -> { "recurrence": "days", "daysOfWeek": ["Lun", "Jue"], "due_time": "08:00" }
 - Para add_recurring_reminder:
@@ -204,9 +204,11 @@ def run_turn_classifier(client, model, last_message: str, profile_snapshot: dict
 
 
 BATCH_SYSTEM = (
-"Eres un perfilador. Dado un lote de mensajes del usuario, produce SOLO JSON con: "
-"{label: 'una_palabra_minúscula_sin_espacios', traits:[hasta 3 adjetivos], "
-"interests:[hasta 5 temas snake_case], dos:[hasta 3], donts:[hasta 3]}."
+"Eres un perfilador psicológico y de comportamiento. "
+"Dado un lote de mensajes, produce SOLO JSON con: "
+"{label: 'etiqueta_estado', traits:[hasta 3], interests:[snake_case], "
+"psycho_analysis: 'reporte_breve_psicologico_en_tercera_persona', "
+"last_mood: 'mood_actual', analysis_traits: {paciencia:0..1, energia:0..1, ansiedad:0..1, empatia_requerida:0..1}}."
 )
 
 def run_batch_profiler(client, model, recent_window: list) -> dict:
@@ -247,6 +249,18 @@ def apply_batch_result(prof: dict, data: dict):
             if d not in prof["donts"]:
                 prof["donts"].append(d)
         prof["donts"] = prof["donts"][-3:]
+
+    # 🧠 Nuevos campos de psicoanálisis
+    if data.get("psycho_analysis"):
+        prof["psychological_analysis"] = data["psycho_analysis"]
+    if data.get("last_mood"):
+        prof["last_mood"] = data["last_mood"]
+    if data.get("analysis_traits"):
+        # EMA para los rasgos psicológicos (anclaje suave)
+        existing = prof.get("analysis_traits", {})
+        for k, v in data["analysis_traits"].items():
+            existing[k] = (0.7 * existing.get(k, 0.5)) + (0.3 * v)
+        prof["analysis_traits"] = existing
 
 
 
