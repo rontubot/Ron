@@ -2040,7 +2040,8 @@ def cmd_add_reminder(params, ctx):
         priority=priority,    
         due_date=due_date,    
         due_time=due_time,    
-        tags=tags,    
+        tags=tags,
+        recurrence=recurrence,
     )
 
     days_of_week = params.get("daysOfWeek")

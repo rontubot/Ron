@@ -120,8 +120,8 @@ REGLAS DE RECORDATORIOS:
   Ej: "Recuérdame tomar agua cada hora" -> { "remindEveryValue": 1, "remindEveryUnit": "hours", "priority": 3 }
   Ej: "Recuérdame hacer el almuerzo todos los días a mediodía" -> { "recurrence": "daily", "due_time": "12:00" }
 - Para add_multiple_reminders:
+  - **OBLIGATORIO:** Si el usuario te menciona 2 o más tareas en un mismo mensaje (ej: "haz esto Y pon una alarma Y recuérdame lo otro"), SIEMPRE usa este comando en lugar de un solo add_reminder.
   - Params: "reminders" (lista de objetos con los params de add_reminder).
-  - Úsalo si el usuario pide varias cosas a la vez (ej: "ponme una alarma a las 8, otra a la 9 y recuérdame comprar pan").
 - Para update_reminder:
   - Params: "reminder_id" (obligatorio), y los campos a cambiar ("title", "status": "done"|"todo", etc).
 - Para remove_reminder:

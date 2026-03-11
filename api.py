@@ -834,6 +834,7 @@ class ReminderModel(BaseModel):
     days_of_week: list[str] | None = None
     remind_every_value: int | None = 0
     remind_every_unit: str | None = "hours"
+    recurrence: str | None = None
 
 class ReminderUpdateModel(BaseModel):
     title: str | None = None
@@ -847,6 +848,7 @@ class ReminderUpdateModel(BaseModel):
     days_of_week: list[str] | None = None
     remind_every_value: int | None = None
     remind_every_unit: str | None = "hours"
+    recurrence: str | None = None
 
 @app.get("/reminders")
 def get_reminders_endpoint(current_user: str = Depends(get_current_user)):
@@ -892,7 +894,8 @@ def create_reminder_endpoint(reminder: ReminderModel, current_user: str = Depend
         color=reminder.color,
         days_of_week=reminder.days_of_week,
         remind_every_value=reminder.remind_every_value,
-        remind_every_unit=reminder.remind_every_unit
+        remind_every_unit=reminder.remind_every_unit,
+        recurrence=reminder.recurrence
     )
 
 @app.put("/reminders/{reminder_id}")

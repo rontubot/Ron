@@ -407,7 +407,8 @@ def add_reminder_item(
     color: str | None = "#00f3ff",
     days_of_week: list[str] | None = None,
     remind_every_value: int | None = 0,
-    remind_every_unit: str | None = "hours"
+    remind_every_unit: str | None = "hours",
+    recurrence: str | None = None
 ) -> dict:
     """
     Crea y guarda un recordatorio en storage local por usuario.
@@ -430,6 +431,7 @@ def add_reminder_item(
         "days_of_week": days_of_week or [],
         "remind_every_value": remind_every_value or 0,
         "remind_every_unit": remind_every_unit or "hours",
+        "recurrence": recurrence,
         "created_at": _now(username),
         "updated_at": _now(username),
     }
@@ -475,7 +477,7 @@ def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
 
-    allowed = {"title","description","category","status","priority","due_date","due_time","tags","position", "color", "days_of_week", "remind_every_value", "remind_every_unit"}
+    allowed = {"title","description","category","status","priority","due_date","due_time","tags","position", "color", "days_of_week", "remind_every_value", "remind_every_unit", "recurrence"}
     updated_item = None
 
     for idx, r in enumerate(items):
