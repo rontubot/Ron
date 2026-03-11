@@ -257,9 +257,8 @@ def _save_electron_tasks(items: list[dict]):
 def _load_reminders(username: str) -> list[dict]:
     """
     Carga recordatorios desde GitHub (primaria) con fallback a local.
-    Esto asegura que los recordatorios estén sincronizados entre dispositivos.
     """
-    username = (username or "default").strip() or "default"
+    username = resolve_username(username)
     
     # 🔹 SI ESTAMOS EN ELECTRON (Escritorio), la fuente de verdad es tasks.json
     electron_tasks = _load_electron_tasks()
@@ -318,7 +317,7 @@ def _save_reminders(username: str, items: list[dict]) -> bool:
     Guarda recordatorios en GitHub (primaria) y local (backup).
     Esto mantiene los recordatorios sincronizados entre dispositivos.
     """
-    username = (username or "default").strip() or "default"
+    username = resolve_username(username)
     success_github = False
     success_local = False
     
@@ -523,16 +522,25 @@ def find_reminder_by_title(username: str, query: str) -> list[dict]:
         if q in (r.get("title", "").lower() + " " + r.get("description", "").lower())
     ]
 
+def _parse_date_robust(date_str: str) -> datetime | None:
+    if not date_str: return None
+    # Formatos comunes: YYYY-MM-DD, DD/MM/YYYY, D/M/YYYY
+    formats = ["%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%Y/%m/%d"]
+    # Limpiar posibles restos de tiempo si vienen en el mismo string
+    clean_date = date_str.split(',')[0].split(' ')[0].strip()
+    for fmt in formats:
+        try:
+            return datetime.strptime(clean_date, fmt)
+        except:
+            continue
+    return None
+
 def archive_expired_reminders(username: str) -> int:
-    """
-    Busca recordatorios que ya pasaron su fecha/hora y no tienen recurrencia,
-    y los marca como 'history'.
-    Retorna la cantidad de elementos archivados.
-    """
-    username = (username or "default").strip() or "default"
+    """Busca recordatorios vencidos y los marca como 'history'."""
+    username = resolve_username(username)
     items = _load_reminders(username)
     
-    now_dt = get_now_localized("UTC") # Fallback
+    now_dt = get_now_localized("UTC")
     try:
         from core.profile import get_or_init_profile
         mem = load_user_memory(username)
@@ -542,56 +550,37 @@ def archive_expired_reminders(username: str) -> int:
     except:
         pass
 
-    now_str = now_dt.strftime("%Y-%m-%d %H:%M")
-    
+    now_thresh = now_dt.strftime("%Y-%m-%d %H:%M")
     count = 0
+    
     for r in items:
         status = r.get("status")
         if status in ["history", "archived", "deleted", "cancelled"]:
             continue
         
-        # Recurrence check
+        # Ignorar recurrentes
         rec = r.get("recurrence")
         rev = r.get("remind_every_value")
         dow = r.get("days_of_week")
-        
-        is_recurring = (rec and rec != "none") or (rev and rev > 0) or (dow and len(dow) > 0)
-        
-        if is_recurring:
+        if (rec and rec != "none") or (rev and rev > 0) or (dow and len(dow) > 0):
             continue
             
-        due_date = r.get("due_date")
-        due_time = r.get("due_time") or "23:59"
+        due_date_str = r.get("due_date")
+        due_time_str = r.get("due_time") or "23:59"
         
-        if due_date:
-            try:
-                # Normalizar a ISO YYYY-MM-DD
-                d_parts = due_date.split('-')
-                if len(d_parts) == 3 and len(d_parts[0]) == 4:
-                    due_val = f"{due_date} {due_time[:5]}"
-                else:
-                    d_parts = due_date.split('/')
-                    if len(d_parts) == 3:
-                        if len(d_parts[2]) == 4: # DD/MM/YYYY
-                            due_val = f"{d_parts[2]}-{d_parts[1].zfill(2)}-{d_parts[0].zfill(2)} {due_time[:5]}"
-                        elif len(d_parts[0]) == 4: # YYYY/MM/DD
-                            due_val = f"{d_parts[0]}-{d_parts[1].zfill(2)}-{d_parts[2].zfill(2)} {due_time[:5]}"
-                        else:
-                            due_val = f"{due_date} {due_time[:5]}"
-                    else:
-                        due_val = f"{due_date} {due_time[:5]}"
-
-                if due_val < now_str:
+        if due_date_str:
+            dt = _parse_date_robust(due_date_str)
+            if dt:
+                # Reconstruir due_val en formato ISO para comparación de strings
+                # d_parts extraído de dt garantiza YYYY-MM-DD
+                due_val = f"{dt.strftime('%Y-%m-%d')} {due_time_str[:5]}"
+                if due_val < now_thresh:
                     r["status"] = "history"
                     r["updated_at"] = now_dt.isoformat()
                     count += 1
-            except:
-                continue
                 
     if count > 0:
         _save_reminders(username, items)
-        log.info(f"📦 Se archivaron {count} recordatorios vencidos para {username}")
-        
     return count
                 
     if count > 0:
@@ -914,24 +903,33 @@ except Exception:
 
 def resolve_username(username: str | None) -> str:
     """
-    Centraliza cómo resolvemos el username para filename seguro.
-    Si ya tienes otra versión en este módulo, puedes omitir esta
-    o dejar esta (son equivalentes).
+    Normaliza el username para evitar duplicados y mapear alias como imar -> lmar.
     """
     candidate = (
         (username or "").strip()
         or _os.getenv("RON_USERNAME", "").strip()
         or _os.getenv("USERNAME", "").strip()
-        or _os.getenv("USER", "").strip()
     )
     if not candidate:
+        return "default"
+    
+    u = candidate.lower()
+    # Mapeo de alias conocidos
+    if u in ["imar", "luis", "luismishit", "lmar"]:
+        return "lmar"
+    
+    # Fallback to original logic for sanitization if not an alias
+    # This part was missing in the instruction's provided code,
+    # but is crucial for safe filenames and general username resolution.
+    # We reconstruct it based on the original function's intent.
+    if not u: # If after lowercasing and stripping, it's empty
         try:
-            candidate = (_os.getlogin() or "").strip()
+            u = (_os.getlogin() or "").strip().lower()
         except Exception:
-            candidate = "default"
+            u = "default"
+    
     # normaliza: minúsculas y solo caracteres seguros para filename
-    candidate = candidate.lower()
-    candidate = _re.sub(r"[^a-z0-9._-]+", "_", candidate)
+    candidate = _re.sub(r"[^a-z0-9._-]+", "_", u)
     return candidate or "default"
 
 def _user_path(username: str) -> _Path:
