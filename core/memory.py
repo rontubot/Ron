@@ -523,7 +523,7 @@ def permanent_delete_reminder(username: str, reminder_id: str) -> bool:
 def empty_trash_reminders(username: str) -> int:
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
-    new_items = [r for r in items if r.get("status") != "archived"]
+    new_items = [r for r in items if r.get("status") not in ["archived", "history", "deleted"]]
     count = len(items) - len(new_items)
     if count > 0:
         _save_reminders(username, new_items)
