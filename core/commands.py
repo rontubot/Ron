@@ -2013,7 +2013,20 @@ def cmd_add_reminder(params, ctx):
     priority = str(priority_val).strip().lower() if priority_val is not None else "normal"
     due_date = params.get("due_date")  # "YYYY-MM-DD"    
     due_time = params.get("due_time")  # "HH:MM"    
+    recurrence = params.get("recurrence") # Added this line to define recurrence
     
+    if recurrence == 'daily' and due_time and not due_date:
+        from datetime import datetime, timedelta
+        try:
+            now = datetime.now()
+            t_obj = datetime.strptime(due_time[:5], "%H:%M").time()
+            target_dt = datetime.combine(now.date(), t_obj)
+            if target_dt <= now:
+                target_dt += timedelta(days=1)
+            due_date = target_dt.strftime("%Y-%m-%d")
+        except:
+            pass
+
     # Asegura lista    
     raw_tags = params.get("tags")    
     tags = raw_tags if isinstance(raw_tags, list) else []    
@@ -2036,9 +2049,7 @@ def cmd_add_reminder(params, ctx):
     remindEveryValue = params.get("remindEveryValue", 0)
     remindEveryUnit = params.get("remindEveryUnit", "hours")
     color = params.get("color")
-    recurrence = params.get("recurrence") # Added this line to define recurrence
-
-    if (due_date and due_time) or (recurrence == 'days' and days_of_week):
+    if (due_date and due_time) or (recurrence == 'days' and days_of_week) or (recurrence == 'daily' and due_time):
         try:
             from datetime import datetime
             due_at = None

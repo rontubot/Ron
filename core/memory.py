@@ -510,6 +510,23 @@ def remove_reminder_item(username: str, reminder_id: str) -> bool:
 
     return True
 
+def permanent_delete_reminder(username: str, reminder_id: str) -> bool:
+    username = (username or "default").strip() or "default"
+    items = _load_reminders(username)
+    new_items = [r for r in items if r.get("id") != reminder_id]
+    if len(new_items) == len(items):
+        return False
+    return _save_reminders(username, new_items)
+
+def empty_trash_reminders(username: str) -> int:
+    username = (username or "default").strip() or "default"
+    items = _load_reminders(username)
+    new_items = [r for r in items if r.get("status") != "archived"]
+    count = len(items) - len(new_items)
+    if count > 0:
+        _save_reminders(username, new_items)
+    return count
+
 
 def find_reminder_by_title(username: str, query: str) -> list[dict]:
     q = (query or "").strip().lower()

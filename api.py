@@ -911,6 +911,21 @@ def delete_reminder_endpoint(reminder_id: str, current_user: str = Depends(get_c
         raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
     return {"status": "deleted", "id": reminder_id}
 
+@app.delete("/reminders/{reminder_id}/permanent")
+def permanent_delete_reminder_endpoint(reminder_id: str, current_user: str = Depends(get_current_user)):
+    from core.memory import permanent_delete_reminder
+    success = permanent_delete_reminder(current_user, reminder_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    return {"status": "permanently_deleted", "id": reminder_id}
+
+@app.post("/reminders/trash/empty")
+def empty_trash_endpoint(current_user: str = Depends(get_current_user)):
+    from core.memory import empty_trash_reminders
+    count = empty_trash_reminders(current_user)
+    return {"ok": True, "count": count}
+
+
 @app.get("/version")
 def get_version():
     return {"version": "1.0.6-b", "name": "Ron Assistant"}
