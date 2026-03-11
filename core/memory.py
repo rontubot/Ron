@@ -17,6 +17,15 @@ import logging, time, uuid, base64, requests, json
 from core.location import get_now_localized
 log = logging.getLogger(__name__)
 
+# 🔹 Detect Electron tasks path automatically for desktop app stability
+if not os.getenv("RON_TASKS_PATH"):
+    _app_data = os.getenv("APPDATA")
+    if _app_data:
+        _path = os.path.join(_app_data, "ron-web-app", "tasks.json")
+        if os.path.exists(_path):
+            os.environ["RON_TASKS_PATH"] = _path
+            log.info(f"🔗 RON_TASKS_PATH auto-detected: {_path}")
+
 
 # Configuración unificada para usar el mismo repositorio para lectura y escritura    
 GITHUB_USERNAME = "rontubot"    
