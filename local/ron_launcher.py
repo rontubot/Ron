@@ -101,10 +101,9 @@ ALLOWED_WAKE_WORDS = {"ron", "ro", "rum", "run", "ru", "rom"}
 # 🔹 DEACTIVATE: Palabras que apagan la escucha activa
 DEACTIVATE_KEYWORDS = {
     "descansa", "reposo", "dormir", "adios", "adiós", "hasta luego", 
-    "terminamos", "ya está", "ya esta", "nada más", "nada mas", "silencio",
+    "terminamos", "nada más", "nada mas", "silencio",
     "desactivar", "desactívate", "desactivarse", "apágate", "cierra la boca",
-    "nos vemos", "chao", "bye", "nos vimos", "corta", "cortala",
-    "listo", "vale", "entendido", "okey", "ok", "perfecto", "suficiente",
+    "nos vemos", "chao", "bye", "nos vimos", "cortala",
     "hasta mañana", "vete a dormir", "apaga", "silencio por favor"
 }
 
@@ -498,7 +497,7 @@ def handle_external_control():
                                                     # if activado: start_smart_recording() # Quitamos el auto-reinicio agresivo
                                                     return
 
-                                                stay_active = process_interaction(transcription)
+                                                stay_active = process_interaction(transcription, is_manual=True)
                                                 
                                                 # 🔹 ELIMINADO: Cadeneo automático agresivo. 
                                                 # Ahora dejaremos que Ron vuelva a su estado pasivo o active Smart Record 
@@ -842,7 +841,7 @@ def buffer_speech_sentences(text_stream):
     if buffer.strip():
         yield buffer.strip()
 
-def process_interaction(user_text):
+def process_interaction(user_text, is_manual=False):
     global interruption_event, activado
     interruption_event.clear()
     
@@ -858,7 +857,7 @@ def process_interaction(user_text):
     
     # 🔹 0. Detectar hibernación manual (Keyword check rápido)
     norm_text = user_text.lower().strip()
-    if any(k in norm_text for k in DEACTIVATE_KEYWORDS):
+    if not is_manual and any(keyword in norm_text for keyword in DEACTIVATE_KEYWORDS):
         print(f"💤 Hibernación por comando: '{user_text}'")
         speak_async("Entendido, ya no escucho.")
         activado = False

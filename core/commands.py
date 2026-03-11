@@ -2079,6 +2079,30 @@ def cmd_add_reminder(params, ctx):
     return {"ok": True, "reminder": item}
 
 
+def cmd_add_multiple_reminders(params, ctx):
+    username = _username(ctx, params)
+    reminders = params.get("reminders", [])
+    if not isinstance(reminders, list):
+        return {"ok": False, "error": "'reminders' debe ser una lista"}
+    
+    added = []
+    for rem in reminders:
+        rem_copy = dict(rem)
+        if "username" not in rem_copy:
+            rem_copy["username"] = username
+            
+        res = cmd_add_reminder(rem_copy, ctx)
+        if res.get("ok") and "reminder" in res:
+            added.append(res["reminder"])
+
+    return {
+        "ok": True,
+        "message": f"Se agregaron {len(added)} recordatorios.",
+        "added_count": len(added),
+        "reminders": added
+    }
+
+
 def cmd_get_reminders(params, ctx):    
     username = _username(ctx, params)
     from core.memory import list_reminders
@@ -2720,6 +2744,7 @@ def cmd_set_audio_device(params, ctx):
 COMMANDS = {      
     # ——— Recordatorios      
     "add_reminder": cmd_add_reminder,      
+    "add_multiple_reminders": cmd_add_multiple_reminders,
     "get_reminders": cmd_get_reminders,      
     "update_reminder": cmd_update_reminder,      
     "remove_reminder": cmd_remove_reminder,    
