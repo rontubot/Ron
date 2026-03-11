@@ -2015,7 +2015,7 @@ def cmd_add_reminder(params, ctx):
     due_time = params.get("due_time")  # "HH:MM"    
     recurrence = params.get("recurrence") # Added this line to define recurrence
     
-    if recurrence == 'daily' and due_time and not due_date:
+    if due_time and not due_date:
         from datetime import datetime, timedelta
         try:
             now = datetime.now()
