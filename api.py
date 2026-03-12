@@ -792,52 +792,57 @@ async def chat_with_ron_streaming(request: Request, authorization: str = Header(
   
     async def event_generator():  
         import asyncio  
+        from core.assistant import responder_a_usuario_streaming
+        
         try:  
-            # 1) Construir el payload  
-            data_model = UserInput(  
-                text=user_text,  
-                message=user_text,  
-                return_json=True,  
-                source=body.get("source") or "desktop-stream",  
-                username=body.get("username") or current_user,  
-            )  
-  
-            # 2) Obtener la respuesta completa de /ron  
-            print(f"[API_STREAM] Procesando para {current_user}...")
-            core_payload = chat_with_ron(data_model, request, authorization)  
-            print(f"[API_STREAM] Payload listo, enviando chunks...")
-  
-            # 3) Extraer y sanitizar SOLO el user_response  
-            user_response_only = core_payload.get("user_response") or ""  
-              
-            # 🔹 CRÍTICO: Sanitizar para eliminar cualquier JSON residual  
-            user_response_only = sanitize_user_response(user_response_only)  
-              
-            # 🔹 NUEVO: Eliminar cualquier JSON que pueda haber quedado  
-            import re  
-            user_response_only = re.sub(r'\{[\s\S]*?"user_response"[\s\S]*?"commands"[\s\S]*?\}', '', user_response_only)  
-            user_response_only = user_response_only.strip()  
-  
-            commands = core_payload.get("commands") or []  
-  
-            # 4) Enviar la respuesta como chunks (solo texto limpio)  
-            if user_response_only:  
-                for i in range(0, len(user_response_only), 3):  
-                    chunk = user_response_only[i:i+3]  
-                    yield (  
-                        "data: "  
-                        + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)  
-                        + "\n\n"  
-                    )  
-                    await asyncio.sleep(0.01)  
-  
-            # 5) Evento final con comandos  
+            print(f"[API_STREAM] Iniciando stream real para {current_user}...")
+            
+            # Usar el generador de assistant.py que ya maneja OpenAI streaming y comandos tempranos
+            full_text = ""
+            current_commands = []
+            
+            # responder_a_usuario_streaming es un generador (síncrono pero produce chunks)
+            # Para FastAPI async, podemos envolverlo o llamar iter()
+            for chunk in responder_a_usuario_streaming(user_text, username=current_user):
+                if not chunk: continue
+                
+                # Detectar comandos si vienen en el formato especial
+                if "__COMMANDS__:" in chunk:
+                    try:
+                        cmds_json = chunk.split("__COMMANDS__:")[1].strip()
+                        current_commands = json.loads(cmds_json)
+                        # No enviamos el tag __COMMANDS__ al front tal cual, 
+                        # el front espera un evento 'done' con los comandos o podemos inventar uno 'commands'
+                        # Para compatibilidad con ron_launcher.py (que busca 'type': 'chunk'), enviamos un chunk vacío
+                        # o un evento especial. ron_launcher.py en realidad NO maneja __COMMANDS__ aún.
+                        # Vamos a enviar un chunk invisible para ron_launcher y preparar el 'done' al final.
+                    except: pass
+                    continue
+
+                full_text += chunk
+                
+                # Enviar como chunk al frontend/launcher
+                yield (
+                    "data: "
+                    + json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)
+                    + "\n\n"
+                )
+                # Pequeño respiro para no saturar
+                await asyncio.sleep(0.01)
+
+            # Evento final con comandos
             done_payload = {  
                 "type": "done",  
-                "full_text": user_response_only,  
-                "commands": commands,  
+                "full_text": full_text,  
+                "commands": current_commands,  
             }  
             yield "data: " + json.dumps(done_payload, ensure_ascii=False) + "\n\n"  
+   
+        except Exception as e:  
+            import traceback
+            traceback.print_exc()
+            err_payload = {"type": "error", "error": str(e)}  
+            yield "data: " + json.dumps(err_payload, ensure_ascii=False) + "\n\n"  
   
         except Exception as e:  
             err_payload = {"type": "error", "error": str(e)}  

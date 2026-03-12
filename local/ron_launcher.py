@@ -658,8 +658,8 @@ else:
 
 def setup_streaming_recognition(device_index=None):
     r = sr.Recognizer()
-    r.pause_threshold = 1.2 # Aumentado para dar más margen al hablar
-    r.non_speaking_duration = 0.3 # Ajustado
+    r.pause_threshold = 0.6 # Reducido de 1.2 para respuesta casi inmediata
+    r.non_speaking_duration = 0.2 
     r.dynamic_energy_threshold = True # Habilitado para adaptarse al entorno
     r.energy_threshold = 150 # Reducido un poco más para máxima sensibilidad
     try:
@@ -898,6 +898,18 @@ def process_interaction(user_text, is_manual=False):
                                 print(f"[RON_PARTIAL] {chunk}", flush=True)
                                 yield chunk
                                 has_any_chunk = True
+                            elif data.get('type') == 'chunk' and "__COMMANDS__:" in data.get('chunk', ''):
+                                # ⚡ CAPTURA DE COMANDOS TEMPRANOS
+                                try:
+                                    cmds_json = data['chunk'].split("__COMMANDS__:")[1].strip()
+                                    early_cmds = json.loads(cmds_json)
+                                    if early_cmds:
+                                        print(f"🚀 [STREAM] Ejecutando comandos detectados temprano...")
+                                        # Notificar a la UI (opcional si ya lo hace el API, pero aquí asegura rapidez local)
+                                        # json_str = json.dumps({"type": "commands", "commands": early_cmds})
+                                        # print(f"\n<<RON_CMD>>{json_str}<<END_CMD>>\n", flush=True)
+                                        commands_found.extend(early_cmds)
+                                except: pass
                             elif data.get('type') == 'done' or data.get('done'):
                                 # Extract full text or commands from done event
                                 if not has_any_chunk and data.get('full_text'):

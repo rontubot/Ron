@@ -2,7 +2,11 @@ import requests
 import re
 import logging
 import json
-from bs4 import BeautifulSoup # We'll try to import it, but keep a fallback
+try:
+    from bs4 import BeautifulSoup 
+    HAS_BS4 = True
+except ImportError:
+    HAS_BS4 = False
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +30,11 @@ def search_web(query: str, max_results: int = 5):
         # Usar BeautifulSoup si está disponible, si no regex
         results = []
         try:
-            soup = BeautifulSoup(response.text, "html.parser")
-            search_results = soup.find_all("div", class_="result")
+            if HAS_BS4:
+                soup = BeautifulSoup(response.text, "html.parser")
+                search_results = soup.find_all("div", class_="result")
+            else:
+                raise ImportError("BS4 not available")
             
             for res in search_results[:max_results]:
                 link_tag = res.find("a", class_="result__a")
@@ -78,7 +85,10 @@ def scrape_page(url: str, max_chars: int = 5000):
             return f"Error: No se pudo acceder a la página (Status {response.status_code})"
 
         try:
-            soup = BeautifulSoup(response.text, "html.parser")
+            if HAS_BS4:
+                soup = BeautifulSoup(response.text, "html.parser")
+            else:
+                raise ImportError("BS4 not available")
             # Eliminar scripts y estilos
             for script_or_style in soup(["script", "style", "nav", "footer", "header"]):
                 script_or_style.decompose()

@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 STRICT_JSON_SYSTEM = r"""    
 Responde ÚNICAMENTE con un objeto JSON válido, sin backticks ni texto extra.    
-Esquema: {"user_response":"texto","commands":[{"action":"...","params":{}}]}.    
+Esquema: {"commands":[{"action":"...","params":{}}], "user_response":"texto"}.    
 Si el usuario pide una acción ejecutable, DEBES incluir al menos un comando en 'commands'.    
 Nunca digas que no puedes hacer algo si existe un comando que lo haga.    
 SOLO puedes usar estas acciones en 'commands':      
@@ -149,25 +149,25 @@ Rutas estándar de Windows:
   
 EJEMPLOS - YouTube:  
 Usuario: "reproduce Paulo Londra"  
-Asistente: {"user_response":"Reproduciendo Paulo Londra.","commands":[{"action":"search_youtube","params":{"query":"Paulo Londra","play_video":true}}]}  
+Asistente: {"commands":[{"action":"search_youtube","params":{"query":"Paulo Londra","play_video":true}}], "user_response":"Reproduciendo Paulo Londra."}  
   
 Usuario: "pon música de rock"  
-Asistente: {"user_response":"Poniendo música de rock.","commands":[{"action":"search_youtube","params":{"query":"música rock","play_video":true}}]}  
+Asistente: {"commands":[{"action":"search_youtube","params":{"query":"música rock","play_video":true}}], "user_response":"Poniendo música de rock."}  
   
 Usuario: "busca videos de gatos"  
-Asistente: {"user_response":"Buscando videos de gatos.","commands":[{"action":"search_youtube","params":{"query":"videos de gatos","play_video":false}}]}  
+Asistente: {"commands":[{"action":"search_youtube","params":{"query":"videos de gatos","play_video":false}}], "user_response":"Buscando videos de gatos."}  
 
 Usuario: "recuérdame comprar leche mañana a las 9 am"
-Asistente: {"user_response":"Listo, agendado.","commands":[{"action":"add_reminder","params":{"title":"Comprar leche","due_time":"09:00","priority":"normal"}}]} (Nota: el asistente debe calcular la fecha si es posible, o dejarla pendiente).
+Asistente: {"commands":[{"action":"add_reminder","params":{"title":"Comprar leche","due_time":"09:00","priority":"normal"}}], "user_response":"Listo, agendado."} (Nota: el asistente debe calcular la fecha si es posible, o dejarla pendiente).
 
 Usuario: "qué tengo pendiente?"
-Asistente: {"user_response":"Revisando tus recordatorios...","commands":[{"action":"get_reminders","params":{"status":"todo"}}]}
+Asistente: {"commands":[{"action":"get_reminders","params":{"status":"todo"}}], "user_response":"Revisando tus recordatorios..."}
 
 Usuario: "borra el recordatorio de la leche"
-Asistente: {"user_response":"Borrando recordatorio.","commands":[{"action":"remove_reminder","params":{"title":"Comprar leche"}}]}
+Asistente: {"commands":[{"action":"remove_reminder","params":{"title":"Comprar leche"}}], "user_response":"Borrando recordatorio."}
 
 Usuario: "hasta luego Ron"
-Asistente: {"user_response":"Hasta luego, que descanses.","commands":[{"action":"stop_listening","params":{}}]}
+Asistente: {"commands":[{"action":"stop_listening","params":{}}], "user_response":"Hasta luego, que descanses."}
 """
 
 
@@ -1406,33 +1406,67 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
         )    
             
         full_response = ""    
-        accumulated_text = ""  
+        commands_emitted = False
             
         for chunk in respuesta:    
             if chunk.choices[0].delta.content:    
                 content = chunk.choices[0].delta.content    
-                accumulated_text += content  
                 full_response += content  
                   
-                # Enviar cada chunk inmediatamente  
-                yield content  
+                # Enviar cada chunk inmediatamente (filtrando el JSON estructural inicial)
+                # Si aún no hemos emitido comandos y vemos el patrón de cierre del bloque de comandos
+                if not commands_emitted and '], "user_response": "' in full_response:
+                    try:
+                        # Extraer la parte de comandos
+                        cmd_part = full_response.split('], "user_response": "')[0] + "]}"
+                        if not cmd_part.startswith("{"): cmd_part = "{" + cmd_part
+                        
+                        cmd_data = json.loads(fix_common_json_errors(cmd_part))
+                        early_commands = cmd_data.get("commands", [])
+                        if early_commands:
+                            logger.info(f"🚀 [STREAM] Comandos detectados temprano ({len(early_commands)})")
+                            yield f"\n__COMMANDS__:{json.dumps(early_commands, ensure_ascii=False)}\n"
+                        commands_emitted = True
+                        
+                        # El texto a partir de aquí es lo que queremos mostrar al usuario
+                        # Pero el generador enviará los chunks siguientes directamente.
+                        # Necesitamos "limpiar" lo que ya se envió o manejar el desplazamiento.
+                    except Exception as e:
+                        logger.debug(f"Parsing temprano falló (esperando más data): {e}")
+
+                # Yield solo si ya pasamos la fase de comandos o si no parece JSON
+                # Para Ron 24/7 y Chat, queremos que el texto sea limpio.
+                if commands_emitted:
+                    # Solo enviamos la parte que restó después de 'user_response": "'
+                    # En la primera iteración después de commands_emitted=True,
+                    # necesitamos encontrar dónde empieza el texto real.
+                    idx = full_response.rfind('"user_response": "')
+                    if idx != -1:
+                        # Solo enviamos lo nuevo
+                        display_text = full_response[idx + 18:]
+                        # Si ya habíamos enviado algo, solo enviamos el 'content' si es parte del texto
+                        # Es mejor enviar el 'content' directamente si estamos seguros de que es texto.
+                        yield content.replace('"', '').replace('}', '') # Limpieza agresiva de brackets JSON
+                else:
+                    # Mientras estemos en la fase de comandos, no yieldamos al UI del chat
+                    # para evitar que el usuario vea el JSON crudo.
+                    pass
           
-     # Al final, intentar parsear comandos del texto completo      
-        commands_to_send = []  
-        try:      
-            # Intentar extraer JSON si el modelo lo generó      
-            corrected = fix_common_json_errors(full_response)      
-            response_data = json.loads(corrected)      
-                  
-            # Parsear comandos para enviarlos al cliente  
-            commands_to_send = response_data.get("commands", []) or []      
-            if commands_to_send:    
-                logger.info(f"📤 Enviando {len(commands_to_send)} comando(s) al cliente")  
-                # Enviar comandos en formato especial que api.py pueda detectar  
-                yield f"\n__COMMANDS__:{json.dumps(commands_to_send, ensure_ascii=False)}\n"  
-        except Exception as e:      
-            logger.warning(f"No se pudieron parsear comandos del streaming: {e}")  
-            pass  
+        # Al final, si no se emitieron (ej: no hubo comandos), enviar el texto completo sanitizado
+        if not commands_emitted:
+            # Fallback a parseo final
+            try:
+                corrected = fix_common_json_errors(full_response)
+                parsed = json.loads(corrected)
+                commands = parsed.get("commands", [])
+                if commands:
+                    yield f"\n__COMMANDS__:{json.dumps(commands, ensure_ascii=False)}\n"
+                
+                resp_text = parsed.get("user_response", "")
+                if resp_text: yield resp_text
+            except:
+                # Si falló todo, al menos dar el texto crudo (mejor que nada)
+                yield full_response
                           
         # Guardar en memoria      
         if save_to_memory:      
