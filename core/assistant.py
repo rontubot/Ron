@@ -925,9 +925,9 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
             except Exception as _e:
                 logger.debug(f"Clasificador por turno falló (no crítico): {_e}")
 
-            # 3) batch cada 20 mensajes si hay ventana suficiente
-            prof["message_count"] = int(prof.get("message_count", 0)) + 1
-            do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)
+            # 3) batch cada vez si hay ventana mínima suficiente (aprox 5 mensajes)
+            # El usuario pidió que fuera cada vez para que sea más rápido.
+            do_batch = (len(prof.get("recent_window", [])) >= 5)
             if do_batch:
                 try:
                     model_name = "gpt-5.4"
@@ -1369,8 +1369,8 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
                     apply_ops(prof, ops, confidence_threshold=0.65)  
             except Exception:  
                 pass  
-            prof["message_count"] = int(prof.get("message_count", 0)) + 1  
-            do_batch = (prof["message_count"] % 20 == 0) and (len(prof.get("recent_window", [])) >= 8)  
+            # Batch cada vez si hay ventana mínima (5 mensajes)
+            do_batch = (len(prof.get("recent_window", [])) >= 5)  
             if do_batch:  
                 try:  
                     batch = run_batch_profiler(_get_openai_client(), "gpt-5-mini", prof["recent_window"])  
