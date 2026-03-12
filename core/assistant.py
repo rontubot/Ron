@@ -1209,6 +1209,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
 
 
     try:
+        client = _get_openai_client()
         respuesta = client.chat.completions.create(
             model="gpt-5.4",
             messages=mensajes,
@@ -1397,6 +1398,7 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
     mensajes.append({"role": "user", "content": original_input})    
         
     try:    
+        client = _get_openai_client()
         respuesta = client.chat.completions.create(    
             model="gpt-5.4",    
             messages=mensajes,    
