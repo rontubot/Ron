@@ -91,48 +91,11 @@ IMPORTANTE:
 - Si el usuario dice "esa carpeta", "esa misma carpeta", "en la carpeta que creaste", etc.,
   debes reutilizar la ÚLTIMA ruta de carpeta que tú mismo mencionaste en la conversación
   (por ejemplo, si antes dijiste "Carpeta creada: C:\\Users\\LMAR\\Desktop\\NuevaCarpeta",
-  usa esa ruta como base).
-
-- Para add_multiple_reminders:
-  - ÚSALO cuando el usuario dé una lista larga de horarios o actividades (como una rutina diaria).
-  - "reminders": lista de objetos con "title", "due_time" (HH:MM), "recurrence".
-  - Si es para "todos los días" o "día a día", usa "recurrence": "daily" en cada objeto.
-
-- Para web_research:
-  - ÚSALO cuando el usuario pida investigar, buscar información actualizada, noticias, o datos que no sabes.
-  - "query": la cadena de búsqueda.
-  - REGLA: Al recibir los resultados, DEBES citarlos en tu 'user_response' usando formato [1], [2], etc., correspondientes al orden de la cuadrícula visual.
-  - Si los resultados no son suficientes, puedes pedir al usuario permiso para analizar una página específica con analyze_page.
-
-- Para analyze_page:
-  - ÚSALO para leer el contenido completo de una URL específica.
-  - "url": la URL a analizar.
-- Si la tarea involucra archivos locales, incluye también:
-  - "file_path": ruta del archivo.
-
-REGLAS DE RECORDATORIOS:
-- Al listar recordatorios pendientes (get_reminders), NO menciones actividades en el "Historial" (vencidas/archivadas).
-- Si el usuario pregunta por tareas pasadas, vencidas o el historial, usa "get_reminder_history".
-- Para renovar una tarea del historial, usa "renew_reminder" con 'reminder_id', 'due_date' y 'due_time'.
-- Para limpiar TODO el historial de vencidos, usa "clear_reminder_history".
-- NO menciones el historial a menos que el usuario lo pida explícitamente o haya más de 10 acumulados.
-- "path": ruta COMPLETA del archivo (ejemplo: "C:\\Users\\{username}\\Desktop\\bot_voz.py").
-- Cuando el usuario pida analizar un archivo local (rutas como "C:\\Users\\..." o "/home/..."), PREFIERE usar "queue_local_task" con "task_type": "analyze_local_file" en lugar de llamar directamente a "analyze_file".
-- Cuando el usuario pida que lo recuerdes en N minutos/horas (por ejemplo: "recuérdame en 20 minutos mandar el informe"), PREFIERE usar "add_reminder" con "delay_seconds".
-- Para add_reminder:
-  - add_reminder(title: str, description: str = "", due_date: str = None, due_time: str = None, recurrence: str = None, daysOfWeek: list = None, notes: str = "", priority: int = 1, remindEveryValue: int = 0, remindEveryUnit: str = 'hours', category: str = 'inbox')
-  - **AUTONOMÍA: Clasifica como category: "daily" (Día a día)** si la actividad es una rutina de vida repetitiva, hábitos personales, hogar o ejercicio (ej: bañarse, hacer la comida, trotar cada 3 días, regar plantas), INCLUSO si no ocurre todos los días. **EXCEPCIÓN CRÍTICA:** Si el usuario te pide un recordatorio de ÚNICA VEZ con un tiempo exacto, retraso o cuenta regresiva (ej: "recuérdame en 20 min" o "a las 5 hacer comida"), pon `category: "inbox"`, NUNCA "daily".
-  - Usa 'recurrence: "daily"' para alarmas de todos los días y 'due_time' para la hora ("HH:MM").
-  - Usa 'recurrence: "days"' y 'daysOfWeek: ["Lun", "Mie"]' para alarmas en días específicos.
-  - Usa 'remindEveryValue' y 'remindEveryUnit' para que Ron te recuerde periódicamente.
-  - USA TU RAZONAMIENTO: Si el usuario pide algo "más seguido" o "cada cierto tiempo", deduce el intervalo apropiado.
-  Ej: "Recuérdame tomar agua cada hora" -> { "remindEveryValue": 1, "remindEveryUnit": "hours", "priority": 3 }
-  Ej: "Recuérdame hacer el almuerzo todos los días a mediodía" -> { "recurrence": "daily", "due_time": "12:00" }
-- Para add_multiple_reminders:
-  - **OBLIGATORIO:** Si el usuario te menciona 2 o más tareas en un mismo mensaje (ej: "haz esto Y pon una alarma Y recuérdame lo otro"), SIEMPRE usa este comando en lugar de un solo add_reminder.
-  - Params: "reminders" (lista de objetos con los params de add_reminder).
-- Para update_reminder:
-  - Params: "reminder_id" (obligatorio), y los campos a cambiar ("title", "status": "done"|"todo", etc).
+  usa- **Web Research**: Usa `web_research` para buscar información actualizada. SIEMPRE cita las fuentes encontradas con [1], [2], etc.
+- **Análisis de Archivos**: Prefiere usar `queue_local_task` con `task_type: "analyze_local_file"` para archivos grandes o código.
+- **Recordatorios**: SIEMPRE usa `add_reminder` (o `add_multiple_reminders` para rutinas).
+  - Para recordatorios inmediatos (ej: "en 5 min"), usa `category: "inbox"`.
+  - Para rutinas diarias/hábitos, usa `category: "daily"`.
 - Para remove_reminder:
   - Params: "reminder_id" (si lo conoces) O "title" (para buscar y borrar).
 - Para get_reminders:
@@ -1043,21 +1006,21 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
     # --- Sistema (energía) ---
     if "apaga la computadora" in user_input or "apaga el sistema" in user_input:
         res = run_command("shutdown", {}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or "Apagando el sistema."
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
 
     if "reinicia la computadora" in user_input or "reinicia el sistema" in user_input:
         res = run_command("restart", {}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or "Reiniciando el sistema."
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
 
     if "suspende la computadora" in user_input or "suspende el sistema" in user_input:
         res = run_command("suspend", {}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or "Suspendiendo el sistema."
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
@@ -1066,7 +1029,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
     if user_input.startswith("abre "):
         app = user_input.replace("abre ", "").strip()
         res = run_command("open_application", {"app_name": app}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or f"Abriendo {app}."
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
@@ -1074,7 +1037,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
     if user_input.startswith("cierra "):
         app = user_input.replace("cierra ", "").strip()
         res = run_command("close_application", {"app_name": app}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or f"Cerrando {app}."
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
@@ -1098,7 +1061,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
     if "clima en" in user_input:
         city = user_input.split("clima en")[-1].strip()
         res = run_command("get_weather", {"city": city}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or f"Consultando el clima de {city}."
         if save_to_memory:
             _append_user_conv(username, original_input, msg, source="voice")
         return _finalize_and_return(msg)
@@ -1142,7 +1105,7 @@ def _process_user_input(user_input, save_to_memory=True, username=None, task_man
 
         # 2) Crear el recordatorio en la memoria normal
         res = run_command("add_reminder", {"activity": clean_activity}, {"username": username})
-        msg = res.get("message") or res.get("result") or json.dumps(res, ensure_ascii=False)
+        msg = res.get("message") or res.get("result") or "Recordatorio guardado correctamente."
 
         # 🔹 SI HAY COMANDOS (como queue_local_task), imprimirlos para que Electron los capture
         if isinstance(res, dict) and "commands" in res:
@@ -1407,62 +1370,74 @@ def _process_user_input_streaming(user_input, save_to_memory=True, username=None
             stream=True  # SIN response_format para streaming real  
         )    
             
-        full_response = ""    
+        full_response = ""
         commands_emitted = False
-            
-        for chunk in respuesta:    
-            if chunk.choices[0].delta.content:    
-                content = chunk.choices[0].delta.content    
-                full_response += content  
-                  
-                # Enviar cada chunk inmediatamente (filtrando el JSON estructural inicial)
-                # Si aún no hemos emitido comandos y vemos el patrón de cierre del bloque de comandos
-                if not commands_emitted and '], "user_response": "' in full_response:
-                    try:
-                        # Extraer la parte de comandos
-                        cmd_part = full_response.split('], "user_response": "')[0] + "]}"
-                        if not cmd_part.startswith("{"): cmd_part = "{" + cmd_part
-                        
-                        cmd_data = json.loads(fix_common_json_errors(cmd_part))
-                        early_commands = cmd_data.get("commands", [])
-                        if early_commands:
-                            logger.info(f"🚀 [STREAM] Comandos detectados temprano ({len(early_commands)})")
-                            yield f"\n__COMMANDS__:{json.dumps(early_commands, ensure_ascii=False)}\n"
-                        commands_emitted = True
-                        
-                        # El texto a partir de aquí es lo que queremos mostrar al usuario
-                        # Pero el generador enviará los chunks siguientes directamente.
-                        # Necesitamos "limpiar" lo que ya se envió o manejar el desplazamiento.
-                    except Exception as e:
-                        logger.debug(f"Parsing temprano falló (esperando más data): {e}")
+        text_yielded = ""
 
-                # Yield solo si ya pasamos la fase de comandos o si no parece JSON
-                # Para Ron 24/7 y Chat, queremos que el texto sea limpio.
-                if commands_emitted:
-                    # Solo enviamos la parte que restó después de 'user_response": "'
-                    # En la primera iteración después de commands_emitted=True,
-                    # necesitamos encontrar dónde empieza el texto real.
-                    idx = full_response.rfind('"user_response": "')
-                    if idx != -1:
-                        # Solo enviamos lo nuevo
-                        display_text = full_response[idx + 18:]
-                        # Si ya habíamos enviado algo, solo enviamos el 'content' si es parte del texto
-                        # Es mejor enviar el 'content' directamente si estamos seguros de que es texto.
-                        yield content.replace('"', '').replace('}', '') # Limpieza agresiva de brackets JSON
-                else:
-                    # Mientras estemos en la fase de comandos, no yieldamos al UI del chat
-                    # para evitar que el usuario vea el JSON crudo.
-                    pass
-          
-        # Al final, si no se emitieron (ej: no hubo comandos), enviar el texto completo sanitizado
-        if not commands_emitted:
-            # Fallback a parseo final
+        # Patrones para extraer el valor de "user_response" de un JSON incompleto
+        # Buscamos ' "user_response": "' y capturamos lo que sigue hasta el final o hasta que se cierre con '"'
+        text_start_marker = '"user_response": "'
+
+        for chunk in respuesta:
+            if chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                full_response += content
+
+                # 1. Detección y emisión de comandos
+                if not commands_emitted:
+                    # Si ya tenemos el bloque de comandos completo (termina antes de user_response)
+                    if text_start_marker in full_response:
+                        try:
+                            # Intentar extraer la parte de comandos previa al texto
+                            cmd_part = full_response.split(text_start_marker)[0]
+                            # Cerrar el JSON si quedó abierto por el split
+                            if not cmd_part.strip().endswith("}"):
+                                cmd_part = cmd_part.strip()
+                                if cmd_part.endswith(","): cmd_part = cmd_part[:-1]
+                                if not cmd_part.endswith("]"): cmd_part += "]"
+                                cmd_part += "}"
+                            
+                            if not cmd_part.startswith("{"): cmd_part = "{" + cmd_part
+                            
+                            cmd_data = json.loads(fix_common_json_errors(cmd_part))
+                            early_commands = cmd_data.get("commands", [])
+                            if early_commands:
+                                logger.info(f"🚀 [STREAM] Comandos detectados ({len(early_commands)})")
+                                yield f"\n__COMMANDS__:{json.dumps(early_commands, ensure_ascii=False)}\n"
+                            commands_emitted = True
+                        except Exception:
+                            pass # Esperar a que llegue más data
+
+                # 2. Extracción y emisión de texto (user_response)
+                if text_start_marker in full_response:
+                    # Encontrar dónde empieza el texto real
+                    idx = full_response.find(text_start_marker) + len(text_start_marker)
+                    current_text_value = full_response[idx:]
+                    
+                    # Quitar el posible cierre del JSON al final si el stream terminó
+                    if current_text_value.endswith('"}'): 
+                        current_text_value = current_text_value[:-2]
+                    elif current_text_value.endswith('"'): 
+                        current_text_value = current_text_value[:-1]
+
+                    # Solo yieldamos lo que no hayamos enviado ya
+                    new_text = current_text_value[len(text_yielded):]
+                    if new_text:
+                        # Limpiar escapes de comillas que el LLM pueda estar enviando
+                        clean_text = new_text.replace('\\"', '"').replace('\\n', '\n')
+                        yield clean_text
+                        text_yielded += new_text
+
+        # Al final, si algo falló con la detección temprana, asegurar que enviamos todo
+        if not text_yielded:
             try:
                 corrected = fix_common_json_errors(full_response)
                 parsed = json.loads(corrected)
-                commands = parsed.get("commands", [])
-                if commands:
-                    yield f"\n__COMMANDS__:{json.dumps(commands, ensure_ascii=False)}\n"
+                
+                if not commands_emitted:
+                    commands = parsed.get("commands", [])
+                    if commands:
+                        yield f"\n__COMMANDS__:{json.dumps(commands, ensure_ascii=False)}\n"
                 
                 resp_text = parsed.get("user_response", "")
                 if resp_text: yield resp_text

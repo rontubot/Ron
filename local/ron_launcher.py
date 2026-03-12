@@ -1023,9 +1023,14 @@ def process_interaction(user_text, is_manual=False):
                                 print(f"[RON_VOICE] {safe_text}") 
                                 speak_async(response_text)
                             
-                            # Relay follow-up commands (like UI updates)
-                            if 'commands' in cmd_result:
-                                print(json.dumps({"type": "commands", "commands": cmd_result['commands']}))
+                            # Relay follow-up commands or results (like Web Research results)
+                            if 'commands' in cmd_result or 'results' in cmd_result:
+                                print(json.dumps({
+                                    "type": "commands", 
+                                    "commands": cmd_result.get('commands', []),
+                                    "results": cmd_result.get('results'),
+                                    "page_content": cmd_result.get('page_content')
+                                }))
                                 
                     except Exception as ce:
                         print(f"⚠️ Error ejec. comando: {ce}")

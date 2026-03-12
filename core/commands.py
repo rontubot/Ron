@@ -1078,20 +1078,10 @@ def try_web_fallback(app_name, progress_callback=None):
 
 
 def search_google(query, progress_callback=None): 
-    def send_progress(msg):
-        if progress_callback:  
-            progress_callback(msg)  
-        logger.info(msg)  
-    try:      
-        send_progress(f"🔍 Buscando en Google: {query}")  
-        logger.info(f"Buscando en Google: {query}")      
-        search_url = f"https://www.google.com/search?q={query}"      
-        webbrowser.open(search_url)      
-        send_progress(f"✅ Búsqueda abierta en navegador")  
-        return f"Buscando '{query}' en Google."      
-    except Exception as e:      
-        logger.error(f"Error buscando en Google: {str(e)}")      
-        return f"Error al buscar en Google: {e}"  
+    """
+    Alias mejorado para realizar búsqueda y devolver resultados a la interfaz.
+    """
+    return cmd_web_research({"query": query}, {"progress_callback": progress_callback})
 
 
 def cmd_web_research(params, ctx):
@@ -2095,6 +2085,10 @@ def cmd_add_reminder(params, ctx):
     remindEveryValue = params.get("remindEveryValue", 0)
     remindEveryUnit = params.get("remindEveryUnit", "hours")
     color = params.get("color")
+    res_msg = f"De acuerdo, he anotado el recordatorio: {title}"
+    if due_date or due_time:
+        res_msg += f" para el {due_date or ''} {due_time or ''}".strip()
+
     if (due_date and due_time) or (recurrence == 'days' and days_of_week) or (recurrence == 'daily' and due_time):
         try:
             from datetime import datetime
@@ -2106,6 +2100,7 @@ def cmd_add_reminder(params, ctx):
             return {
                 "ok": True,
                 "reminder": item,
+                "message": res_msg,
                 "commands": [
                     {
                         "action": "queue_local_task",
@@ -2133,7 +2128,7 @@ def cmd_add_reminder(params, ctx):
         except Exception as e:
             logger.warning(f"No se pudo crear tarea programada: {e}")
 
-    return {"ok": True, "reminder": item}
+    return {"ok": True, "reminder": item, "message": res_msg}
 
 
 def cmd_add_multiple_reminders(params, ctx):
