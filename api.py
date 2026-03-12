@@ -509,13 +509,13 @@ def chat_with_ron(data: UserInput, request: Request, authorization: str = Header
                 "steps": [
                     {
                         "order": i + 1,
-                        "command": c.get("command", ""),
+                        "command": str(c.get("command", "")),
                         "type": c.get("type", ""),
-                        "description": f"Ejecutar: {c.get('command','')[:50]}...",
+                        "description": f"Ejecutar: {str(c.get('command',''))[:50]}...",
                         "timeout": 30,
                     }
                     for i, c in enumerate(windows_commands)
-                    if c.get("safe", False)
+                    if c.get("safe", False) and isinstance(c.get("command"), str)
                 ],
                 "estimated_time": len(windows_commands) * 5,
                 "requires_confirmation": False,

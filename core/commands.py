@@ -2098,20 +2098,25 @@ def cmd_add_multiple_reminders(params, ctx):
         return {"ok": False, "error": "'reminders' debe ser una lista"}
     
     added = []
+    all_commands = []
     for rem in reminders:
         rem_copy = dict(rem)
         if "username" not in rem_copy:
             rem_copy["username"] = username
             
         res = cmd_add_reminder(rem_copy, ctx)
-        if res.get("ok") and "reminder" in res:
-            added.append(res["reminder"])
+        if res.get("ok"):
+            if "reminder" in res:
+                added.append(res["reminder"])
+            if "commands" in res:
+                all_commands.extend(res["commands"])
 
     return {
         "ok": True,
         "message": f"Se agregaron {len(added)} recordatorios.",
         "added_count": len(added),
-        "reminders": added
+        "reminders": added,
+        "commands": all_commands
     }
 
 

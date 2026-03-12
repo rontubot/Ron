@@ -65,7 +65,7 @@ SOLO puedes usar estas acciones en 'commands':
  "shutdown","restart","suspend","set_volume","create_file","create_folder",      
  "move_file","copy_file","create_shortcut","delete_file","list_files",      
  "read_file","analyze_file","list_directory_detailed","get_standard_path",
- "queue_local_task", "stop_listening"].
+ "queue_local_task", "add_multiple_reminders", "add_recurring_reminder", "stop_listening"].
     
 REGLAS DE FORMATO DE TEXTO (user_response):
 - NUNCA uses punto y coma (;), usa coma (,) o punto (.) seguido de MAYÚSCULA.
@@ -546,7 +546,9 @@ def parse_commands_only(gpt_response: str) -> dict:
         "shutdown","restart","suspend","set_volume","create_file","create_folder",  
         "move_file","copy_file","create_shortcut","delete_file","list_files",  
         "read_file","analyze_file","list_directory_detailed","get_standard_path",  
-        "queue_local_task"  
+        "queue_local_task", "add_multiple_reminders", "add_recurring_reminder",
+        "get_reminder_history", "renew_reminder", "clear_reminder_history",
+        "stop_listening"
     }
 
     cmds = data.get("commands") or []
