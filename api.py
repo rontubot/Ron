@@ -210,6 +210,16 @@ class UserRegister(BaseModel):
     password: str      
     email: str      
   
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+  
 
 
 def requires_autonomous_execution(text: str) -> bool:  
@@ -312,6 +322,138 @@ def change_password(data: UserChangePassword, current_user: str = Depends(get_cu
         return {"message": "Contraseña actualizada correctamente"}
     else:
         raise HTTPException(status_code=500, detail="Error guardando la nueva contraseña en el repositorio")    
+
+@app.post("/auth/forgot-password")
+def forgot_password(data: ForgotPasswordRequest):
+    ensure_github_ready()
+    users_db = load_users_from_github() or {}
+    
+    # Buscar usuario por email
+    target_user = None
+    for username, record in users_db.items():
+        if record.get("email") == data.email:
+            target_user = username
+            break
+            
+    if not target_user:
+        # Por seguridad no revelamos si el email existe, pero aquí lanzamos 404 para debug
+        raise HTTPException(status_code=404, detail="No existe una cuenta con ese correo")
+    
+    # Crear token de recuperación (expira en 1 hora)
+    reset_token = jwt.encode({
+        "sub": target_user,
+        "type": "reset",
+        "exp": datetime.utcnow() + timedelta(hours=1)
+    }, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    
+    # Lógica de envío de email (SMTP)
+    # NOTA: El usuario debe configurar SMTP_HOST, SMTP_USER, etc.
+    smtp_host = os.getenv("SMTP_HOST")
+    if not smtp_host:
+        log.warning("⚠️ SMTP no configurado. Token de recuperación (solo debug): " + reset_token)
+        return {"message": "Email de recuperación solicitado (SMTP no configurado en backend)", "debug_token": reset_token}
+        
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        
+        msg = MIMEText(f"Hola {target_user},\n\nPara resetear tu contraseña de Ron, usa este token:\n{reset_token}")
+        msg["Subject"] = "Recuperación de contraseña - Ron"
+        msg["From"] = os.getenv("SMTP_USER")
+        msg["To"] = data.email
+        
+        with smtplib.SMTP(smtp_host, int(os.getenv("SMTP_PORT", 587))) as server:
+            server.starttls()
+            server.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASS"))
+            server.send_message(msg)
+            
+        return {"message": "Email de recuperación enviado"}
+    except Exception as e:
+        log.error(f"Error enviando email: {e}")
+        raise HTTPException(status_code=500, detail="Error enviando el correo de recuperación")
+
+@app.post("/auth/reset-password")
+def reset_password(data: ResetPasswordRequest):
+    ensure_github_ready()
+    try:
+        payload = jwt.decode(data.token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "reset":
+            raise HTTPException(status_code=400, detail="Token inválido para esta operación")
+        username = payload.get("sub")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="El token ha expirado")
+    except:
+        raise HTTPException(status_code=400, detail="Token inválido")
+        
+    users_db = load_users_from_github() or {}
+    if username not in users_db:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    users_db[username]["password"] = hash_password(data.new_password)
+    
+    if save_users_to_github(users_db):
+        return {"message": "Contraseña restablecida correctamente"}
+    else:
+        raise HTTPException(status_code=500, detail="Error guardando la nueva contraseña")
+
+@app.post("/auth/google")
+def google_login(data: GoogleLoginRequest, response: Response):
+    # En un entorno real, usaría google-auth-library
+    # Aquí simularemos la verificación o usaremos requests al endpoint de Google
+    try:
+        token_info_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={data.id_token}"
+        r = requests.get(token_info_url, timeout=10)
+        if r.status_code != 200:
+            raise HTTPException(status_code=401, detail="Token de Google inválido")
+            
+        g_data = r.json()
+        email = g_data.get("email")
+        name = g_data.get("name", email.split("@")[0])
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="No se pudo obtener el email de Google")
+            
+        ensure_github_ready()
+        users_db = load_users_from_github() or {}
+        
+        # Buscar por email
+        found_username = None
+        for uname, record in users_db.items():
+            if record.get("email") == email:
+                found_username = uname
+                break
+                
+        if not found_username:
+            # Crear usuario automáticamente si no existe (Social Registration)
+            found_username = email.split("@")[0].replace(".", "_")
+            # Evitar colisión de nombres
+            base_name = found_username
+            counter = 1
+            while found_username in users_db:
+                found_username = f"{base_name}{counter}"
+                counter += 1
+                
+            users_db[found_username] = {
+                "password": hash_password(os.urandom(16).hex()), # Contraseña aleatoria
+                "email": email,
+                "created_at": datetime.utcnow().isoformat(),
+                "social": "google"
+            }
+            save_users_to_github(users_db)
+            
+        token = create_jwt_token(found_username)
+        response.set_cookie(key="ron_token", value=token, httponly=True, samesite="lax")
+        
+        return {
+            "access_token": token,
+            "token": token,
+            "token_type": "bearer",
+            "username": found_username,
+            "is_new": not found_username
+        }
+    except Exception as e:
+        log.error(f"Error en Google Login: {e}")
+        raise HTTPException(status_code=500, detail=f"Error en autenticación externa: {str(e)}")
       
   
 @app.post("/auth/login")  

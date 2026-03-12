@@ -452,6 +452,59 @@ def add_reminder_item(
     return item
 
 
+def add_reminders_batch(username: str, items_params: list[dict]) -> list[dict]:
+    """
+    Agrega múltiples recordatorios de una vez y guarda una única vez.
+    Más eficiente para listas largas (como rutinas diarias).
+    """
+    username = (username or "default").strip() or "default"
+    current_items = _load_reminders(username)
+    
+    new_items = []
+    now_ts = _now(username)
+    
+    for params in items_params:
+        title = (params.get("title") or "").strip()
+        description = (params.get("description") or "").strip()
+        category = (params.get("category") or "inbox").strip().lower()
+        status = (params.get("status") or "todo").strip().lower()
+        priority = params.get("priority") or 1
+        due_date = params.get("due_date")
+        due_time = params.get("due_time")
+        tags = list(params.get("tags") or [])
+        color = params.get("color") or "#00f3ff"
+        days_of_week = params.get("days_of_week") or []
+        remind_every_value = params.get("remind_every_value") or 0
+        remind_every_unit = params.get("remind_every_unit") or "hours"
+        recurrence = params.get("recurrence")
+
+        item = {
+            "id": str(uuid.uuid4()),
+            "title": title,
+            "description": description,
+            "category": category,
+            "status": status,
+            "priority": priority,
+            "due_date": due_date,
+            "due_time": due_time,
+            "tags": tags,
+            "color": color,
+            "days_of_week": days_of_week,
+            "remind_every_value": remind_every_value,
+            "remind_every_unit": remind_every_unit,
+            "recurrence": recurrence,
+            "created_at": now_ts,
+            "updated_at": now_ts,
+        }
+        new_items.append(item)
+    
+    current_items.extend(new_items)
+    if not _save_reminders(username, current_items):
+        log.warning(f"⚠️ No se pudieron guardar {len(new_items)} recordatorios en disk/cloud")
+    
+    return new_items
+
+
 def list_reminders(
     username: str,
     category: str | None = None,

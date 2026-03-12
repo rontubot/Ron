@@ -23,6 +23,7 @@ from core.memory import (
     save_user_memory,    
     # recordatorios (nueva API por usuario)    
     add_reminder_item,    
+    add_reminders_batch,
     list_reminders,    
     update_reminder,    
     remove_reminder_item,    
@@ -31,6 +32,7 @@ from core.memory import (
     count_archived_reminders,
     clear_reminder_history,
 )     
+from core.web import search_web, scrape_page
     
 # Configurar logging      
 logging.basicConfig(level=logging.DEBUG)      
@@ -1090,6 +1092,49 @@ def search_google(query, progress_callback=None):
     except Exception as e:      
         logger.error(f"Error buscando en Google: {str(e)}")      
         return f"Error al buscar en Google: {e}"  
+
+
+def cmd_web_research(params, ctx):
+    """Realiza una investigación profunda: búsqueda y opcionalmente scraping del mejor link"""
+    query = params.get("query")
+    progress_callback = ctx.get("progress_callback")
+    
+    def send_progress(msg):
+        if progress_callback: progress_callback(msg)
+        logger.info(msg)
+
+    if not query:
+        return {"ok": False, "error": "Falta query"}
+
+    send_progress(f"🔍 Iniciando investigación web: {query}")
+    results = search_web(query)
+    
+    if not results:
+        return {"ok": False, "message": "No encontré resultados relevantes."}
+
+    # Si se pide análisis explícito o si Ron lo decide, podemos scrapear el primer link
+    research_summary = ""
+    first_link = results[0]["link"]
+    send_progress(f"📄 Analizando fuente principal: {first_link}")
+    
+    content = scrape_page(first_link, max_chars=3000)
+    
+    return {
+        "ok": True,
+        "results": results, 
+        "page_content": content,
+        "message": f"Investigación completada. Encontré {len(results)} fuentes."
+    }
+
+
+def cmd_analyze_page(params, ctx):
+    """Analiza una URL específica"""
+    url = params.get("url")
+    if not url:
+        return {"ok": False, "error": "Falta url"}
+    
+    content = scrape_page(url)
+    return {"ok": True, "content": content}
   
   
 def search_youtube(query, play_video=True, progress_callback=None):      
@@ -2093,29 +2138,100 @@ def cmd_add_reminder(params, ctx):
 
 def cmd_add_multiple_reminders(params, ctx):
     username = _username(ctx, params)
-    reminders = params.get("reminders", [])
-    if not isinstance(reminders, list):
+    raw_list = params.get("reminders", [])
+    if not isinstance(raw_list, list):
         return {"ok": False, "error": "'reminders' debe ser una lista"}
     
-    added = []
-    all_commands = []
-    for rem in reminders:
+    # 1. Preparar parámetros para el batch
+    batch_params = []
+    for rem in raw_list:
         rem_copy = dict(rem)
-        if "username" not in rem_copy:
-            rem_copy["username"] = username
-            
-        res = cmd_add_reminder(rem_copy, ctx)
-        if res.get("ok"):
-            if "reminder" in res:
-                added.append(res["reminder"])
-            if "commands" in res:
-                all_commands.extend(res["commands"])
+        
+        # Lógica de pre-procesamiento similar a cmd_add_reminder
+        raw_title = (rem_copy.get("title") or "").strip()
+        raw_activity = (rem_copy.get("activity") or "").strip()
+        raw_text = (rem_copy.get("text") or "").strip()
+        
+        candidate = raw_title or raw_activity or raw_text
+        title = candidate
+        description = (rem_copy.get("description") or "").strip()
+        if ":" in candidate:
+            left, right = candidate.split(":", 1)
+            title = left.strip()
+            if not description:
+                description = right.strip()
+        
+        due_date = rem_copy.get("due_date")
+        due_time = rem_copy.get("due_time")
+        recurrence = rem_copy.get("recurrence")
+        
+        # Calcular fecha automática si solo hay hora
+        if due_time and not due_date:
+            try:
+                now_dt = datetime.now()
+                t_obj = datetime.strptime(due_time[:5], "%H:%M").time()
+                target_dt = datetime.combine(now_dt.date(), t_obj)
+                if target_dt <= now_dt:
+                    target_dt += timedelta(days=1)
+                due_date = target_dt.strftime("%Y-%m-%d")
+            except:
+                pass
+
+        batch_params.append({
+            "title": title,
+            "description": description,
+            "due_date": due_date,
+            "due_time": due_time,
+            "recurrence": recurrence,
+            "category": rem_copy.get("category", "inbox"),
+            "status": rem_copy.get("status", "todo"),
+            "priority": rem_copy.get("priority", 1),
+            "days_of_week": rem_copy.get("daysOfWeek") or [],
+            "color": rem_copy.get("color", "#00f3ff"),
+            "remind_every_value": rem_copy.get("remindEveryValue", 0),
+            "remind_every_unit": rem_copy.get("remindEveryUnit", "hours")
+        })
+
+    # 2. Guardar todos de golpe (Un solo push a GitHub)
+    added_items = add_reminders_batch(username, batch_params)
+    
+    # 3. Generar comandos de timer para Electron
+    all_commands = []
+    for item in added_items:
+        due_at = None
+        if item.get("due_date") and item.get("due_time"):
+            try:
+                due_at = f"{item['due_date']}T{item['due_time']}:00"
+            except:
+                pass
+                
+        all_commands.append({
+            "action": "queue_local_task",
+            "params": {
+                "task_type": "reminder_timer",
+                "description": f"Recordatorio: {item['title']}",
+                "params": {
+                    "title": item["title"],
+                    "delay_seconds": 0,
+                    "reminder_id": item["id"],
+                    "daysOfWeek": item.get("days_of_week"),
+                    "notes": item.get("description"),
+                    "priority": item.get("priority"),
+                    "remindEveryValue": item.get("remind_every_value"),
+                    "remindEveryUnit": item.get("remind_every_unit"),
+                    "color": item.get("color")
+                },
+                "due_at": due_at,
+                "category": item.get("category"),
+                "recurrence": item.get("recurrence"),
+            }
+        })
 
     return {
         "ok": True,
-        "message": f"Se agregaron {len(added)} recordatorios.",
-        "added_count": len(added),
-        "reminders": added,
+        "message": f"Se agregaron {len(added_items)} recordatorios exitosamente.",
+        "added_count": len(added_items),
+        "reminders": added_items,
         "commands": all_commands
     }
 
@@ -2785,6 +2901,8 @@ COMMANDS = {
     "search_youtube": search_youtube,      
     "search": search_google,
     "browse": open_url_in_browser,
+    "web_research": cmd_web_research,
+    "analyze_page": cmd_analyze_page,
     "execute_autonomous_plan": execute_autonomous_plan,
       
     # ——— Sistema      

@@ -93,11 +93,20 @@ IMPORTANTE:
   (por ejemplo, si antes dijiste "Carpeta creada: C:\\Users\\LMAR\\Desktop\\NuevaCarpeta",
   usa esa ruta como base).
 
-- Para queue_local_task:
-- ÚSALO cuando el usuario pida algo que pueda ejecutarse en segundo plano (por ejemplo: analizar un archivo de código, hacer un diagnóstico largo, revisar varios archivos, o programar un recordatorio futuro).
-- En params SIEMPRE incluye:
-- "task_type": tipo de tarea (ejemplos: "analyze_local_file", "diagnose_system", "bulk_file_analysis", "reminder_timer")
-- "description": una frase corta pensada para el usuario, describiendo qué hará la tarea (ejemplo: "Recordatorio en 5 minutos: mandar el informe").
+- Para add_multiple_reminders:
+  - ÚSALO cuando el usuario dé una lista larga de horarios o actividades (como una rutina diaria).
+  - "reminders": lista de objetos con "title", "due_time" (HH:MM), "recurrence".
+  - Si es para "todos los días" o "día a día", usa "recurrence": "daily" en cada objeto.
+
+- Para web_research:
+  - ÚSALO cuando el usuario pida investigar, buscar información actualizada, noticias, o datos que no sabes.
+  - "query": la cadena de búsqueda.
+  - REGLA: Al recibir los resultados, DEBES citarlos en tu 'user_response' usando formato [1], [2], etc., correspondientes al orden de la cuadrícula visual.
+  - Si los resultados no son suficientes, puedes pedir al usuario permiso para analizar una página específica con analyze_page.
+
+- Para analyze_page:
+  - ÚSALO para leer el contenido completo de una URL específica.
+  - "url": la URL a analizar.
 - Si la tarea involucra archivos locales, incluye también:
   - "file_path": ruta del archivo.
 

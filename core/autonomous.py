@@ -429,8 +429,8 @@ def execute_single_command(command_info: Dict, username: str) -> Dict:
     cmd_type = command_info.get("type", "cmd")  
     timeout = command_info.get("timeout", 30)  
       
-    if not command:  
-        return {"success": False, "error": "Comando vacío"}  
+    if not command or not isinstance(command, str):  
+        return {"success": False, "error": f"Comando inválido o no string: {type(command)}"}  
       
     print(f"🔧 Ejecutando ({cmd_type}): {command}")  
       
