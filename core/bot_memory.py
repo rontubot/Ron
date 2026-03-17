@@ -72,7 +72,7 @@ class BotMemory:
             data = {
                 'analyzed_files': self.analyzed_files,
                 'created_files': self.created_files,
-                'conversation_context': self.conversation_context[-100:],  # Keep last 100 items
+                'conversation_context': self.conversation_context[-500:],  # Keep last 500 items
                 'current_project': self.current_project,
                 'last_updated': datetime.now().isoformat()
             }
@@ -139,9 +139,9 @@ class BotMemory:
             'timestamp': datetime.now().isoformat()
         })
         
-        # Keep only last 100 items in memory
-        if len(self.conversation_context) > 100:
-            self.conversation_context = self.conversation_context[-100:]
+        # Keep only last 500 items in memory
+        if len(self.conversation_context) > 500:
+            self.conversation_context = self.conversation_context[-500:]
         
         self._save_memory()
     

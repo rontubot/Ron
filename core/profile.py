@@ -50,7 +50,7 @@ def append_to_profile_window(prof: dict, user_text: str, maxlen: int = 20):
     if len(win) > maxlen:
         win.pop(0)
 
-def decay_all(d: dict, decay: float = 0.98, floor: float = 0.01):
+def decay_all(d: dict, decay: float = 0.995, floor: float = 0.01):
     for k in list(d.keys()):
         d[k] *= decay
         if d[k] < floor:
@@ -67,8 +67,8 @@ def ema_trait(traits: dict, name: str, alpha: float = 0.15):
 def add_history(prof: dict, entry: dict):
     entry["ts"] = now_iso()
     prof["history"].append(entry)
-    if len(prof["history"]) > 2000:
-        prof["history"] = prof["history"][-1000:]
+    if len(prof["history"]) > 5000:
+        prof["history"] = prof["history"][-2500:]
 
 def purge_expired_facts(prof: dict):
     now = datetime.utcnow()

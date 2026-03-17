@@ -103,60 +103,40 @@ security = HTTPBearer()
 
 def sanitize_user_response(text: str) -> str:  
     """  
-    Elimina referencias técnicas, comandos internos, saltos de línea explícitos,  
-    y cualquier detalle de implementación del user_response antes de enviarlo al usuario.  
+    Limpia el user_response eliminando saltos de línea innecesarios y markdown excesivo,
+    pero preservando el lenguaje natural para que el usuario entienda qué hizo el bot.
     """  
     if not text:  
         return text  
       
-    # 1. Eliminar saltos de línea explícitos (\n, \\n)  
+    # 1. Eliminar saltos de línea explícitos
     text = text.replace('\\n', ' ')  
     text = text.replace('\n', ' ')  
       
-    # 2. Eliminar encabezados markdown (###, ##, #)  
+    # 2. Eliminar encabezados y listas markdown
     text = re.sub(r'^\s*#{1,6}\s+', '', text, flags=re.MULTILINE)  
-      
-    # 3. Eliminar listas markdown (-, *, +)  
     text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)  
       
-    # 4. Eliminar nombres de comandos técnicos  
-    technical_terms = [  
-        'open_application', 'close_application', 'search_youtube', 'search_google',  
-        'add_reminder', 'get_reminders', 'remove_reminder', 'update_reminder',  
-        'set_volume', 'get_weather', 'create_file', 'create_folder', 'move_file',  
-        'copy_file', 'delete_file', 'list_files', 'create_shortcut',  
-        'diagnose_system_performance', 'check_system_services', 'clean_temp_files',  
-        'flush_dns', 'network_reset', 'check_disk_space', 'system_file_check',  
-        'shutdown', 'restart', 'suspend', 'get_weather'  
-    ]  
-    for term in technical_terms:  
-        text = re.sub(rf'\b{term}\b', '', text, flags=re.IGNORECASE)  
-      
-    # 5. Eliminar markdown  
+    # 3. Eliminar markdown de estilo (conservando el texto)
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **negrita**  
     text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *cursiva*  
     text = re.sub(r'`([^`]+)`', r'\1', text)        # `código`  
       
-    # 6. Eliminar emojis  
+    # 4. Eliminar emojis  
     text = re.sub(r'[😀-🙏🌀-🗿🚀-🛿✂-➰Ⓜ-🉑✅❌🔍🔴🟢💤🔄🎤📨🤖]+', '', text)  
 
-    # 7. Normalizar espacios múltiples  
+    # 5. Normalizar espacios múltiples  
     text = re.sub(r'\s{2,}', ' ', text)
 
-    # 8. Eliminar repeticiones consecutivas de frases
-    #    (por ejemplo: "Hola...;Hola..." -> "Hola...")
-    #    Partimos por separadores ; . ! ?
+    # 6. Eliminar repeticiones consecutivas de frases
     parts = [p.strip() for p in re.split(r'[;.!?]+', text) if p.strip()]
     if len(parts) >= 2:
       dedup = []
       last = None
       for p in parts:
-          if p == last:
-              # si es igual a la anterior, lo saltamos
-              continue
+          if p == last: continue
           dedup.append(p)
           last = p
-      # Volvemos a unir con punto y coma suave
       text = '; '.join(dedup)
 
     return text.strip()
