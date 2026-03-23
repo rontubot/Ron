@@ -2522,6 +2522,7 @@ def cmd_remove_reminder(params, ctx):
 
     # 🔹 SI ESTAMOS EN ELECTRON: Avisar a Electron para que borre de memoria y de su tasks.json
     if os.getenv("RON_TASKS_PATH"):
+        import json
         # Imprimimos el comando para que Electron lo intercepte
         print(json.dumps({
             "type": "commands", 

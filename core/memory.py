@@ -527,9 +527,10 @@ def list_reminders(
         # 2. Hora
         tt = r.get("due_time") or "23:59"
         # 3. Prioridad
-        prio = {"urgent": 0, "high": 1, "normal": 2, "low": 3}.get(
-            (r.get("priority") or "normal").lower(), 2
-        )
+        prio_val = r.get("priority")
+        if prio_val is None:
+            prio_val = "normal"
+        prio = {"urgent": 0, "high": 1, "normal": 2, "low": 3}.get(str(prio_val).lower(), 2)
         return (pos, dd, tt, prio)
 
     return sorted(items, key=_key)
