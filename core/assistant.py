@@ -1483,7 +1483,7 @@ def generate_response_with_user_memory(user_input, username=None, task_manager=N
     return _process_user_input(user_input, save_to_memory=True, username=username, task_manager=task_manager)  
   
 def responder_a_usuario_streaming(user_input: str, username: str = "default", task_manager=None):  
-    return _process_user_input_streaming(user_input, save_to_memory=False, username=username, task_manager=task_manager)
+    return _process_user_input_streaming(user_input, save_to_memory=True, username=username, task_manager=task_manager)
 
 # Alias legacy
 generate_response = responder_a_usuario
