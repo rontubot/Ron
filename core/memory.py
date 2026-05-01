@@ -7,7 +7,7 @@ import getpass
 import platform    
 import re    
 import uuid
-from datetime import datetime, timedelta    
+from datetime import datetime, timedelta, timezone    
 # === Helpers de nombre preferido para cada usuario ===
 from datetime import datetime as _dt
 import re as _re
@@ -805,7 +805,7 @@ def add_to_memory(username: str, user_text: str, ron_response: str = ""):
     conv.append({
         "user": user_text,
         "ron": ron_response if isinstance(ron_response, str) else str(ron_response),
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     })
     # Mantén histórico razonable
     mem["conversaciones"] = conv[-100:]
