@@ -896,6 +896,20 @@ def memory_status(current_user: str = Depends(get_current_user)):
     except Exception as e:      
         return {"status": "error", "message": str(e)}
 
+@app.delete("/chat/history")
+def clear_chat_history_endpoint(current_user: str = Depends(get_current_user)):
+    try:
+        memory = load_user_memory(current_user)
+        if "conversaciones" in memory:
+            memory["conversaciones"] = []
+        if "__recent_turns__" in memory:
+            memory["__recent_turns__"] = []
+        save_user_memory(current_user, memory)
+        return {"status": "cleared", "message": "Historial de chat borrado exitosamente"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # Global Whisper model instance (Lazy loaded)
 local_whisper_model = None
 
