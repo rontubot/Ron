@@ -69,7 +69,6 @@ IMPORTANTE:
             ],
             response_format={"type": "json_object"},
             temperature=0.1,
-            max_completion_tokens=2000,
         )
         content = resp.choices[0].message.content
         parsed = json.loads(content)
