@@ -57,11 +57,16 @@ def get_github_token():
       
     # Si no hay variable local, intentar endpoint de Railway (Ron 24/7)  
     try:  
-        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=30)  
+        log.info("🔌 Intentando obtener GITHUB_TOKEN desde el servidor de producción...")
+        r = requests.get("https://ron-production.up.railway.app/github-token", timeout=10)  
         if r.status_code == 200:  
-            return r.text.strip()  
+            tk = r.text.strip()
+            if tk:
+                log.info("✅ GITHUB_TOKEN obtenido exitosamente del servidor.")
+                return tk
+        log.warning(f"⚠️ No se pudo obtener el token (HTTP {r.status_code})")
     except Exception as e:  
-        print(f"⚠️ Error obteniendo token de GitHub: {e}")  
+        log.error(f"❌ Error conectando con el servidor para obtener token: {e}")  
       
     return None
     
@@ -284,7 +289,7 @@ def _load_reminders(username: str) -> list[dict]:
     # 2. Si no hay GitHub token o estamos en modo offline estricto, devolver local
     token = get_github_token()
     if not token or os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
-        log.info(f"📝 Retornando recordatorios locales para {username} (Sin Sync)")
+        log.info(f"📝 Retornando {len(local_items or [])} recordatorios locales para {username} (Sin Sync - Token no encontrado)")
         return local_items or []
 
     # 3. Realizar SYNC (Mezcla con la nube)
@@ -326,10 +331,10 @@ def _load_reminders(username: str) -> list[dict]:
         
         final_list = list(merged.values())
         
-        # 4. Persistir si hubo mezcla o cambios (o siempre para estar seguros al inicio)
-        # Solo guardamos si detectamos que algo cambió o si local estaba vacío
-        if changed or (not local_items and cloud_items):
-            log.info(f"💾 Guardando cambios de sincronización para {username}")
+        # 4. Persistir si hubo mezcla o cambios
+        # Si el número de items cambió o detectamos cambios en timestamps, guardamos.
+        if changed or len(final_list) != len(local_items or []):
+            log.info(f"💾 Guardando cambios de sincronización para {username} ({len(final_list)} items)")
             _save_reminders(username, final_list)
             
         return final_list
