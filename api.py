@@ -992,10 +992,16 @@ class ReminderUpdateModel(BaseModel):
 
 @app.get("/reminders")
 def get_reminders_endpoint(current_user: str = Depends(get_current_user)):
-    from core.memory import archive_expired_reminders
-    archive_expired_reminders(current_user)
-    items = list_reminders(current_user)
-    return [r for r in items if r.get("status") != "history"]
+    from core.memory import sync_reminders
+    items = sync_reminders(current_user)
+    return [r for r in items if r.get("status") not in ["history", "archived", "deleted"]]
+
+
+@app.post("/reminders/sync")
+def trigger_reminders_sync_endpoint(current_user: str = Depends(get_current_user)):
+    from core.memory import sync_reminders
+    items = sync_reminders(current_user)
+    return {"ok": True, "count": len(items)}
 
 @app.get("/reminders/history")
 def get_reminder_history_endpoint(current_user: str = Depends(get_current_user)):

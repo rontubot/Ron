@@ -265,60 +265,78 @@ def _save_electron_tasks(items: list[dict]):
 
 def _load_reminders(username: str) -> list[dict]:
     """
-    Carga recordatorios desde GitHub (primaria) con fallback a local.
+    Carga recordatorios intentando sincronizar con la nube (GitHub).
+    Si hay token de GitHub, realiza una mezcla (merge) para no perder nada.
     """
     username = resolve_username(username)
     
-    # 🔹 SI ESTAMOS EN ELECTRON (Escritorio), la fuente de verdad es tasks.json
-    electron_tasks = _load_electron_tasks()
-    if electron_tasks:
-        log.info(f"✅ Usando {len(electron_tasks)} recordatorios de Electron (tasks.json)")
-        return electron_tasks
-
-    # 🔹 Intentar cargar desde GitHub primero (Flujo móvil/web puro)
-    token = get_github_token()
-    if token:
-        try:
-            file_path = f"reminders/{username}.json"
-            url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"
-            headers = {
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github.v3.raw"
-            }
-            
-            r = requests.get(url, headers=headers, timeout=10)
-            if r.status_code == 200:
-                data = json.loads(r.content)
-                if isinstance(data, list):
-                    log.info(f"✅ Recordatorios cargados desde GitHub para {username}")
-                    return data
-            elif r.status_code == 404:
-                # Archivo no existe en GitHub, retornar vacío
-                log.info(f"📝 No hay recordatorios en GitHub para {username}")
-                return []
-        except Exception as e:
-            log.warning(f"⚠️ Error cargando recordatorios desde GitHub para {username}: {e}")
-            # Si hay un error de red pero queremos modo estricto, mejor no usar local
-            if os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
-                return []
+    # 1. Obtener items locales (tasks.json o similar)
+    local_items = _load_electron_tasks()
+    if not local_items:
+        path = _reminders_file(username)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    local_items = json.load(f)
+            except:
+                local_items = []
     
-    # 🔹 Fallback: cargar desde archivo local (SOLO SI NO ESTA DESHABILITADO)
-    if os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
-        return []
+    # 2. Si no hay GitHub token o estamos en modo offline estricto, devolver local
+    token = get_github_token()
+    if not token or os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
+        log.info(f"📝 Retornando recordatorios locales para {username} (Sin Sync)")
+        return local_items or []
 
-    path = _reminders_file(username)
+    # 3. Realizar SYNC (Mezcla con la nube)
+    log.info(f"🔄 Sincronizando recordatorios para {username}...")
     try:
-        if not os.path.exists(path):
-            return []
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            log.info(f"✅ Recordatorios cargados desde archivo local para {username}")
-            return data
-        return []
+        file_path = f"reminders/{username}.json"
+        url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3.raw"
+        }
+        
+        r = requests.get(url, headers=headers, timeout=10)
+        cloud_items = []
+        if r.status_code == 200:
+            cloud_items = json.loads(r.content)
+            if not isinstance(cloud_items, list): cloud_items = []
+        
+        # Mezclar (Merge logic)
+        merged = {it["id"]: it for it in cloud_items if "id" in it}
+        changed = False
+
+        for it in (local_items or []):
+            iid = it.get("id")
+            if not iid: continue
+            
+            if iid not in merged:
+                merged[iid] = it
+                changed = True
+            else:
+                # El que tenga updated_at más reciente gana
+                l_upd = it.get("updated_at") or it.get("created_at") or ""
+                c_upd = merged[iid].get("updated_at") or merged[iid].get("created_at") or ""
+                if l_upd > c_upd:
+                    merged[iid] = it
+                    changed = True
+                elif c_upd > l_upd:
+                    changed = True # Nube es más nueva, local cambiará al guardar
+        
+        final_list = list(merged.values())
+        
+        # 4. Persistir si hubo mezcla o cambios (o siempre para estar seguros al inicio)
+        # Solo guardamos si detectamos que algo cambió o si local estaba vacío
+        if changed or (not local_items and cloud_items):
+            log.info(f"💾 Guardando cambios de sincronización para {username}")
+            _save_reminders(username, final_list)
+            
+        return final_list
+
     except Exception as e:
-        log.warning(f"⚠️ No se pudieron cargar recordatorios desde {path}: {e}")
-        return []
+        log.warning(f"⚠️ Error durante sync de recordatorios: {e}")
+        return local_items or []
 
 
 def _save_reminders(username: str, items: list[dict]) -> bool:
@@ -382,6 +400,14 @@ def _save_reminders(username: str, items: list[dict]) -> bool:
 
     # Retornar True si al menos uno tuvo éxito
     return success_github or success_local
+
+
+def sync_reminders(username: str) -> list[dict]:
+    """
+    Fuerza una sincronización completa (mezcla) de recordatorios.
+    Útil para llamar al inicio de la aplicación o tras cambios importantes.
+    """
+    return _load_reminders(username)
 
 
 # Compat: API antigua que devolvía un doc con 'reminders'
