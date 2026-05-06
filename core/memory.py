@@ -281,10 +281,10 @@ def _save_electron_tasks(items: list[dict]):
         return False
 
 
-def _load_reminders(username: str) -> list[dict]:
+def _load_reminders(username: str, force_cloud: bool = False) -> list[dict]:
     """
     Carga recordatorios priorizando la nube (GitHub). 
-    Si hay éxito, actualiza el caché local. Si falla, usa el caché local como respaldo.
+    Si force_cloud es True, fallará si no puede conectar con GitHub (evita desincronización).
     """
     username = resolve_username(username)
     token = get_github_token()
@@ -300,22 +300,26 @@ def _load_reminders(username: str) -> list[dict]:
                 "Accept": "application/vnd.github.v3.raw"
             }
             
-            r = requests.get(url, headers=headers, timeout=10)
+            r = requests.get(url, headers=headers, timeout=12) # Aumentamos timeout para estabilidad
             if r.status_code == 200:
                 cloud_items = json.loads(r.content)
                 if not isinstance(cloud_items, list): cloud_items = []
                 log.info(f"☁️ Recordatorios cargados desde GitHub para {username}")
         except Exception as e:
             log.warning(f"⚠️ Error cargando desde GitHub: {e}")
+            if force_cloud:
+                raise Exception(f"No se pudo conectar con la nube para sincronizar: {e}")
 
     # 2. Si cargamos desde la nube, actualizamos el caché local y retornamos
     if cloud_items is not None:
-        # Actualizar caché local de forma silenciosa (sin disparar otro sync de GitHub)
         _save_local_cache_only(username, cloud_items)
         return cloud_items
 
-    # 3. Fallback: Cargar desde local (tasks.json o archivo de respaldo)
-    log.info(f"📂 GitHub no disponible o deshabilitado, usando caché local para {username}")
+    # 3. Fallback: Cargar desde local (SOLO si no se forzó nube)
+    if force_cloud:
+        raise Exception("Sincronización obligatoria fallida (Nube no disponible)")
+
+    log.info(f"📂 GitHub no disponible, usando caché local para {username}")
     local_items = _load_electron_tasks()
     if not local_items:
         path = _reminders_file(username)
@@ -477,11 +481,16 @@ def add_reminder_item(
     recurrence: str | None = None
 ) -> dict:
     """
-    Crea y guarda un recordatorio en storage local por usuario.
-    NO depende de GitHub.
+    Crea y guarda un recordatorio. Fuerza sincronización con la nube.
     """
     username = (username or "default").strip() or "default"
-    items = _load_reminders(username)
+    
+    # 🔹 FORZAR CLOUD
+    try:
+        items = _load_reminders(username, force_cloud=True)
+    except Exception as e:
+        log.error(f"❌ Error de Sync al añadir: {e}")
+        return {}
 
     item = {
         "id": str(uuid.uuid4()),
@@ -598,7 +607,13 @@ def list_reminders(
 
 def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
     username = (username or "default").strip() or "default"
-    items = _load_reminders(username)
+    
+    # 🔹 FORZAR CLOUD
+    try:
+        items = _load_reminders(username, force_cloud=True)
+    except:
+        log.error("❌ Fallo crítico: No se pudo cargar la nube para actualizar. Abortando.")
+        return None
 
     allowed = {"title","description","category","status","priority","due_date","due_time","tags","position", "color", "days_of_week", "remind_every_value", "remind_every_unit", "recurrence"}
     updated_item = None
@@ -624,9 +639,18 @@ def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
 
 def remove_reminder_item(username: str, reminder_id: str) -> bool:
     """
-    Marca un recordatorio como 'deleted' para sincronización en tiempo real.
+    Marca un recordatorio como 'deleted'. 
+    Usa force_cloud para asegurar que trabajamos sobre la versión más reciente.
     """
     username = (username or "default").strip() or "default"
+    
+    # Intentamos forzar nube para asegurar que el ID existe y no estamos borrando algo viejo
+    try:
+        items = _load_reminders(username, force_cloud=True)
+    except:
+        log.warning("⚠️ No se pudo conectar con la nube para borrar. Operación abortada.")
+        return False
+        
     return update_reminder(username, reminder_id, status="deleted") is not None
 
 
@@ -690,7 +714,12 @@ def _parse_date_robust(date_str: str) -> datetime | None:
 def archive_expired_reminders(username: str) -> int:
     """Busca recordatorios vencidos y los marca como 'history'."""
     username = resolve_username(username)
-    items = _load_reminders(username)
+    
+    try:
+        items = _load_reminders(username, force_cloud=True)
+    except:
+        log.error(f"❌ Fallo de Sincronización: No se pudo conectar con GitHub para archivar recordatorios de {username}")
+        return 0
     
     now_dt = get_now_localized("UTC")
     try:
@@ -994,12 +1023,12 @@ def add_reminder(username: str, activity: str):
     parts = (activity or "").split(":", 1)
     title = parts[0].strip()
     description = parts[1].strip() if len(parts) > 1 else ""
-    item = add_reminder_item(username, title=title, description=description)
+    item = add_reminder_item(username, title=title, description=description, force_cloud=True)
     return f"Recordatorio agregado: {item['title']} (id: {item['id']})."
 
 
 def get_reminders(username: str, category: str | None = None):
-    _require_username(username)
+    username = resolve_username(username)
     items = list_reminders(username, category=category)
     if not items:
         return "No tienes recordatorios pendientes."
