@@ -217,12 +217,26 @@ def _save_electron_tasks(items: list[dict]):
         # 3. Mapear items de Python -> Electron
         new_electron_items = []
         for r in items:
+            # 🔹 IMPORTANTE: Si el recordatorio está borrado o archivado, Electron NO debe procesarlo
+            # para evitar notificaciones fantasmas o re-activaciones.
+            current_status = r.get("status", "todo").lower()
+            if current_status in ["deleted", "cancelled", "history"]:
+                # Si estaba en Electron, lo marcamos como cancelado para que deje de notificar
+                # o simplemente no lo incluimos si es una eliminación permanente.
+                if current_status == "deleted":
+                    continue 
+                # Para otros, podemos mapear a 'cancelled' que Electron suele ignorar para alertas
+                electron_status = "cancelled"
+            else:
+                # Mapeo estándar
+                electron_status = "queued" if current_status == "todo" else current_status
+
             # Reconstruir due_at (ISO)
             due_at = None
             if r.get("due_date"):
                 d = r["due_date"]
                 t = r.get("due_time") or "00:00"
-                due_at = f"{d}T{t}:00" # Formato simple compatible con Electron
+                due_at = f"{d}T{t}:00" 
                 
             e_item = {
                 "id": r.get("id"),
@@ -230,7 +244,7 @@ def _save_electron_tasks(items: list[dict]):
                 "kind": "reminder",
                 "description": r.get("title", "Recordatorio"),
                 "source": "local",
-                "status": r.get("status", "queued"),
+                "status": electron_status,
                 "progress": 100,
                 "params": {},
                 "result_summary": None,
@@ -248,8 +262,7 @@ def _save_electron_tasks(items: list[dict]):
                 "recurrence": r.get("recurrence"),
                 "original_task_id": None
             }
-            # Preservar position si existía en Electron previamente? 
-            # Es difícil sin mapear IDs primero, pero podemos intentar buscarlo en original
+            # Preservar position
             old_match = next((x for x in all_data if x.get("id") == r.get("id")), None)
             if old_match and "position" in old_match:
                 e_item["position"] = old_match["position"]
@@ -270,12 +283,39 @@ def _save_electron_tasks(items: list[dict]):
 
 def _load_reminders(username: str) -> list[dict]:
     """
-    Carga recordatorios intentando sincronizar con la nube (GitHub).
-    Si hay token de GitHub, realiza una mezcla (merge) para no perder nada.
+    Carga recordatorios priorizando la nube (GitHub). 
+    Si hay éxito, actualiza el caché local. Si falla, usa el caché local como respaldo.
     """
     username = resolve_username(username)
+    token = get_github_token()
     
-    # 1. Obtener items locales (tasks.json o similar)
+    # 1. Intentar cargar desde GitHub (Source of Truth)
+    cloud_items = None
+    if token and os.getenv("RON_DISABLE_LOCAL_MEMORY") != "1":
+        try:
+            file_path = f"reminders/{username}.json"
+            url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"
+            headers = {
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3.raw"
+            }
+            
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                cloud_items = json.loads(r.content)
+                if not isinstance(cloud_items, list): cloud_items = []
+                log.info(f"☁️ Recordatorios cargados desde GitHub para {username}")
+        except Exception as e:
+            log.warning(f"⚠️ Error cargando desde GitHub: {e}")
+
+    # 2. Si cargamos desde la nube, actualizamos el caché local y retornamos
+    if cloud_items is not None:
+        # Actualizar caché local de forma silenciosa (sin disparar otro sync de GitHub)
+        _save_local_cache_only(username, cloud_items)
+        return cloud_items
+
+    # 3. Fallback: Cargar desde local (tasks.json o archivo de respaldo)
+    log.info(f"📂 GitHub no disponible o deshabilitado, usando caché local para {username}")
     local_items = _load_electron_tasks()
     if not local_items:
         path = _reminders_file(username)
@@ -286,62 +326,19 @@ def _load_reminders(username: str) -> list[dict]:
             except:
                 local_items = []
     
-    # 2. Si no hay GitHub token o estamos en modo offline estricto, devolver local
-    token = get_github_token()
-    if not token or os.getenv("RON_DISABLE_LOCAL_MEMORY") == "1":
-        log.info(f"📝 Retornando {len(local_items or [])} recordatorios locales para {username} (Sin Sync - Token no encontrado)")
-        return local_items or []
+    return local_items or []
 
-    # 3. Realizar SYNC (Mezcla con la nube)
-    log.info(f"🔄 Sincronizando recordatorios para {username}...")
+
+def _save_local_cache_only(username: str, items: list[dict]):
+    """Guarda en disco local y tasks.json sin subir a GitHub"""
+    path = _reminders_file(username)
     try:
-        file_path = f"reminders/{username}.json"
-        url = f"https://api.github.com/repos/rontubot/ron-memory-store/contents/{file_path}?ref=main"
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3.raw"
-        }
-        
-        r = requests.get(url, headers=headers, timeout=10)
-        cloud_items = []
-        if r.status_code == 200:
-            cloud_items = json.loads(r.content)
-            if not isinstance(cloud_items, list): cloud_items = []
-        
-        # Mezclar (Merge logic)
-        merged = {it["id"]: it for it in cloud_items if "id" in it}
-        changed = False
-
-        for it in (local_items or []):
-            iid = it.get("id")
-            if not iid: continue
-            
-            if iid not in merged:
-                merged[iid] = it
-                changed = True
-            else:
-                # El que tenga updated_at más reciente gana
-                l_upd = it.get("updated_at") or it.get("created_at") or ""
-                c_upd = merged[iid].get("updated_at") or merged[iid].get("created_at") or ""
-                if l_upd > c_upd:
-                    merged[iid] = it
-                    changed = True
-                elif c_upd > l_upd:
-                    changed = True # Nube es más nueva, local cambiará al guardar
-        
-        final_list = list(merged.values())
-        
-        # 4. Persistir si hubo mezcla o cambios
-        # Si el número de items cambió o detectamos cambios en timestamps, guardamos.
-        if changed or len(final_list) != len(local_items or []):
-            log.info(f"💾 Guardando cambios de sincronización para {username} ({len(final_list)} items)")
-            _save_reminders(username, final_list)
-            
-        return final_list
-
-    except Exception as e:
-        log.warning(f"⚠️ Error durante sync de recordatorios: {e}")
-        return local_items or []
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
+        if os.getenv("RON_TASKS_PATH"):
+            _save_electron_tasks(items)
+    except:
+        pass
 
 
 def _save_reminders(username: str, items: list[dict]) -> bool:
@@ -573,6 +570,9 @@ def list_reminders(
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
 
+    # 🔹 Filtrar eliminados por defecto
+    items = [r for r in items if r.get("status") != "deleted"]
+
     if category:
         items = [r for r in items if (r.get("category") or "").lower() == category.lower()]
     if status:
@@ -623,24 +623,34 @@ def update_reminder(username: str, reminder_id: str, **fields) -> dict | None:
 
 
 def remove_reminder_item(username: str, reminder_id: str) -> bool:
+    """
+    Marca un recordatorio como 'deleted' para sincronización en tiempo real.
+    """
     username = (username or "default").strip() or "default"
-    items = _load_reminders(username)
-    new_items = [r for r in items if r.get("id") != reminder_id]
+    return update_reminder(username, reminder_id, status="deleted") is not None
 
-    if len(new_items) == len(items):
-        return False
-
-    if not _save_reminders(username, new_items):
-        log.warning("⚠️ No se pudo persistir la eliminación del recordatorio")
-
-    return True
 
 def permanent_delete_reminder(username: str, reminder_id: str) -> bool:
+    """
+    Elimina físicamente el recordatorio. 
+    Usa 'deleted' status para asegurar que la eliminación se propague a otros dispositivos
+    antes de desaparecer del todo, o simplemente lo borra si ya está marcado.
+    """
     username = (username or "default").strip() or "default"
     items = _load_reminders(username)
-    new_items = [r for r in items if r.get("id") != reminder_id]
-    if len(new_items) == len(items):
+    
+    # Buscamos si existe
+    found = False
+    new_items = []
+    for r in items:
+        if r.get("id") == reminder_id:
+            found = True
+            continue
+        new_items.append(r)
+        
+    if not found:
         return False
+        
     return _save_reminders(username, new_items)
 
 def empty_trash_reminders(username: str) -> int:
