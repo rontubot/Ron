@@ -2375,25 +2375,25 @@ def cmd_update_reminder(params, ctx):
 
     # Si viene id, usarlo directo
     if reminder_id:
-    # SI ESTAMOS EN ELECTRON: Podemos avisar a Electron para feedback inmediato en UI,
-    # pero SIEMPRE debemos ejecutar la lógica en Python para sincronizar con la nube.
-    if os.getenv("RON_TASKS_PATH"):
-        print(json.dumps({
-            "type": "commands",
-            "commands": [{"action": "tasks:update", "params": {"id": reminder_id, "patch": fields}}]
-        }, ensure_ascii=False), flush=True)
-    
-    updated = update_reminder(username, reminder_id, **fields)
-    if updated:
+        # SI ESTAMOS EN ELECTRON: Podemos avisar a Electron para feedback inmediato en UI,
+        # pero SIEMPRE debemos ejecutar la lógica en Python para sincronizar con la nube.
+        if os.getenv("RON_TASKS_PATH"):
+            print(json.dumps({
+                "type": "commands",
+                "commands": [{"action": "tasks:update", "params": {"id": reminder_id, "patch": fields}}]
+            }, ensure_ascii=False), flush=True)
+        
+        updated = update_reminder(username, reminder_id, **fields)
+        if updated:
+            return {
+                "ok": True,
+                "message": f"Recordatorio actualizado (id: {reminder_id}).",
+                "reminder": updated,
+            }
         return {
-            "ok": True,
-            "message": f"Recordatorio actualizado (id: {reminder_id}).",
-            "reminder": updated,
+            "ok": False,
+            "error": "No se encontró un recordatorio con ese id.",
         }
-    return {
-        "ok": False,
-        "error": "No se encontró un recordatorio con ese id.",
-    }
 
     # Sin id → buscar por título aproximado
     if not title_query:
