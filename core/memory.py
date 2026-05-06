@@ -403,8 +403,37 @@ def _save_reminders(username: str, items: list[dict]) -> bool:
     if os.getenv("RON_TASKS_PATH"):
         _save_electron_tasks(items)
 
+    # 🔹 Notificar vía WebSocket para sincronización en tiempo real
+    _notify_reminders_updated(username)
+
     # Retornar True si al menos uno tuvo éxito
     return success_github or success_local
+
+
+def _notify_reminders_updated(username: str):
+    """
+    Intenta notificar a las sesiones abiertas del usuario que los recordatorios han cambiado.
+    """
+    try:
+        from core.websocket_manager import manager
+        import asyncio
+        
+        # Helper para ejecutar corutina en el loop actual o uno nuevo
+        async def do_broadcast():
+            await manager.broadcast_to_user(username, {"type": "reminders_updated"})
+            
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(do_broadcast())
+            else:
+                loop.run_until_complete(do_broadcast())
+        except RuntimeError:
+            # Si no hay loop en este hilo
+            asyncio.run(do_broadcast())
+    except Exception as e:
+        # No bloqueamos el flujo principal si el broadcast falla
+        pass
 
 
 def sync_reminders(username: str) -> list[dict]:

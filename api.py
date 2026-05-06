@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, Header, Response, Request, UploadFile, File, WebSocket, WebSocketDisconnect, BackgroundTasks
+from core.websocket_manager import manager
+
 from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -960,7 +962,40 @@ async def transcribe_audio(file: UploadFile = File(...), authorization: str = He
         # Improve error message for client
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
+
+# --- WebSocket for Real-time Sync ---
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, token: str = None):
+    # Authenticate via query param 'token'
+    if not token:
+        token = websocket.query_params.get("token")
+        
+    if not token:
+        await websocket.close(code=1008) # Policy Violation
+        return
+
+    username = None
+    try:
+        username = verify_jwt_token(token)
+        await manager.connect(websocket, username)
+        
+        while True:
+            # Mantener conexión abierta y escuchar latidos o comandos
+            # En el futuro, el cliente podría enviar "ping"
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+                
+    except WebSocketDisconnect:
+        if username:
+            manager.disconnect(websocket, username)
+    except Exception as e:
+        print(f"❌ WebSocket error: {e}")
+        if username:
+            manager.disconnect(websocket, username)
+
 # --- Endpoints de Recordatorios (REST) ---
+
 
 class ReminderModel(BaseModel):
     title: str
@@ -998,9 +1033,10 @@ def get_reminders_endpoint(current_user: str = Depends(get_current_user)):
 
 
 @app.post("/reminders/sync")
-def trigger_reminders_sync_endpoint(current_user: str = Depends(get_current_user)):
+def trigger_reminders_sync_endpoint(background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     from core.memory import sync_reminders
     items = sync_reminders(current_user)
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return {"ok": True, "count": len(items)}
 
 @app.get("/reminders/history")
@@ -1008,9 +1044,10 @@ def get_reminder_history_endpoint(current_user: str = Depends(get_current_user))
     return list_reminders(current_user, status="history")
 
 @app.post("/reminders/history/clear")
-def clear_reminder_history_endpoint(current_user: str = Depends(get_current_user)):
+def clear_reminder_history_endpoint(background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     from core.memory import clear_reminder_history
     count = clear_reminder_history(current_user)
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return {"ok": True, "count": count}
 
 class RenewModel(BaseModel):
@@ -1018,17 +1055,18 @@ class RenewModel(BaseModel):
     due_time: str = "09:00"
 
 @app.post("/reminders/{reminder_id}/renew")
-def renew_reminder_endpoint(reminder_id: str, data: RenewModel, current_user: str = Depends(get_current_user)):
+def renew_reminder_endpoint(reminder_id: str, data: RenewModel, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     from core.memory import renew_reminder
     item = renew_reminder(current_user, reminder_id, data.due_date, data.due_time)
     if not item:
         raise HTTPException(status_code=404, detail="Reminder not found or could not be renewed")
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return item
 
 @app.post("/reminders")
-def create_reminder_endpoint(reminder: ReminderModel, current_user: str = Depends(get_current_user)):
+def create_reminder_endpoint(reminder: ReminderModel, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     # Mapear campos opcionales
-    return add_reminder_item(
+    res = add_reminder_item(
         username=current_user,
         title=reminder.title,
         description=reminder.description or "",
@@ -1043,35 +1081,41 @@ def create_reminder_endpoint(reminder: ReminderModel, current_user: str = Depend
         remind_every_unit=reminder.remind_every_unit,
         recurrence=reminder.recurrence
     )
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
+    return res
 
 @app.put("/reminders/{reminder_id}")
-def update_reminder_endpoint(reminder_id: str, reminder: ReminderUpdateModel, current_user: str = Depends(get_current_user)):
+def update_reminder_endpoint(reminder_id: str, reminder: ReminderUpdateModel, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     # Filtrar campos no nulos
     update_data = {k: v for k, v in reminder.dict().items() if v is not None}
     updated = update_reminder(current_user, reminder_id, **update_data)
     if not updated:
         raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return updated
 
 @app.delete("/reminders/{reminder_id}")
-def delete_reminder_endpoint(reminder_id: str, current_user: str = Depends(get_current_user)):
+def delete_reminder_endpoint(reminder_id: str, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     success = remove_reminder_item(current_user, reminder_id)
     if not success:
         raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return {"status": "deleted", "id": reminder_id}
 
 @app.delete("/reminders/{reminder_id}/permanent")
-def permanent_delete_reminder_endpoint(reminder_id: str, current_user: str = Depends(get_current_user)):
+def permanent_delete_reminder_endpoint(reminder_id: str, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     from core.memory import permanent_delete_reminder
     success = permanent_delete_reminder(current_user, reminder_id)
     if not success:
         raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return {"status": "permanently_deleted", "id": reminder_id}
 
 @app.post("/reminders/trash/empty")
-def empty_trash_endpoint(current_user: str = Depends(get_current_user)):
+def empty_trash_endpoint(background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
     from core.memory import empty_trash_reminders
     count = empty_trash_reminders(current_user)
+    background_tasks.add_task(manager.broadcast_to_user, current_user, {"type": "reminders_updated"})
     return {"ok": True, "count": count}
 
 
