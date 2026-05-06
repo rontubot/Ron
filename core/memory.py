@@ -215,20 +215,27 @@ def _save_electron_tasks(items: list[dict]):
         non_reminders = [t for t in all_data if t.get("kind") != "reminder"]
         
         # 3. Mapear items de Python -> Electron
+        now_iso = _now()
         new_electron_items = []
         for r in items:
-            # 🔹 IMPORTANTE: Si el recordatorio está borrado o archivado, Electron NO debe procesarlo
-            # para evitar notificaciones fantasmas o re-activaciones.
-            current_status = r.get("status", "todo").lower()
-            if current_status in ["deleted", "cancelled", "history"]:
-                # Si estaba en Electron, lo marcamos como cancelado para que deje de notificar
-                # o simplemente no lo incluimos si es una eliminación permanente.
-                if current_status == "deleted":
-                    continue 
-                # Para otros, podemos mapear a 'cancelled' que Electron suele ignorar para alertas
+            current_status = r.get("status", "todo")
+            electron_status = "queued"
+            
+            # Si el recordatorio ya pasó de su fecha/hora, no lo mandamos como 'queued'
+            # para evitar que Ron lo lea al sincronizar.
+            due_d = r.get("due_date")
+            due_t = r.get("due_time")
+            is_past = False
+            if due_d:
+                due_str = f"{due_d}T{due_t or '23:59:59'}"
+                if due_str < now_iso:
+                    is_past = True
+
+            if current_status in ["deleted", "cancelled", "history"] or is_past:
                 electron_status = "cancelled"
+            elif current_status == "done":
+                electron_status = "completed"
             else:
-                # Mapeo estándar
                 electron_status = "queued" if current_status == "todo" else current_status
 
             # Reconstruir due_at (ISO)

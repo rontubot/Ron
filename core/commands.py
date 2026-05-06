@@ -2375,28 +2375,25 @@ def cmd_update_reminder(params, ctx):
 
     # Si viene id, usarlo directo
     if reminder_id:
-        # SI ESTAMOS EN ELECTRON: Avisar a Electron
-        if os.getenv("RON_TASKS_PATH"):
-            print(json.dumps({
-                "type": "commands",
-                "commands": [{"action": "tasks:update", "params": {"id": reminder_id, "patch": fields}}]
-            }, ensure_ascii=False), flush=True)
-            return {
-                "ok": True,
-                "message": f"Recordatorio actualizado (id: {reminder_id}).",
-            }
-        
-        updated = update_reminder(username, reminder_id, **fields)
-        if updated:
-            return {
-                "ok": True,
-                "message": f"Recordatorio actualizado (id: {reminder_id}).",
-                "reminder": updated,
-            }
+    # SI ESTAMOS EN ELECTRON: Podemos avisar a Electron para feedback inmediato en UI,
+    # pero SIEMPRE debemos ejecutar la lógica en Python para sincronizar con la nube.
+    if os.getenv("RON_TASKS_PATH"):
+        print(json.dumps({
+            "type": "commands",
+            "commands": [{"action": "tasks:update", "params": {"id": reminder_id, "patch": fields}}]
+        }, ensure_ascii=False), flush=True)
+    
+    updated = update_reminder(username, reminder_id, **fields)
+    if updated:
         return {
-            "ok": False,
-            "error": "No se encontró un recordatorio con ese id.",
+            "ok": True,
+            "message": f"Recordatorio actualizado (id: {reminder_id}).",
+            "reminder": updated,
         }
+    return {
+        "ok": False,
+        "error": "No se encontró un recordatorio con ese id.",
+    }
 
     # Sin id → buscar por título aproximado
     if not title_query:
@@ -2449,10 +2446,6 @@ def cmd_update_reminder(params, ctx):
             "type": "commands",
             "commands": [{"action": "tasks:update", "params": {"id": rid, "patch": fields}}]
         }, ensure_ascii=False), flush=True)
-        return {
-            "ok": True,
-            "message": f"Recordatorio '{item.get('title')}' actualizado con éxito.",
-        }
 
     updated = update_reminder(username, rid, **fields)
     if not updated:
@@ -2520,20 +2513,15 @@ def cmd_remove_reminder(params, ctx):
     if not rid:
         return {"ok": False, "error": f"No encontré ningún recordatorio que coincida con '{title_query or reminder_id}'."}
 
-    # 🔹 SI ESTAMOS EN ELECTRON: Avisar a Electron para que borre de memoria y de su tasks.json
+    # SI ESTAMOS EN ELECTRON: Avisar a Electron
     if os.getenv("RON_TASKS_PATH"):
-        import json
         # Imprimimos el comando para que Electron lo intercepte
         print(json.dumps({
             "type": "commands", 
             "commands": [{"action": "tasks:delete", "params": {"id": rid}}]
         }, ensure_ascii=False), flush=True)
-        return {
-            "ok": True, 
-            "message": f"Recordatorio '{item.get('title')}' eliminado con éxito.",
-        }
 
-    # FLUJO NORMAL (Sin Electron)
+    # FLUJO NORMAL (Python gestiona la nube)
     removed = remove_reminder_item(username, rid)
     if not removed:
         return {"ok": False, "error": "No se pudo eliminar el recordatorio."}
@@ -2713,8 +2701,17 @@ def cmd_reminder_timer(params, ctx):
                             except Exception:
                                 continue
                         delta = (due_dt - now).total_seconds()
+                        
+                        # SI EL RECORDATORIO ES DEL PASADO (más de 1 minuto), no lo decimos.
+                        # Esto evita que al sincronizar se repitan avisos viejos.
+                        if delta < -60:
+                            logger.info(f"🔇 Omitiendo recordatorio pasado ({delta}s): {text_base}")
+                            return {"ok": True, "message": None, "summary": "Recordatorio pasado omitido"}
+                        
                         if delta > 1:
                             delay = int(delta)
+                        else:
+                            delay = 0
                         break
             except Exception as e:
                 logger.warning(f"No se pudo calcular delay desde el reminder_id {reminder_id}: {e}")
